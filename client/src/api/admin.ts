@@ -235,7 +235,23 @@ export const adminApi = {
       return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/positions/${id}`);
     }
   },
-  assignments: resourceApi<AdminAssignment, AssignmentInput>("/api/admin/assignments"),
+  assignments: {
+    list() {
+      return getJson<AdminAssignment[]>("/api/admin/assignments");
+    },
+
+    create(input: AssignmentInput) {
+      return postJson<AdminAssignment>("/api/admin/assignments", input);
+    },
+
+    update(id: EntityId, input: Partial<AssignmentInput>) {
+      return patchJson<AdminAssignment>(`/api/admin/assignments/${id}`, input);
+    },
+
+    remove(id: EntityId) {
+      return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/assignments/${id}`);
+    }
+  },
   documentTypes: resourceApi<DocumentType, DocumentTypeInput>("/api/admin/document-types"),
   confidentialityLevels: resourceApi<ConfidentialityLevel, ConfidentialityLevelInput>("/api/admin/confidentiality-levels"),
   priorityLevels: resourceApi<PriorityLevel, PriorityLevelInput>("/api/admin/priority-levels"),

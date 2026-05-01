@@ -356,3 +356,32 @@ routingRuleRouter.patch("/:routingRuleId/status", asyncHandler(async (request, r
 
   ok(response, await getRoutingRuleDetail(routingRuleId));
 }));
+
+routingRuleRouter.delete("/:routingRuleId", asyncHandler(async (request, response) => {
+  const { routingRuleId } = z.object({ routingRuleId: z.coerce.number().int().positive() }).parse(request.params);
+
+  const [ruleRows] = await pool.execute<RowDataPacket[]>(
+    "SELECT id FROM routing_rules WHERE id = ? LIMIT 1",
+    [routingRuleId]
+  );
+  const rule = ruleRows[0];
+  if (!rule) {
+    throw notFound("Routing rule");
+  }
+
+  await pool.execute<ResultSetHeader>(
+    `UPDATE routing_rules
+     SET status = 'archived',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [routingRuleId]
+  );
+
+  await writeAuditLog(request, {
+    action: "admin.routing_rule.archive",
+    entityType: "routing_rule",
+    entityId: routingRuleId
+  });
+
+  ok(response, { id: routingRuleId, archived: true });
+}));

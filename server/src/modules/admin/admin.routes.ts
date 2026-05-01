@@ -1075,6 +1075,50 @@ adminRouter.patch("/assignments/:assignmentId", asyncHandler(async (request, res
   }
 }));
 
+adminRouter.delete("/assignments/:assignmentId", asyncHandler(async (request, response) => {
+  const { assignmentId } = z.object({ assignmentId: z.coerce.number().int().positive() }).parse(request.params);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [currentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT status FROM assignments WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+      [assignmentId]
+    );
+    const current = currentRows[0];
+
+    if (!current) {
+      throw new AppError(404, "not_found", "Assignment was not found.");
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE assignments
+       SET status = 'disabled',
+           deleted_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND deleted_at IS NULL`,
+      [assignmentId]
+    );
+
+    await connection.execute<ResultSetHeader>(
+      `INSERT INTO assignment_status_history (
+        assignment_id, from_status, to_status, reason, changed_by_user_id
+      ) VALUES (?, ?, ?, ?, ?)`,
+      [assignmentId, String(current.status), "disabled", "Assignment soft-deleted.", request.session.userId || null]
+    );
+
+    await writeAuditLog(request, { action: "admin.assignment.delete", entityType: "assignment", entityId: assignmentId }, connection);
+    await connection.commit();
+    await refreshSearchIndexForEntitySafe("assignment", assignmentId);
+    ok(response, { id: assignmentId, deleted: true });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
 const createDocumentTypeSchema = z.object({
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(140),

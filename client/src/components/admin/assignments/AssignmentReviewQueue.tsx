@@ -1,8 +1,10 @@
+import type { EntityId } from "../../../api";
 import { useI18n } from "../../../i18n";
 import { DataTable, PanelCard, StatusBadge } from "../../ui";
 import type { AssignmentReviewQueueRow } from "./types";
 
 type AssignmentReviewQueueProps = {
+  onSelectAssignment?: (assignmentId: EntityId) => void;
   rows: AssignmentReviewQueueRow[];
 };
 
@@ -41,7 +43,7 @@ function statusTone(status: AssignmentReviewQueueRow["status"]) {
   }
 }
 
-export function AssignmentReviewQueue({ rows }: AssignmentReviewQueueProps) {
+export function AssignmentReviewQueue({ onSelectAssignment, rows }: AssignmentReviewQueueProps) {
   const { t } = useI18n();
 
   return (
@@ -51,18 +53,21 @@ export function AssignmentReviewQueue({ rows }: AssignmentReviewQueueProps) {
           {
             key: "position",
             header: t("admin.assignments.reviewQueue.columns.position"),
-            cell: (row) => <span className="font-semibold text-slate-900">{row.positionTitle}</span>
+            cell: (row) => <span className="block max-w-56 truncate font-semibold text-slate-900" title={row.positionTitle}>{row.positionTitle}</span>,
+            className: "w-60"
           },
           {
             key: "issue",
             header: t("admin.assignments.reviewQueue.columns.issue"),
-            cell: (row) => issueText(row.issue, t)
+            cell: (row) => <span className="block max-w-48 truncate" title={issueText(row.issue, t)}>{issueText(row.issue, t)}</span>,
+            className: "w-52"
           },
           {
             key: "requestedBy",
             header: t("admin.assignments.reviewQueue.columns.requestedBy"),
-            cell: (row) => row.requestedBy,
-            hideOnMobile: true
+            cell: (row) => <span className="block max-w-44 truncate" title={row.requestedBy}>{row.requestedBy}</span>,
+            hideOnMobile: true,
+            className: "w-48"
           },
           {
             key: "status",
@@ -72,13 +77,18 @@ export function AssignmentReviewQueue({ rows }: AssignmentReviewQueueProps) {
           {
             key: "date",
             header: t("admin.assignments.reviewQueue.columns.date"),
-            cell: (row) => row.date,
-            hideOnMobile: true
+            cell: (row) => <span className="force-ltr block whitespace-nowrap text-start">{row.date}</span>,
+            hideOnMobile: true,
+            className: "w-36"
           }
         ]}
+        containerClassName="max-h-72 overflow-auto"
         emptyLabel={t("admin.assignments.reviewQueue.empty")}
+        getRowAriaLabel={(row) => row.positionTitle}
         getRowKey={(row) => row.id}
+        onRowClick={onSelectAssignment ? (row) => onSelectAssignment(row.assignmentId) : undefined}
         rows={rows}
+        tableClassName="min-w-[52rem]"
       />
     </PanelCard>
   );

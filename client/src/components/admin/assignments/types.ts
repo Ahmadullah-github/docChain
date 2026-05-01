@@ -25,6 +25,7 @@ export type AssignmentAdminRow = {
 };
 
 export type AssignmentReviewQueueRow = {
+  assignmentId: EntityId;
   date: string;
   id: string;
   issue: "position_vacant" | "delegation_update" | "temporary_renewal" | "pending_assignment";

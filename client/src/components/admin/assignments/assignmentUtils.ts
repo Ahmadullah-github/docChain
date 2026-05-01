@@ -243,6 +243,7 @@ export function buildReviewQueue(rows: AssignmentAdminRow[]) {
   for (const row of rows) {
     if (["pending", "pending_approval", "draft"].includes(row.status)) {
       queue.push({
+        assignmentId: row.id,
         date: formatDate(row.assignment.updated_at || row.assignment.created_at),
         id: `${row.id}-pending`,
         issue: "pending_assignment",
@@ -254,6 +255,7 @@ export function buildReviewQueue(rows: AssignmentAdminRow[]) {
 
     if (row.assignmentType === "delegated") {
       queue.push({
+        assignmentId: row.id,
         date: formatDate(row.assignment.updated_at || row.assignment.created_at),
         id: `${row.id}-delegated`,
         issue: "delegation_update",
@@ -265,6 +267,7 @@ export function buildReviewQueue(rows: AssignmentAdminRow[]) {
 
     if (row.endingSoon || (row.assignment.ends_at && row.status === "active")) {
       queue.push({
+        assignmentId: row.id,
         date: formatDate(row.assignment.ends_at),
         id: `${row.id}-temporary`,
         issue: "temporary_renewal",

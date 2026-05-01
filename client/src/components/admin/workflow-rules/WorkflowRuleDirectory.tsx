@@ -8,7 +8,11 @@ import type { WorkflowRuleRow } from "./types";
 
 type WorkflowRuleDirectoryProps = {
   documentTypes: DocumentType[];
+  onCloneRule?: (row: WorkflowRuleRow) => void;
+  onEditRule?: (row: WorkflowRuleRow) => void;
+  onOpenRuleActions?: (row: WorkflowRuleRow) => void;
   onSelectRule: (ruleId: EntityId) => void;
+  onViewRule?: (ruleId: EntityId) => void;
   rows: WorkflowRuleRow[];
   selectedRuleId: EntityId | null;
   unitTypes: UnitType[];
@@ -16,7 +20,11 @@ type WorkflowRuleDirectoryProps = {
 
 export function WorkflowRuleDirectory({
   documentTypes,
+  onCloneRule,
+  onEditRule,
+  onOpenRuleActions,
   onSelectRule,
+  onViewRule,
   rows,
   selectedRuleId,
   unitTypes
@@ -47,23 +55,22 @@ export function WorkflowRuleDirectory({
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("admin.workflowRules.directory.search")}
             value={search}
-            wrapperClassName="min-w-[14rem] flex-[1_1_18rem]"
+            wrapperClassName="min-w-[18rem] flex-[1_1_24rem]"
           />
-          <IconButton icon="filter" label={t("admin.workflowRules.directory.filter")} />
-          <SelectFilter aria-label={t("admin.workflowRules.directory.statusFilter")} onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
+          <SelectFilter aria-label={t("admin.workflowRules.directory.statusFilter")} className="w-40" onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>
             <option value="all">{t("admin.workflowRules.directory.statusAll")}</option>
             <option value="active">{t("admin.workflowRules.status.active")}</option>
             <option value="draft">{t("admin.workflowRules.status.draft")}</option>
             <option value="inactive">{t("admin.workflowRules.status.inactive")}</option>
             <option value="archived">{t("admin.workflowRules.status.archived")}</option>
           </SelectFilter>
-          <SelectFilter aria-label={t("admin.workflowRules.directory.documentTypeFilter")} onChange={(event) => setDocumentTypeFilter(event.target.value)} value={documentTypeFilter}>
+          <SelectFilter aria-label={t("admin.workflowRules.directory.documentTypeFilter")} className="w-44" onChange={(event) => setDocumentTypeFilter(event.target.value)} value={documentTypeFilter}>
             <option value="all">{t("admin.workflowRules.directory.documentTypeAll")}</option>
             {documentTypes.map((documentType) => (
               <option key={documentType.id} value={documentType.id}>{documentType.name}</option>
             ))}
           </SelectFilter>
-          <SelectFilter aria-label={t("admin.workflowRules.directory.originUnitFilter")} onChange={(event) => setOriginFilter(event.target.value)} value={originFilter}>
+          <SelectFilter aria-label={t("admin.workflowRules.directory.originUnitFilter")} className="w-44" onChange={(event) => setOriginFilter(event.target.value)} value={originFilter}>
             <option value="all">{t("admin.workflowRules.directory.originAll")}</option>
             {unitTypes.map((unitType) => (
               <option key={unitType.id} value={unitType.id}>{unitType.name}</option>
@@ -83,6 +90,7 @@ export function WorkflowRuleDirectory({
                 <button
                   className={row.id === selectedRuleId ? "block max-w-52 break-words text-start font-bold text-[#061d49]" : "block max-w-52 break-words text-start font-semibold text-[#061d49] hover:underline"}
                   onClick={() => onSelectRule(row.id)}
+                  title={row.ruleName}
                   type="button"
                 >
                   {row.ruleName}
@@ -99,19 +107,20 @@ export function WorkflowRuleDirectory({
             {
               key: "origin",
               header: t("admin.workflowRules.directory.columns.originUnit"),
-              cell: (row) => row.originUnitLabel,
-              hideOnMobile: true
+              cell: (row) => <span className="block max-w-40 truncate" title={row.originUnitLabel}>{row.originUnitLabel}</span>,
+              hideOnMobile: true,
+              className: "w-44"
             },
             {
               key: "finalSignatory",
               header: t("admin.workflowRules.directory.columns.finalSignatory"),
-              cell: (row) => <span className="block max-w-36 break-words">{row.finalSignatory}</span>,
+              cell: (row) => <span className="block max-w-40 truncate" title={row.finalSignatory}>{row.finalSignatory}</span>,
               hideOnMobile: true
             },
             {
               key: "visibility",
               header: t("admin.workflowRules.directory.columns.visibility"),
-              cell: (row) => <span className="block max-w-32 break-words">{row.visibilityPolicy}</span>,
+              cell: (row) => <span className="block max-w-36 truncate" title={row.visibilityPolicy}>{row.visibilityPolicy}</span>,
               hideOnMobile: true
             },
             {
@@ -122,7 +131,7 @@ export function WorkflowRuleDirectory({
             {
               key: "updated",
               header: t("admin.workflowRules.directory.columns.lastUpdated"),
-              cell: (row) => row.lastUpdated,
+              cell: (row) => <span className="force-ltr block whitespace-nowrap text-start">{row.lastUpdated}</span>,
               hideOnMobile: true
             },
             {
@@ -130,18 +139,23 @@ export function WorkflowRuleDirectory({
               header: t("admin.workflowRules.directory.columns.actions"),
               cell: (row) => (
                 <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.workflowRules.directory.view")} onClick={() => onSelectRule(row.id)} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.workflowRules.directory.edit")} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="template" label={t("admin.workflowRules.directory.clone")} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.workflowRules.directory.more")} />
+                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.workflowRules.directory.view")} onClick={() => (onViewRule || onSelectRule)(row.id)} />
+                  <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.workflowRules.directory.edit")} onClick={() => onEditRule?.(row)} />
+                  <IconButton className="h-8 w-8 border-transparent" icon="template" label={t("admin.workflowRules.directory.clone")} onClick={() => onCloneRule?.(row)} />
+                  <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.workflowRules.directory.more")} onClick={() => onOpenRuleActions?.(row)} />
                 </div>
               ),
-              className: "w-32 text-end"
+              className: "sticky end-0 z-10 w-36 bg-white text-end group-hover:bg-slate-50/70"
             }
           ]}
+          containerClassName="max-h-[28rem] overflow-auto"
           emptyLabel={t("admin.workflowRules.directory.empty")}
+          getRowAriaLabel={(row) => row.ruleName}
+          getRowClassName={(row) => row.id === selectedRuleId ? "[&>td]:bg-blue-50/70 [&>td]:text-slate-900" : ""}
           getRowKey={(row) => row.id}
+          onRowClick={(row) => onSelectRule(row.id)}
           rows={filteredRows}
+          tableClassName="min-w-[86rem]"
         />
       </div>
     </PanelShell>

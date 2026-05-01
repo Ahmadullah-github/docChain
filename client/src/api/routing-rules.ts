@@ -1,4 +1,4 @@
-import { getJson, patchJson, postJson } from "./http";
+import { deleteJson, getJson, patchJson, postJson } from "./http";
 import type { EntityId, RoutingRule, RoutingRuleDetail } from "./types";
 
 export type RoutingRuleQuery = {
@@ -56,5 +56,9 @@ export const routingRulesApi = {
 
   updateStatus(routingRuleId: EntityId, status: "draft" | "active" | "inactive" | "archived") {
     return patchJson<RoutingRuleDetail>(`/api/admin/routing-rules/${routingRuleId}/status`, { status });
+  },
+
+  remove(routingRuleId: EntityId) {
+    return deleteJson<{ id: EntityId; archived: boolean }>(`/api/admin/routing-rules/${routingRuleId}`);
   }
 };

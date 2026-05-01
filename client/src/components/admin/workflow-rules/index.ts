@@ -7,4 +7,5 @@ export { WorkflowRuleInspector } from "./WorkflowRuleInspector";
 export { WorkflowRuleStats } from "./WorkflowRuleStats";
 export { WorkflowRuleTemplates } from "./WorkflowRuleTemplates";
 export { buildConflictQueue, buildWorkflowRows } from "./workflowRuleUtils";
+export type { WorkflowTemplateKey } from "./WorkflowRuleTemplates";
 export type { WorkflowRulesPageData } from "./types";

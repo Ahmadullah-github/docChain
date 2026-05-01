@@ -4,6 +4,10 @@ import { statusTone } from "./workflowRuleUtils";
 import type { WorkflowRuleChecks, WorkflowRuleRow } from "./types";
 
 type WorkflowRuleInspectorProps = {
+  onCloneRule?: (row: WorkflowRuleRow) => void;
+  onDisableRule?: (row: WorkflowRuleRow) => void;
+  onEditRule?: (row: WorkflowRuleRow) => void;
+  onPreviewRule?: (row: WorkflowRuleRow) => void;
   selectedRule: WorkflowRuleRow | null;
 };
 
@@ -28,7 +32,7 @@ function checkItems(checks: WorkflowRuleChecks, t: ReturnType<typeof useI18n>["t
   ] as Array<[string, boolean]>;
 }
 
-export function WorkflowRuleInspector({ selectedRule }: WorkflowRuleInspectorProps) {
+export function WorkflowRuleInspector({ onCloneRule, onDisableRule, onEditRule, onPreviewRule, selectedRule }: WorkflowRuleInspectorProps) {
   const { t } = useI18n();
 
   return (
@@ -64,10 +68,10 @@ export function WorkflowRuleInspector({ selectedRule }: WorkflowRuleInspectorPro
             </dl>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button icon="edit">{t("admin.workflowRules.inspector.editRule")}</Button>
-              <Button icon="template">{t("admin.workflowRules.inspector.cloneRule")}</Button>
-              <Button icon="pause">{t("admin.workflowRules.inspector.disableRule")}</Button>
-              <Button icon="view">{t("admin.workflowRules.inspector.previewResult")}</Button>
+              <Button icon="edit" onClick={() => onEditRule?.(selectedRule)}>{t("admin.workflowRules.inspector.editRule")}</Button>
+              <Button icon="template" onClick={() => onCloneRule?.(selectedRule)}>{t("admin.workflowRules.inspector.cloneRule")}</Button>
+              <Button icon="pause" onClick={() => onDisableRule?.(selectedRule)}>{t("admin.workflowRules.inspector.disableRule")}</Button>
+              <Button icon="view" onClick={() => onPreviewRule?.(selectedRule)}>{t("admin.workflowRules.inspector.previewResult")}</Button>
             </div>
           </div>
         ) : (

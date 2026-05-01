@@ -3,6 +3,7 @@ import { Icon, PanelCard, StatusBadge } from "../../ui";
 import type { WorkflowConflictRow, WorkflowWarningIssue } from "./types";
 
 type WorkflowConflictQueueProps = {
+  onViewAll?: () => void;
   rows: WorkflowConflictRow[];
 };
 
@@ -47,13 +48,13 @@ function severityTone(severity: WorkflowConflictRow["severity"]): "green" | "amb
   }
 }
 
-export function WorkflowConflictQueue({ rows }: WorkflowConflictQueueProps) {
+export function WorkflowConflictQueue({ onViewAll, rows }: WorkflowConflictQueueProps) {
   const { t } = useI18n();
   const visibleRows = rows.slice(0, 5);
 
   return (
     <PanelCard
-      actions={rows.length ? <button className="text-sm font-bold text-[#061d49] hover:underline" type="button">{t("admin.workflowRules.conflicts.viewAll")}</button> : null}
+      actions={rows.length ? <button className="text-sm font-bold text-[#061d49] hover:underline" onClick={onViewAll} type="button">{t("admin.workflowRules.conflicts.viewAll")}</button> : null}
       title={t("admin.workflowRules.conflicts.title")}
     >
       {visibleRows.length ? (

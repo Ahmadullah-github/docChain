@@ -1,9 +1,12 @@
 import { useI18n } from "../../../i18n";
+import { cx } from "../../../lib/classNames";
 import { Button, Icon, PanelCard, StatusBadge } from "../../ui";
 import { formatLabel, groupTone, metadataObject, riskTone } from "./auditLogUtils";
 import type { AuditLogRow, AuditRiskLevel } from "./types";
 
 type AuditLogInspectorProps = {
+  onExportLog: (row: AuditLogRow) => void;
+  onViewEntity: (row: AuditLogRow) => void;
   selectedLog: AuditLogRow | null;
 };
 
@@ -18,16 +21,19 @@ function riskText(riskLevel: AuditRiskLevel, t: ReturnType<typeof useI18n>["t"])
   }
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, ltr = false, value }: { label: string; ltr?: boolean; value: string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
       <dt className="text-[0.68rem] font-bold uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 whitespace-normal break-normal text-sm font-semibold leading-5 text-slate-900 [overflow-wrap:anywhere]">{value}</dd>
+      <dd className={cx(
+        "mt-1 whitespace-normal break-normal text-sm font-semibold leading-5 text-slate-900 [overflow-wrap:anywhere]",
+        ltr && "force-ltr text-start"
+      )}>{value}</dd>
     </div>
   );
 }
 
-export function AuditLogInspector({ selectedLog }: AuditLogInspectorProps) {
+export function AuditLogInspector({ onExportLog, onViewEntity, selectedLog }: AuditLogInspectorProps) {
   const { t } = useI18n();
   const metadata = selectedLog ? metadataObject(selectedLog) : null;
   const metadataEntries = metadata ? Object.entries(metadata).slice(0, 8) : [];
@@ -43,7 +49,7 @@ export function AuditLogInspector({ selectedLog }: AuditLogInspectorProps) {
               </div>
               <div className="min-w-0">
                 <h3 className="text-balance text-lg font-bold leading-6 text-slate-950">{formatLabel(selectedLog.action)}</h3>
-                <p className="mt-1 font-mono text-sm font-semibold text-slate-500">{selectedLog.createdAt}</p>
+                <p className="force-ltr mt-1 whitespace-nowrap text-start font-mono text-sm font-semibold text-slate-500">{selectedLog.createdAt}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <StatusBadge tone={groupTone(selectedLog.actionGroup)}>{formatLabel(selectedLog.actionGroup)}</StatusBadge>
                   <StatusBadge tone={riskTone(selectedLog.riskLevel)}>{riskText(selectedLog.riskLevel, t)}</StatusBadge>
@@ -54,15 +60,15 @@ export function AuditLogInspector({ selectedLog }: AuditLogInspectorProps) {
             <dl className="grid gap-2">
               <DetailRow label={t("admin.auditLogs.inspector.actor")} value={selectedLog.actor} />
               <DetailRow label={t("admin.auditLogs.inspector.assignment")} value={selectedLog.actorAssignment} />
-              <DetailRow label={t("admin.auditLogs.inspector.action")} value={selectedLog.action} />
-              <DetailRow label={t("admin.auditLogs.inspector.entity")} value={`${selectedLog.entityType} #${selectedLog.entityId}`} />
-              <DetailRow label={t("admin.auditLogs.inspector.ipAddress")} value={selectedLog.ipAddress} />
-              <DetailRow label={t("admin.auditLogs.inspector.userAgent")} value={selectedLog.userAgent} />
+              <DetailRow label={t("admin.auditLogs.inspector.action")} ltr value={selectedLog.action} />
+              <DetailRow label={t("admin.auditLogs.inspector.entity")} ltr value={`${selectedLog.entityType} #${selectedLog.entityId}`} />
+              <DetailRow label={t("admin.auditLogs.inspector.ipAddress")} ltr value={selectedLog.ipAddress} />
+              <DetailRow label={t("admin.auditLogs.inspector.userAgent")} ltr value={selectedLog.userAgent} />
             </dl>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button icon="view">{t("admin.auditLogs.inspector.viewEntity")}</Button>
-              <Button icon="export">{t("admin.auditLogs.inspector.exportEvent")}</Button>
+              <Button icon="view" onClick={() => onViewEntity(selectedLog)}>{t("admin.auditLogs.inspector.viewEntity")}</Button>
+              <Button icon="export" onClick={() => onExportLog(selectedLog)}>{t("admin.auditLogs.inspector.exportEvent")}</Button>
             </div>
           </div>
         ) : (

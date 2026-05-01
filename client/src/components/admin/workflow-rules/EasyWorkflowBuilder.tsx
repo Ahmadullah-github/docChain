@@ -7,6 +7,10 @@ import type { WorkflowRuleRow } from "./types";
 
 type EasyWorkflowBuilderProps = {
   documentTypes: DocumentType[];
+  onCancel?: () => void;
+  onOpenGuidedBuilder?: () => void;
+  onSaveDraft?: (row: WorkflowRuleRow) => void;
+  onSaveRule?: (row: WorkflowRuleRow) => void;
   onSelectRuleStatus: (status: string) => void;
   onSelectScope: (documentTypeId: string, originUnitTypeId: string) => void;
   selectedRule: WorkflowRuleRow | null;
@@ -28,6 +32,10 @@ function StepNumber({ children }: { children: string }) {
 
 export function EasyWorkflowBuilder({
   documentTypes,
+  onCancel,
+  onOpenGuidedBuilder,
+  onSaveDraft,
+  onSaveRule,
   onSelectRuleStatus,
   onSelectScope,
   selectedRule,
@@ -199,14 +207,15 @@ export function EasyWorkflowBuilder({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <Button icon="export" variant="primary">{t("admin.workflowRules.builder.saveRule")}</Button>
-            <Button icon="serial">{t("admin.workflowRules.builder.saveDraft")}</Button>
-            <Button variant="secondary">{t("admin.workflowRules.builder.cancel")}</Button>
+            <Button icon="export" onClick={() => onSaveRule?.(selectedRule)} variant="primary">{t("admin.workflowRules.builder.saveRule")}</Button>
+            <Button icon="serial" onClick={() => onSaveDraft?.(selectedRule)}>{t("admin.workflowRules.builder.saveDraft")}</Button>
+            <Button onClick={onCancel} variant="secondary">{t("admin.workflowRules.builder.cancel")}</Button>
           </div>
         </div>
       ) : (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-          {t("admin.workflowRules.builder.noRule")}
+        <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <p>{t("admin.workflowRules.builder.noRule")}</p>
+          <Button icon="settings" onClick={onOpenGuidedBuilder} variant="primary">{t("admin.workflowRules.actions.guidedBuilder")}</Button>
         </div>
       )}
     </PanelCard>
