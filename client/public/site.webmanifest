@@ -1,0 +1,19 @@
+{
+  "name": "DocChain",
+  "short_name": "DocChain",
+  "icons": [
+    {
+      "src": "/brand/docchain-logo-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/docchain-logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#031b3a",
+  "background_color": "#031b3a",
+  "display": "standalone"
+}

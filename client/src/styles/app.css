@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family:
+    "Aptos",
+    "Segoe UI",
+    sans-serif;
+  background: #f6f1e8;
+  color: #1f2933;
+}
+
+:root[dir="rtl"] {
+  font-family:
+    "Noto Naskh Arabic",
+    "Vazirmatn",
+    "Tahoma",
+    sans-serif;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  direction: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  text-align: start;
+}
+
+.force-ltr {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}

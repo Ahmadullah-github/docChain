@@ -1,0 +1,21 @@
+create table `global_search_index` (
+  `id` bigint unsigned not null auto_increment primary key,
+  `entity_type` varchar(80) not null,
+  `entity_id` varchar(120) not null,
+  `title` varchar(255) not null,
+  `subtitle` varchar(255),
+  `body` text,
+  `keywords` text,
+  `route_path` varchar(255) not null,
+  `status` varchar(80),
+  `metadata` json,
+  `source_created_at` timestamp null,
+  `source_updated_at` timestamp null,
+  `indexed_at` timestamp not null default CURRENT_TIMESTAMP,
+  `created_at` timestamp not null default CURRENT_TIMESTAMP,
+  `updated_at` timestamp not null default CURRENT_TIMESTAMP,
+  unique `global_search_entity_uq` (`entity_type`, `entity_id`),
+  index `global_search_type_status_idx` (`entity_type`, `status`),
+  index `global_search_route_path_idx` (`route_path`),
+  fulltext index `global_search_fulltext_idx` (`title`, `subtitle`, `body`, `keywords`)
+) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;

@@ -1,0 +1,40 @@
+import { useI18n } from "../../../i18n";
+import { Icon, PanelCard, StatusBadge } from "../../ui";
+import { formatLabel, groupTone } from "./auditLogUtils";
+import type { AuditLogRow } from "./types";
+
+type AuditLogTimelineProps = {
+  rows: AuditLogRow[];
+};
+
+export function AuditLogTimeline({ rows }: AuditLogTimelineProps) {
+  const { t } = useI18n();
+  const visibleRows = rows.slice(0, 6);
+
+  return (
+    <PanelCard className="overflow-hidden" title={t("admin.auditLogs.timeline.title")}>
+      {visibleRows.length ? (
+        <div className="space-y-3">
+          {visibleRows.map((row) => (
+            <article className="flex gap-3" key={row.id}>
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-[#061d49] ring-1 ring-blue-100">
+                <Icon className="h-4 w-4" name="audit" />
+              </span>
+              <div className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="break-words text-sm font-bold text-slate-900">{formatLabel(row.action)}</p>
+                  <StatusBadge tone={groupTone(row.actionGroup)}>{formatLabel(row.actionGroup)}</StatusBadge>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{row.actor} · {row.createdAt}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          {t("admin.auditLogs.timeline.empty")}
+        </div>
+      )}
+    </PanelCard>
+  );
+}

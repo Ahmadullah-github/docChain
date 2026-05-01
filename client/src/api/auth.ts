@@ -1,0 +1,33 @@
+import { setCsrfToken } from "../lib/api";
+import { getJson, postJson } from "./http";
+import type { AuthSession, LoginInput } from "./types";
+
+export const authApi = {
+  async login(input: LoginInput) {
+    const session = await postJson<AuthSession>("/api/auth/login", input);
+    setCsrfToken(session.csrfToken);
+    return session;
+  },
+
+  async logout() {
+    const result = await postJson<{ loggedOut: boolean }>("/api/auth/logout");
+    setCsrfToken(null);
+    return result;
+  },
+
+  async me() {
+    const session = await getJson<AuthSession>("/api/auth/me");
+    setCsrfToken(session.csrfToken);
+    return session;
+  },
+
+  async selectActiveAssignment(assignmentId: number) {
+    const session = await postJson<AuthSession>("/api/auth/active-assignment", { assignmentId });
+    setCsrfToken(session.csrfToken);
+    return session;
+  },
+
+  clearSessionToken() {
+    setCsrfToken(null);
+  }
+};
