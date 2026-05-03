@@ -38,6 +38,7 @@ export type SerialConflictRow = {
   date: string;
   id: string;
   issue: SerialWarningIssue;
+  ruleId: EntityId;
   ruleCode: string;
   ruleName: string;
   severity: "low" | "medium" | "high";

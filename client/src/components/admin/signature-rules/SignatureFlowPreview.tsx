@@ -4,6 +4,7 @@ import { Button, Icon, PanelCard } from "../../ui";
 import type { SignatureFlowStep, SignatureRuleChainRow, SignatureStepTone } from "./types";
 
 type SignatureFlowPreviewProps = {
+  onFitView?: (row: SignatureRuleChainRow) => void;
   selectedChain: SignatureRuleChainRow | null;
 };
 
@@ -27,31 +28,32 @@ function FlowStep({ index, step }: { index: number; step: SignatureFlowStep }) {
   const numbered = step.tone === "required" || step.tone === "optional" || step.tone === "final";
 
   return (
-    <article className={cx("flex w-full max-w-[20rem] items-center gap-3 rounded-lg border px-3 py-2.5 shadow-sm", stepClasses[step.tone])}>
+    <article className={cx("flex w-full max-w-[22rem] items-center gap-3 rounded-lg border px-3 py-2.5 shadow-sm", stepClasses[step.tone])}>
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/90 text-xs font-bold">
         {numbered ? index : <Icon className="h-4 w-4" name={step.icon} />}
       </span>
       <span className="min-w-0 flex-1 text-center">
-        <span className="block truncate text-sm font-bold">{step.title}</span>
-        <span className="block truncate text-xs opacity-80">{step.subtitle}</span>
+        <span className="block truncate text-sm font-bold" title={step.title}>{step.title}</span>
+        <span className="block truncate text-xs opacity-80" title={step.subtitle}>{step.subtitle}</span>
       </span>
     </article>
   );
 }
 
-export function SignatureFlowPreview({ selectedChain }: SignatureFlowPreviewProps) {
+export function SignatureFlowPreview({ onFitView, selectedChain }: SignatureFlowPreviewProps) {
   const { t } = useI18n();
 
   return (
     <PanelCard
-      actions={<Button className="px-3 py-1.5 text-xs" icon="fullscreen">{t("admin.signatureRules.flow.fitView")}</Button>}
+      actions={selectedChain && onFitView ? <Button className="shrink-0 whitespace-nowrap px-3 py-1.5 text-xs" icon="fullscreen" onClick={() => onFitView(selectedChain)}>{t("admin.signatureRules.flow.fitView")}</Button> : null}
+      bodyClassName="p-3 sm:p-4"
       className="h-full overflow-hidden"
       title={t("admin.signatureRules.flow.title")}
     >
       {selectedChain ? (
         <div className="space-y-3">
-          <div className="max-h-[29rem] overflow-auto rounded-xl bg-[radial-gradient(circle_at_top,#eff6ff,transparent_38%),linear-gradient(180deg,#fff,#f8fafc)] p-4">
-            <div className="flex min-w-[17rem] flex-col items-center">
+          <div className="max-h-[24rem] min-h-[16rem] overflow-auto rounded-xl border border-slate-200 bg-[radial-gradient(circle_at_top,#eff6ff,transparent_38%),linear-gradient(180deg,#fff,#f8fafc)] p-4">
+            <div className="flex min-w-[18rem] flex-col items-center justify-center">
               {selectedChain.flowSteps.map((step, index) => (
                 <div className="flex w-full flex-col items-center" key={step.id}>
                   <FlowStep index={index} step={step} />

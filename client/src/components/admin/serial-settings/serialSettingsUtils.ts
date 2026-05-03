@@ -188,6 +188,7 @@ export function buildSerialConflicts(rows: SerialRuleRow[]): SerialConflictRow[]
       date: row.lastUpdated,
       id: `${row.id}-${issue}`,
       issue,
+      ruleId: row.id,
       ruleCode: row.code,
       ruleName: row.name,
       severity: severityByIssue[issue]

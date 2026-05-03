@@ -1,5 +1,5 @@
-import { deleteJson, getJson, patchJson, postJson } from "./http";
-import type { EntityId, RoutingRule, RoutingRuleDetail } from "./types";
+import { deleteJson, getJson, patchJson, postJson, putJson } from "./http";
+import type { EntityId, JsonRecord, RoutingRule, RoutingRuleDetail } from "./types";
 
 export type RoutingRuleQuery = {
   status?: string;
@@ -37,6 +37,71 @@ export type CreateRoutingRuleInput = {
 
 export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
 
+export type RoutingRuleDesignerSignatureRuleInput = {
+  id?: EntityId | null;
+  step_number: number;
+  required_position_id: EntityId;
+  required_unit_scope: string;
+  signature_mode?: string;
+  is_required?: boolean;
+  is_parallel?: boolean;
+  can_finalize_document?: boolean;
+  can_be_hidden_later?: boolean;
+  status?: "draft" | "active" | "inactive" | "archived";
+  notes?: string | null;
+};
+
+export type RoutingRuleDesignerVisibilityRuleInput = {
+  id?: EntityId | null;
+  forwarding_unit_type_id?: EntityId | null;
+  document_type_id?: EntityId | null;
+  visibility_policy: string;
+  show_child_signatures?: boolean;
+  show_parent_signatures?: boolean;
+  allowed?: string;
+  status?: string;
+  priority?: number;
+  notes?: string | null;
+  conditions?: JsonRecord;
+};
+
+export type RoutingRuleDesignerSerialRuleInput = {
+  id?: EntityId | null;
+  code: string;
+  name: string;
+  format?: string;
+  scope?: "global";
+  reset_policy?: "yearly";
+  sequence_padding?: number;
+  is_default?: boolean;
+  status?: "draft" | "active" | "inactive" | "archived";
+  notes?: string | null;
+};
+
+export type RoutingRuleDesignerInput = {
+  archive?: {
+    serialRuleIds?: EntityId[];
+    signatureRuleIds?: EntityId[];
+    visibilityRuleIds?: EntityId[];
+  };
+  routingRule: CreateRoutingRuleInput;
+  serialRule?: RoutingRuleDesignerSerialRuleInput | null;
+  signatureRules?: RoutingRuleDesignerSignatureRuleInput[];
+  visibilityRule?: RoutingRuleDesignerVisibilityRuleInput | null;
+};
+
+export type RoutingRuleDesignerResponse = {
+  archived: {
+    serialRuleIds: EntityId[];
+    signatureRuleIds: EntityId[];
+    visibilityRuleIds: EntityId[];
+  };
+  routingRule: RoutingRuleDetail;
+  serialRule: JsonRecord | null;
+  signatureRules: JsonRecord[];
+  visibilityRule: JsonRecord | null;
+};
+
 export const routingRulesApi = {
   list(query?: RoutingRuleQuery) {
     return getJson<RoutingRule[]>("/api/admin/routing-rules", query);
@@ -60,5 +125,13 @@ export const routingRulesApi = {
 
   remove(routingRuleId: EntityId) {
     return deleteJson<{ id: EntityId; archived: boolean }>(`/api/admin/routing-rules/${routingRuleId}`);
+  },
+
+  createDesigner(input: RoutingRuleDesignerInput) {
+    return postJson<RoutingRuleDesignerResponse>("/api/admin/routing-rules/designer", input);
+  },
+
+  updateDesigner(routingRuleId: EntityId, input: RoutingRuleDesignerInput) {
+    return putJson<RoutingRuleDesignerResponse>(`/api/admin/routing-rules/designer/${routingRuleId}`, input);
   }
 };

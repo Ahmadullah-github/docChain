@@ -21,10 +21,10 @@ export function SerialFormatBuilder({ onSelectStatus, selectedRule, selectedStat
   const { t } = useI18n();
 
   return (
-    <PanelCard className="h-full overflow-hidden" title={t("admin.serialSettings.builder.title")}>
+    <PanelCard bodyClassName="p-3 sm:p-4" className="h-full overflow-hidden" title={t("admin.serialSettings.builder.title")}>
       {selectedRule ? (
-        <div className="space-y-4">
-          <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+        <div className="space-y-3">
+          <section className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
             <div className="grid gap-3 md:grid-cols-3">
               <label className="min-w-0 space-y-1 text-xs font-bold text-slate-600">
                 <span>{t("admin.serialSettings.builder.scope")}</span>
@@ -51,9 +51,9 @@ export function SerialFormatBuilder({ onSelectStatus, selectedRule, selectedStat
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <section className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("admin.serialSettings.builder.formatPattern")}</p>
-            <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 font-mono text-sm font-bold text-[#061d49] [overflow-wrap:anywhere]">
+            <div className="force-ltr mt-2 overflow-x-auto rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-start font-mono text-sm font-bold text-[#061d49]">
               {selectedRule.format}
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -65,11 +65,11 @@ export function SerialFormatBuilder({ onSelectStatus, selectedRule, selectedStat
             </div>
           </section>
 
-          <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">{t("admin.serialSettings.builder.sample")}</p>
-                <p className="mt-1 font-mono text-2xl font-bold text-emerald-950">{selectedRule.sampleSerial}</p>
+                <p className="force-ltr mt-1 truncate text-start font-mono text-2xl font-bold text-emerald-950" title={selectedRule.sampleSerial}>{selectedRule.sampleSerial}</p>
               </div>
               <StatusBadge tone={selectedRule.isDefault ? "green" : "blue"}>
                 {selectedRule.isDefault ? t("admin.serialSettings.builder.defaultRule") : t("admin.serialSettings.builder.availableRule")}
@@ -85,9 +85,9 @@ export function SerialFormatBuilder({ onSelectStatus, selectedRule, selectedStat
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <Button icon="export" variant="primary">{t("admin.serialSettings.builder.saveRule")}</Button>
-            <Button icon="document">{t("admin.serialSettings.builder.saveDraft")}</Button>
-            <Button>{t("admin.serialSettings.builder.cancel")}</Button>
+            <Button className="min-h-9 px-3 py-1.5 text-xs" icon="export" variant="primary">{t("admin.serialSettings.builder.saveRule")}</Button>
+            <Button className="min-h-9 px-3 py-1.5 text-xs" icon="document">{t("admin.serialSettings.builder.saveDraft")}</Button>
+            <Button className="min-h-9 px-3 py-1.5 text-xs">{t("admin.serialSettings.builder.cancel")}</Button>
           </div>
         </div>
       ) : (

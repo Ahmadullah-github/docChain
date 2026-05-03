@@ -4,21 +4,23 @@ import { cx } from "../../lib/classNames";
 import { IconButton } from "../ui";
 
 type AdminModalProps = {
+  bodyClassName?: string;
   children: ReactNode;
   description?: ReactNode;
   footer?: ReactNode;
   onClose: () => void;
   open: boolean;
-  size?: "md" | "lg";
+  size?: "fullscreen" | "lg" | "md";
   title: ReactNode;
 };
 
 const sizeClasses = {
+  fullscreen: "h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] max-w-none w-[calc(100vw-2rem)]",
   lg: "max-w-3xl",
   md: "max-w-xl"
 };
 
-export function AdminModal({ children, description, footer, onClose, open, size = "md", title }: AdminModalProps) {
+export function AdminModal({ bodyClassName, children, description, footer, onClose, open, size = "md", title }: AdminModalProps) {
   const { t } = useI18n();
 
   if (!open) {
@@ -45,7 +47,7 @@ export function AdminModal({ children, description, footer, onClose, open, size 
           </div>
           <IconButton className="h-8 w-8 shrink-0 border-transparent" icon="x" label={t("admin.modal.closeDialog")} onClick={onClose} />
         </header>
-        <div className="min-h-0 overflow-y-auto p-4">{children}</div>
+        <div className={cx("min-h-0 flex-1 overflow-y-auto p-4", bodyClassName)}>{children}</div>
         {footer ? <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">{footer}</footer> : null}
       </section>
     </div>

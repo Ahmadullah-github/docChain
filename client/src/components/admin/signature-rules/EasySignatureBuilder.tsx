@@ -6,6 +6,10 @@ import type { SignatureRuleChainRow } from "./types";
 
 type EasySignatureBuilderProps = {
   documentTypes: DocumentType[];
+  onAddSigner?: (row: SignatureRuleChainRow) => void;
+  onCancel?: () => void;
+  onSaveDraft?: (row: SignatureRuleChainRow) => void;
+  onSaveRule?: (row: SignatureRuleChainRow) => void;
   onSelectScope: (documentTypeId: string, originUnitTypeId: string) => void;
   onSelectStatus: (status: string) => void;
   selectedChain: SignatureRuleChainRow | null;
@@ -29,6 +33,10 @@ function signerTitle(rule: JsonRecord, fallback: string) {
 
 export function EasySignatureBuilder({
   documentTypes,
+  onAddSigner,
+  onCancel,
+  onSaveDraft,
+  onSaveRule,
   onSelectScope,
   onSelectStatus,
   selectedChain,
@@ -119,7 +127,7 @@ export function EasySignatureBuilder({
                     </article>
                   );
                 })}
-                <button className="min-w-[7rem] rounded-xl border border-dashed border-blue-300 bg-white px-3 py-2 text-sm font-bold text-[#061d49]" type="button">
+                <button className="min-w-[7rem] rounded-xl border border-dashed border-blue-300 bg-white px-3 py-2 text-sm font-bold text-[#061d49] transition hover:bg-blue-50" onClick={() => onAddSigner?.(selectedChain)} type="button">
                   + {t("admin.signatureRules.builder.addSigner")}
                 </button>
               </div>
@@ -176,9 +184,9 @@ export function EasySignatureBuilder({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <Button icon="export" variant="primary">{t("admin.signatureRules.builder.saveRule")}</Button>
-            <Button icon="document">{t("admin.signatureRules.builder.saveDraft")}</Button>
-            <Button>{t("admin.signatureRules.builder.cancel")}</Button>
+            <Button icon="export" onClick={() => onSaveRule?.(selectedChain)} variant="primary">{t("admin.signatureRules.builder.saveRule")}</Button>
+            <Button icon="document" onClick={() => onSaveDraft?.(selectedChain)}>{t("admin.signatureRules.builder.saveDraft")}</Button>
+            <Button onClick={onCancel}>{t("admin.signatureRules.builder.cancel")}</Button>
           </div>
         </div>
       ) : (

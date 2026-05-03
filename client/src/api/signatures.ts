@@ -1,4 +1,4 @@
-import { getJson, patchJson, postJson } from "./http";
+import { deleteJson, getJson, patchJson, postJson } from "./http";
 import type {
   EnrollSignatureProfileInput,
   EntityId,
@@ -26,6 +26,8 @@ export type CreateSignatureRuleInput = {
   status?: "draft" | "active" | "inactive" | "archived";
   notes?: string | null;
 };
+
+export type UpdateSignatureRuleInput = Partial<CreateSignatureRuleInput>;
 
 export type CreateSerialRuleInput = {
   code: string;
@@ -73,8 +75,16 @@ export const signatureApi = {
     return postJson<JsonRecord>("/api/admin/signature-rules", input);
   },
 
+  updateSignatureRule(signatureRuleId: EntityId, input: UpdateSignatureRuleInput) {
+    return patchJson<JsonRecord>(`/api/admin/signature-rules/${signatureRuleId}`, input);
+  },
+
   updateSignatureRuleStatus(signatureRuleId: EntityId, status: "draft" | "active" | "inactive" | "archived") {
     return patchJson<JsonRecord>(`/api/admin/signature-rules/${signatureRuleId}/status`, { status });
+  },
+
+  removeSignatureRule(signatureRuleId: EntityId) {
+    return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/signature-rules/${signatureRuleId}`);
   },
 
   listSerialRules() {

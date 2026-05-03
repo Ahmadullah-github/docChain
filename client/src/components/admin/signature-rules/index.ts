@@ -7,5 +7,6 @@ export { SignatureRuleHelp } from "./SignatureRuleHelp";
 export { SignatureRuleInspector } from "./SignatureRuleInspector";
 export { SignatureRuleStats } from "./SignatureRuleStats";
 export { SignatureRuleTemplates } from "./SignatureRuleTemplates";
+export type { SignatureRuleTemplateId } from "./SignatureRuleTemplates";
 export { buildSignatureConflicts, buildSignatureRuleRows } from "./signatureRuleUtils";
-export type { SignatureRulesPageData } from "./types";
+export type { SignatureRuleChainRow, SignatureRulesPageData } from "./types";

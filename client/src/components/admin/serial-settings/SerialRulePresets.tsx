@@ -14,12 +14,12 @@ export function SerialRulePresets() {
     <PanelCard className="overflow-hidden" title={t("admin.serialSettings.presets.title")}>
       <div className="space-y-2">
         {presets.map(([label, format]) => (
-          <article className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between" key={label}>
+          <article className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50/30 sm:flex-row sm:items-center sm:justify-between" key={label}>
             <div className="flex min-w-0 items-center gap-3">
               <Icon className="h-5 w-5 shrink-0 text-[#061d49]" name="serial" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-slate-800">{label}</p>
-                <p className="truncate font-mono text-xs text-slate-500">{format}</p>
+                <p className="force-ltr truncate text-start font-mono text-xs text-slate-500" title={format}>{format}</p>
               </div>
             </div>
             <Button className="w-full shrink-0 px-3 py-1.5 text-xs sm:w-auto" icon="template">{t("admin.serialSettings.presets.usePreset")}</Button>

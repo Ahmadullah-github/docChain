@@ -59,6 +59,21 @@ const createSignatureRuleSchema = z.object({
   notes: optionalNullableString
 });
 
+const updateSignatureRuleSchema = z.object({
+  document_type_id: z.coerce.number().int().positive().optional(),
+  origin_unit_type_id: z.coerce.number().int().positive().nullable().optional(),
+  step_number: z.coerce.number().int().positive().optional(),
+  required_position_id: z.coerce.number().int().positive().optional(),
+  required_unit_scope: z.string().trim().min(1).max(80).optional(),
+  signature_mode: z.string().trim().min(1).max(80).optional(),
+  is_required: z.boolean().optional(),
+  is_parallel: z.boolean().optional(),
+  can_finalize_document: z.boolean().optional(),
+  can_be_hidden_later: z.boolean().optional(),
+  status: z.enum(["draft", "active", "inactive", "archived"]).optional(),
+  notes: optionalNullableString
+});
+
 const createSerialRuleSchema = z.object({
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(140),
@@ -894,6 +909,27 @@ adminSignatureRouter.get("/signature-rules", asyncHandler(async (_request, respo
   ok(response, rules);
 }));
 
+async function fetchSignatureRule(signatureRuleId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      signature_rules.*,
+      document_types.code AS documentTypeCode,
+      document_types.name AS documentTypeName,
+      unit_types.code AS originUnitTypeCode,
+      positions.code AS requiredPositionCode,
+      positions.title AS requiredPositionTitle
+    FROM signature_rules
+    LEFT JOIN document_types ON signature_rules.document_type_id = document_types.id
+    LEFT JOIN unit_types ON signature_rules.origin_unit_type_id = unit_types.id
+    LEFT JOIN positions ON signature_rules.required_position_id = positions.id
+    WHERE signature_rules.id = ?
+    LIMIT 1`,
+    [signatureRuleId]
+  );
+
+  return rows[0] || null;
+}
+
 adminSignatureRouter.post("/signature-rules", asyncHandler(async (request, response) => {
   const input = createSignatureRuleSchema.parse(request.body);
   const [result] = await pool.execute<ResultSetHeader>(
@@ -924,8 +960,85 @@ adminSignatureRouter.post("/signature-rules", asyncHandler(async (request, respo
   const id = result.insertId;
 
   await writeAuditLog(request, { action: "admin.signature_rule.create", entityType: "signature_rule", entityId: id });
-  const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_rules WHERE id = ? LIMIT 1", [id]);
-  created(response, rows[0] || null);
+  created(response, await fetchSignatureRule(id));
+}));
+
+adminSignatureRouter.patch("/signature-rules/:signatureRuleId", asyncHandler(async (request, response) => {
+  const { signatureRuleId } = z.object({ signatureRuleId: z.coerce.number().int().positive() }).parse(request.params);
+  const input = updateSignatureRuleSchema.parse(request.body);
+
+  const existingRule = await fetchSignatureRule(signatureRuleId);
+  if (!existingRule) {
+    throw notFound("Signature rule");
+  }
+
+  const assignments: Array<[string, string | number | boolean | Date | null]> = [];
+  const addAssignment = (column: string, value: string | number | boolean | Date | null | undefined) => {
+    if (value !== undefined) {
+      assignments.push([column, value]);
+    }
+  };
+
+  addAssignment("document_type_id", input.document_type_id);
+  addAssignment("origin_unit_type_id", input.origin_unit_type_id === undefined ? undefined : input.origin_unit_type_id || null);
+  addAssignment("step_number", input.step_number);
+  addAssignment("required_position_id", input.required_position_id);
+  addAssignment("required_unit_scope", input.required_unit_scope);
+  addAssignment("signature_mode", input.signature_mode);
+  addAssignment("is_required", input.is_required);
+  addAssignment("is_parallel", input.is_parallel);
+  addAssignment("can_finalize_document", input.can_finalize_document);
+  addAssignment("can_be_hidden_later", input.can_be_hidden_later);
+  addAssignment("status", input.status);
+  addAssignment("notes", input.notes === undefined ? undefined : input.notes || null);
+
+  if (input.status !== undefined) {
+    addAssignment("activated_by_user_id", input.status === "active" ? request.session.userId || null : null);
+    addAssignment("activated_at", input.status === "active" ? new Date() : null);
+  }
+
+  if (assignments.length) {
+    await pool.execute<ResultSetHeader>(
+      `UPDATE signature_rules
+       SET ${assignments.map(([column]) => `${column} = ?`).join(", ")},
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [...assignments.map(([, value]) => value), signatureRuleId]
+    );
+
+    await writeAuditLog(request, {
+      action: "admin.signature_rule.update",
+      entityType: "signature_rule",
+      entityId: signatureRuleId,
+      metadata: { fields: assignments.map(([column]) => column) }
+    });
+  }
+
+  ok(response, await fetchSignatureRule(signatureRuleId));
+}));
+
+adminSignatureRouter.delete("/signature-rules/:signatureRuleId", asyncHandler(async (request, response) => {
+  const { signatureRuleId } = z.object({ signatureRuleId: z.coerce.number().int().positive() }).parse(request.params);
+  const existingRule = await fetchSignatureRule(signatureRuleId);
+
+  if (!existingRule) {
+    throw notFound("Signature rule");
+  }
+
+  await pool.execute<ResultSetHeader>("DELETE FROM signature_rules WHERE id = ?", [signatureRuleId]);
+  await writeAuditLog(request, {
+    action: "admin.signature_rule.delete",
+    entityType: "signature_rule",
+    entityId: signatureRuleId,
+    metadata: {
+      document_type_id: existingRule.document_type_id,
+      origin_unit_type_id: existingRule.origin_unit_type_id,
+      required_position_id: existingRule.required_position_id,
+      step_number: existingRule.step_number
+    }
+  });
+
+  ok(response, { id: signatureRuleId, deleted: true });
 }));
 
 adminSignatureRouter.patch("/signature-rules/:signatureRuleId/status", asyncHandler(async (request, response) => {
@@ -963,8 +1076,7 @@ adminSignatureRouter.patch("/signature-rules/:signatureRuleId/status", asyncHand
     metadata: { status: input.status }
   });
 
-  const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_rules WHERE id = ? LIMIT 1", [signatureRuleId]);
-  ok(response, rows[0] || null);
+  ok(response, await fetchSignatureRule(signatureRuleId));
 }));
 
 adminSignatureRouter.get("/serial-rules", asyncHandler(async (_request, response) => {

@@ -44,6 +44,13 @@ export function patchJson<T>(path: string, body?: unknown) {
   });
 }
 
+export function putJson<T>(path: string, body?: unknown) {
+  return apiRequest<T>(path, {
+    method: "PUT",
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+}
+
 export function deleteJson<T>(path: string, body?: unknown) {
   return apiRequest<T>(path, {
     method: "DELETE",

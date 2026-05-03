@@ -168,6 +168,18 @@ function finalSignatoryFor(chainRules: JsonRecord[], maps: LabelMaps) {
   return finalRule || fallbackRule ? positionTitle(finalRule || fallbackRule || {}, maps) : "Not configured";
 }
 
+function placementFor(chainRules: JsonRecord[]) {
+  for (const rule of chainRules) {
+    const notes = stringField(rule, "notes");
+    const match = notes.match(/(?:^|\n)Placement:\s*(.+)\s*$/i);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return "Bottom-right of the last page";
+}
+
 function buildFlowSteps(chainRules: JsonRecord[], maps: LabelMaps, serialRule: JsonRecord | null, requiresSerial: boolean): SignatureFlowStep[] {
   const steps: SignatureFlowStep[] = [
     {
@@ -247,7 +259,7 @@ function groupSignatureRules(signatureRules: JsonRecord[]) {
   const groups = new Map<string, JsonRecord[]>();
 
   for (const rule of signatureRules) {
-    const key = `${String(rule.document_type_id || "all")}:${String(rule.origin_unit_type_id || "any")}`;
+    const key = `${String(rule.document_type_id || "all")}:${String(rule.origin_unit_type_id || "any")}:${stringField(rule, "status", "draft")}`;
     groups.set(key, [...(groups.get(key) || []), rule]);
   }
 
@@ -318,7 +330,7 @@ export function buildSignatureRuleRows(data: SignatureRulesPageData) {
         originUnitCode: originUnit.code,
         originUnitLabel: originUnit.label,
         originUnitType: originUnit.unitType,
-        placement: "Bottom-right of the last page",
+        placement: placementFor(visibleRules),
         ruleCode,
         ruleName,
         serialRule,
@@ -351,6 +363,7 @@ export function buildSignatureConflicts(rows: SignatureRuleChainRow[]): Signatur
 
   return rows.flatMap((row) =>
     row.warningIssues.map((issue) => ({
+      chainId: row.id,
       date: row.lastUpdated,
       id: `${row.id}-${issue}`,
       issue,

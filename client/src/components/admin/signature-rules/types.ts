@@ -54,6 +54,7 @@ export type SignatureRuleChainRow = {
 };
 
 export type SignatureConflictRow = {
+  chainId: string;
   date: string;
   id: string;
   issue: SignatureWarningIssue;

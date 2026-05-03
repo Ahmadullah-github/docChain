@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useSearchParams } from "react-router-dom";
 import { adminApi, routingRulesApi, signatureApi } from "../../api";
 import type { DocumentType, EntityId, JsonRecord, Position, RoutingRule, RoutingRuleDetail, UnitType } from "../../api";
+import type { RoutingRuleDesignerInput } from "../../api/routing-rules";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   buildConflictQueue,
@@ -706,27 +707,14 @@ export function AdminWorkflowRulesPage() {
     }
   }
 
-  async function exportRules() {
-    await downloadWorkbook("workflow-rules.xlsx", [
-      {
-        name: "Workflow rules",
-        rows: rows.map((row) => ({
-          action: row.actionLabel,
-          allowed: row.allowed,
-          documentType: row.documentTypeLabel,
-          finalSignatory: row.finalSignatory,
-          originUnit: row.originUnitLabel,
-          priority: row.priority,
-          ruleCode: row.ruleCode,
-          ruleName: row.ruleName,
-          serialTrigger: row.serialTrigger,
-          status: row.status,
-          updated: row.lastUpdated,
-          visibility: row.visibilityPolicy,
-          warnings: row.warningIssues.join(", ")
-        }))
-      }
-    ]);
+  async function archiveRuleByRow(row: WorkflowRuleRow) {
+    await routingRulesApi.remove(row.id);
+    await refreshWorkflowRules(null);
+  }
+
+  async function saveDesignerRule(row: WorkflowRuleRow, input: RoutingRuleDesignerInput) {
+    const saved = await routingRulesApi.updateDesigner(row.id, input);
+    await refreshWorkflowRules(saved.routingRule.rule.id);
   }
 
   function addSigner() {
@@ -761,7 +749,6 @@ export function AdminWorkflowRulesPage() {
             <Button icon="plus" onClick={() => openCreateRuleModal("create")} variant="primary">{t("admin.workflowRules.actions.newRule")}</Button>
             <Button icon="template" onClick={() => setActiveModal("templates")}>{t("admin.workflowRules.actions.useTemplate")}</Button>
             <Button icon="settings" onClick={() => openCreateRuleModal("guided")} variant="primary">{t("admin.workflowRules.actions.guidedBuilder")}</Button>
-            <Button icon="export" onClick={() => void exportRules()}>{t("admin.workflowRules.actions.exportRules")}</Button>
           </>
         )}
         description={t("admin.workflowRules.description")}
@@ -800,7 +787,14 @@ export function AdminWorkflowRulesPage() {
           />
         </div>
         <div className="min-w-0">
-          <WorkflowCanvas selectedRule={selectedRule} />
+          <WorkflowCanvas
+            documentTypes={data.documentTypes}
+            onArchiveRule={archiveRuleByRow}
+            onDesignerSave={saveDesignerRule}
+            positions={data.positions}
+            selectedRule={selectedRule}
+            unitTypes={data.unitTypes}
+          />
         </div>
         <div className="min-w-0" ref={inspectorRef} tabIndex={-1}>
           <WorkflowRuleInspector

@@ -121,7 +121,6 @@ export function AdminSerialSettingsPage() {
             <Button icon="plus" variant="primary">{t("admin.serialSettings.actions.newRule")}</Button>
             <Button icon="template">{t("admin.serialSettings.actions.usePreset")}</Button>
             <Button icon="serial" variant="primary">{t("admin.serialSettings.actions.testNumber")}</Button>
-            <Button icon="export">{t("admin.serialSettings.actions.exportRules")}</Button>
           </>
         )}
         description={t("admin.serialSettings.description")}
@@ -141,7 +140,15 @@ export function AdminSerialSettingsPage() {
         stats={stats}
       />
 
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,.72fr)] min-[1800px]:grid-cols-[minmax(0,1.05fr)_minmax(24rem,.7fr)_minmax(27rem,.72fr)]">
+      <section className="min-w-0">
+        <SerialRuleDirectory
+          onSelectRule={setSelectedRuleId}
+          rows={rows}
+          selectedRuleId={selectedRuleId}
+        />
+      </section>
+
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,.72fr)] min-[1800px]:grid-cols-[minmax(0,1.05fr)_minmax(24rem,.72fr)_minmax(27rem,.78fr)]">
         <div className="min-w-0">
           <SerialFormatBuilder
             onSelectStatus={handleSelectStatus}
@@ -150,23 +157,18 @@ export function AdminSerialSettingsPage() {
           />
         </div>
         <div className="min-w-0">
-          <SerialPreviewPanel selectedRule={selectedRule} />
-        </div>
-        <div className="min-w-0 xl:col-span-2 min-[1800px]:col-span-1">
           <SerialRuleInspector selectedRule={selectedRule} />
+        </div>
+        <div className="min-w-0">
+          <SerialPreviewPanel selectedRule={selectedRule} />
         </div>
       </section>
 
       <section className="min-w-0 space-y-4">
-        <SerialRuleDirectory
-          onSelectRule={setSelectedRuleId}
-          rows={rows}
-          selectedRuleId={selectedRuleId}
-        />
         <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           <SerialRulePresets />
           <SerialGovernanceReminder />
-          <SerialConflictQueue rows={conflictQueue} />
+          <SerialConflictQueue onSelectRule={setSelectedRuleId} rows={conflictQueue} />
         </div>
       </section>
     </div>

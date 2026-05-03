@@ -1,8 +1,11 @@
+import type { KeyboardEvent } from "react";
 import { useI18n } from "../../../i18n";
+import { cx } from "../../../lib/classNames";
 import { Button, Icon, PanelCard, StatusBadge } from "../../ui";
 import type { SignatureConflictRow, SignatureWarningIssue } from "./types";
 
 type SignatureConflictQueueProps = {
+  onSelectChain?: (chainId: string) => void;
   rows: SignatureConflictRow[];
 };
 
@@ -45,7 +48,16 @@ function severityText(severity: SignatureConflictRow["severity"], t: ReturnType<
   }
 }
 
-export function SignatureConflictQueue({ rows }: SignatureConflictQueueProps) {
+function handleRowKeyDown(event: KeyboardEvent<HTMLElement>, row: SignatureConflictRow, onSelectChain?: (chainId: string) => void) {
+  if (!onSelectChain || (event.key !== "Enter" && event.key !== " ")) {
+    return;
+  }
+
+  event.preventDefault();
+  onSelectChain(row.chainId);
+}
+
+export function SignatureConflictQueue({ onSelectChain, rows }: SignatureConflictQueueProps) {
   const { t } = useI18n();
   const visibleRows = rows.slice(0, 4);
 
@@ -58,17 +70,36 @@ export function SignatureConflictQueue({ rows }: SignatureConflictQueueProps) {
       {visibleRows.length ? (
         <div className="space-y-3">
           {visibleRows.map((row) => (
-            <article className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row" key={row.id}>
+            <article
+              aria-label={`${row.ruleName}: ${issueText(row.issue, t)}`}
+              className={cx(
+                "flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 transition sm:flex-row",
+                onSelectChain && "cursor-pointer hover:border-blue-200 hover:bg-blue-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#061d49]/20"
+              )}
+              key={row.id}
+              onClick={() => onSelectChain?.(row.chainId)}
+              onKeyDown={(event) => handleRowKeyDown(event, row, onSelectChain)}
+              role={onSelectChain ? "button" : undefined}
+              tabIndex={onSelectChain ? 0 : undefined}
+            >
               <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
                 <Icon className="h-5 w-5" name="shield" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-bold text-slate-900">{row.ruleName}: {issueText(row.issue, t)}</p>
-                <p className="mt-1 text-xs text-slate-500">{row.ruleCode} · {row.date}</p>
+                <p className="force-ltr mt-1 truncate text-start text-xs text-slate-500" title={`${row.ruleCode} - ${row.date}`}>{row.ruleCode} · {row.date}</p>
               </div>
               <div className="flex shrink-0 flex-row items-center gap-2 sm:flex-col sm:items-end">
                 <StatusBadge tone={severityTone(row.severity)}>{severityText(row.severity, t)}</StatusBadge>
-                <Button className="px-3 py-1.5 text-xs">{t("admin.signatureRules.conflicts.view")}</Button>
+                <Button
+                  className="px-3 py-1.5 text-xs"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectChain?.(row.chainId);
+                  }}
+                >
+                  {t("admin.signatureRules.conflicts.view")}
+                </Button>
               </div>
             </article>
           ))}
