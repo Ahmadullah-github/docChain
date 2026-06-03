@@ -13,19 +13,6 @@ export const adminPolicyRouter = Router();
 
 adminPolicyRouter.use(requireAuth, requireAnyRole(["system_admin", "admin_staff"]));
 
-const createVisibilityRuleSchema = z.object({
-  forwarding_unit_type_id: z.coerce.number().int().positive().nullable().optional(),
-  document_type_id: z.coerce.number().int().positive().nullable().optional(),
-  visibility_policy: z.string().trim().min(1).max(80),
-  show_child_signatures: z.boolean().default(true),
-  show_parent_signatures: z.boolean().default(true),
-  allowed: z.string().trim().min(1).max(40).default("allowed"),
-  status: z.string().trim().min(1).max(40).default("draft"),
-  priority: z.coerce.number().int().nonnegative().default(100),
-  notes: optionalNullableString,
-  conditions: z.record(z.string(), z.unknown()).optional()
-});
-
 const createRetentionPolicySchema = z.object({
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(160),
@@ -51,36 +38,6 @@ const createConfidentialityAccessRuleSchema = z.object({
   status: z.string().trim().min(1).max(40).default("active"),
   notes: optionalNullableString
 });
-
-adminPolicyRouter.get("/visibility-rules", listRoute("visibility_rules", "priority", "asc"));
-adminPolicyRouter.post("/visibility-rules", asyncHandler(async (request, response) => {
-  const input = createVisibilityRuleSchema.parse(request.body);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO visibility_rules (
-      uuid, forwarding_unit_type_id, document_type_id, visibility_policy,
-      show_child_signatures, show_parent_signatures, allowed, status, priority,
-      activated_by_user_id, activated_at, notes, conditions
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.forwarding_unit_type_id || null,
-      input.document_type_id || null,
-      input.visibility_policy,
-      input.show_child_signatures,
-      input.show_parent_signatures,
-      input.allowed,
-      input.status,
-      input.priority,
-      input.status === "active" ? request.session.userId || null : null,
-      input.status === "active" ? new Date() : null,
-      input.notes || null,
-      JSON.stringify(input.conditions || {})
-    ]
-  );
-  const id = result.insertId;
-  await writeAuditLog(request, { action: "admin.visibility_rule.create", entityType: "visibility_rule", entityId: id });
-  created(response, await fetchById("visibility_rules", Number(id)));
-}));
 
 adminPolicyRouter.get("/retention-policies", listRoute("retention_policies"));
 adminPolicyRouter.post("/retention-policies", asyncHandler(async (request, response) => {

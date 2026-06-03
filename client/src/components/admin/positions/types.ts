@@ -29,13 +29,3 @@ export type PositionAdminRow = {
   unitTypeLabel: string;
   units: Unit[];
 };
-
-export type PositionReviewQueueRow = {
-  date: string;
-  id: string;
-  issue: "position_vacant" | "new_position_request" | "role_update";
-  positionId: EntityId;
-  positionTitle: string;
-  requestedBy: string;
-  status: "pending_review" | "awaiting_approval" | "draft";
-};

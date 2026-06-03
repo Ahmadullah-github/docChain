@@ -1,11 +1,15 @@
-import { getJson, patchJson, postJson } from "./http";
+import { getJson, patchJson, postForm, postJson } from "./http";
 import type {
   CreateDocumentInput,
   DocumentDetail,
   DocumentListItem,
+  DocumentRegistryStats,
+  DocumentSendOptions,
+  DocumentScope,
   DocumentTask,
   EntityId,
   JsonRecord,
+  SendDocumentInput,
   UpdateDocumentInput
 } from "./types";
 
@@ -13,8 +17,16 @@ export type DocumentListQuery = {
   status?: string;
   q?: string;
   document_type_id?: EntityId;
+  priority_level_id?: EntityId;
+  confidentiality_level_id?: EntityId;
+  date_from?: string;
+  date_to?: string;
+  scope?: DocumentScope;
   limit?: number;
+  offset?: number;
 };
+
+export type DocumentStatsQuery = Omit<DocumentListQuery, "limit" | "offset">;
 
 export type CreateRelationInput = {
   related_document_id: EntityId;
@@ -54,6 +66,10 @@ export const documentApi = {
     return getJson<DocumentListItem[]>("/api/documents", query);
   },
 
+  stats(query?: DocumentStatsQuery) {
+    return getJson<DocumentRegistryStats>("/api/documents/stats", query);
+  },
+
   create(input: CreateDocumentInput) {
     return postJson<DocumentDetail>("/api/documents", input);
   },
@@ -66,12 +82,52 @@ export const documentApi = {
     return patchJson<DocumentDetail>(`/api/documents/${documentId}`, input);
   },
 
+  sendOptions(documentId: EntityId, query?: { q?: string; limit?: number }) {
+    return getJson<DocumentSendOptions>(`/api/documents/${documentId}/send-options`, query);
+  },
+
+  send(documentId: EntityId, input: SendDocumentInput) {
+    return postJson<{ event: JsonRecord; sendRender?: JsonRecord; tasks?: DocumentTask[]; message: string }>(`/api/documents/${documentId}/send`, input);
+  },
+
+  finalize(documentId: EntityId, input: { note?: string | null } = {}) {
+    return postJson<{ detail: DocumentDetail; finalRender?: JsonRecord | null; serialAssignment: JsonRecord | null }>(`/api/documents/${documentId}/finalize`, input);
+  },
+
+  archive(documentId: EntityId, input: { note?: string | null; reason?: string | null } = {}) {
+    return postJson<{ detail: DocumentDetail; finalRender?: JsonRecord | null; serialAssignment: JsonRecord | null }>(`/api/documents/${documentId}/archive`, input);
+  },
+
+  renderFileUrl(renderId: EntityId, options?: { download?: boolean }) {
+    return `/api/document-renders/${renderId}/file${options?.download ? "?download=1" : ""}`;
+  },
+
   addRelation(documentId: EntityId, input: CreateRelationInput) {
     return postJson<JsonRecord>(`/api/documents/${documentId}/relations`, input);
   },
 
   addAttachment(documentId: EntityId, input: CreateAttachmentInput) {
     return postJson<JsonRecord>(`/api/documents/${documentId}/attachments`, input);
+  },
+
+  uploadAttachment(documentId: EntityId, input: {
+    attachment_type?: string;
+    description?: string | null;
+    file: File;
+    title?: string | null;
+  }) {
+    const formData = new FormData();
+    formData.append("file", input.file);
+    if (input.attachment_type) {
+      formData.append("attachment_type", input.attachment_type);
+    }
+    if (input.title) {
+      formData.append("title", input.title);
+    }
+    if (input.description) {
+      formData.append("description", input.description);
+    }
+    return postForm<JsonRecord>(`/api/documents/${documentId}/attachments/upload`, formData);
   },
 
   createTask(documentId: EntityId, input: CreateTaskInput) {

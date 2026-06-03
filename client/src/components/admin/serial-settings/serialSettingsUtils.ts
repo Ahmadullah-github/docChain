@@ -1,12 +1,18 @@
 import type { JsonRecord } from "../../../api";
 import type {
   SerialConflictRow,
+  SerialRuleForm,
   SerialRuleRow,
   SerialSettingsPageData,
   SerialWarningIssue
 } from "./types";
 
 type BadgeTone = "green" | "amber" | "red" | "blue" | "slate";
+
+export const serialStatusOptions = ["draft", "active", "inactive", "archived"] as const;
+export const serialScopeOptions = ["global", "organization", "origin_unit", "document_type", "origin_unit_document_type"] as const;
+export const serialResetPolicyOptions = ["yearly", "monthly", "never"] as const;
+const supportedSerialTokens = new Set(["YEAR", "YY", "MONTH", "SEQUENCE", "SEQ", "ORG", "DOC"]);
 
 export function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
@@ -72,13 +78,24 @@ function booleanField(record: JsonRecord | null | undefined, key: string) {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+function normalizeOption<T extends readonly string[]>(value: string | undefined, options: T, fallback: T[number]): T[number] {
+  return options.includes(value || "") ? value as T[number] : fallback;
+}
+
+export function unsupportedSerialTokens(format: string) {
+  const matches = Array.from(format.matchAll(/\{([A-Z_]+)\}/gi));
+  const tokens = matches.map((match) => match[1].toUpperCase());
+
+  return Array.from(new Set(tokens.filter((token) => !supportedSerialTokens.has(token))));
+}
+
 export function sampleSerialFor(format: string, padding: number) {
   const sequence = "1".padStart(Math.max(1, padding), "0");
 
   return format
     .replaceAll("{YEAR}", "2026")
     .replaceAll("{YY}", "26")
-    .replaceAll("{MONTH}", "04")
+    .replaceAll("{MONTH}", "05")
     .replaceAll("{SEQUENCE}", sequence)
     .replaceAll("{SEQ}", sequence)
     .replaceAll("{ORG}", "UNI")
@@ -89,14 +106,19 @@ function warningIssuesFor(input: {
   defaultRulesCount: number;
   documentTypesRequiringSerial: number;
   format: string;
+  isDefault: boolean;
   padding: number;
   status: string;
 }) {
   const issues: SerialWarningIssue[] = [];
   const normalizedFormat = input.format.toUpperCase();
+  const unsupportedTokens = unsupportedSerialTokens(input.format);
 
   if (input.status !== "active") {
     issues.push("inactive_rule");
+  }
+  if (input.isDefault && input.status !== "active") {
+    issues.push("inactive_default");
   }
   if (!input.defaultRulesCount) {
     issues.push("missing_default");
@@ -113,6 +135,9 @@ function warningIssuesFor(input: {
   if (!input.documentTypesRequiringSerial) {
     issues.push("no_serial_documents");
   }
+  if (unsupportedTokens.length) {
+    issues.push("unsupported_token");
+  }
 
   return issues;
 }
@@ -128,10 +153,13 @@ export function buildSerialRuleRows(data: SerialSettingsPageData) {
       const format = stringField(rule, "format", "DOC-{YEAR}-{SEQUENCE}");
       const sequencePadding = numberField(rule, "sequence_padding", 6);
       const status = stringField(rule, "status", "draft");
+      const isDefault = booleanField(rule, "is_default");
+      const unsupportedTokens = unsupportedSerialTokens(format);
       const warningIssues = warningIssuesFor({
         defaultRulesCount,
         documentTypesRequiringSerial,
         format,
+        isDefault,
         padding: sequencePadding,
         status
       });
@@ -142,12 +170,13 @@ export function buildSerialRuleRows(data: SerialSettingsPageData) {
           defaultRuleSet: defaultRulesCount > 0,
           documentTypesCovered: documentTypesRequiringSerial > 0,
           formatHasSequence: format.toUpperCase().includes("{SEQUENCE}") || format.toUpperCase().includes("{SEQ}"),
-          formatHasYear: format.toUpperCase().includes("{YEAR}") || format.toUpperCase().includes("{YY}")
+          formatHasYear: format.toUpperCase().includes("{YEAR}") || format.toUpperCase().includes("{YY}"),
+          formatTokensSupported: unsupportedTokens.length === 0
         },
         code,
         format,
         id: numberField(rule, "id"),
-        isDefault: booleanField(rule, "is_default"),
+        isDefault,
         lastUpdated: formatDateTime(stringField(rule, "updated_at") || stringField(rule, "created_at")),
         name,
         notes: stringField(rule, "notes", "-"),
@@ -157,6 +186,7 @@ export function buildSerialRuleRows(data: SerialSettingsPageData) {
         scope: stringField(rule, "scope", "global"),
         sequencePadding,
         status,
+        unsupportedTokens,
         warningIssues
       };
     })
@@ -176,11 +206,13 @@ export function buildSerialRuleRows(data: SerialSettingsPageData) {
 export function buildSerialConflicts(rows: SerialRuleRow[]): SerialConflictRow[] {
   const severityByIssue: Record<SerialWarningIssue, SerialConflictRow["severity"]> = {
     inactive_rule: "medium",
+    inactive_default: "high",
     missing_default: "high",
     missing_sequence_token: "high",
     missing_year_token: "medium",
     no_serial_documents: "low",
-    short_padding: "low"
+    short_padding: "low",
+    unsupported_token: "high"
   };
 
   return rows.flatMap((row) =>
@@ -210,4 +242,64 @@ export function rowMatchesSearch(row: SerialRuleRow, search: string) {
     row.scope,
     row.status
   ].some((value) => value.toLowerCase().includes(search));
+}
+
+export function serialRuleFormDefaults(hasDefaultRule = false): SerialRuleForm {
+  return {
+    code: "",
+    format: "DOC-{YEAR}-{SEQUENCE}",
+    id: null,
+    is_default: !hasDefaultRule,
+    name: "",
+    notes: "",
+    reset_policy: "yearly",
+    scope: "global",
+    sequence_padding: 6,
+    status: "draft"
+  };
+}
+
+export function serialRuleFormFromRow(row: SerialRuleRow, clone = false): SerialRuleForm {
+  return {
+    code: clone ? `${row.code}-COPY` : row.code,
+    format: row.format,
+    id: clone ? null : row.id,
+    is_default: clone ? false : row.isDefault,
+    name: clone ? `${row.name} Copy` : row.name,
+    notes: row.notes === "-" ? "" : row.notes,
+    reset_policy: normalizeOption(row.resetPolicy, serialResetPolicyOptions, "yearly"),
+    scope: normalizeOption(row.scope, serialScopeOptions, "global"),
+    sequence_padding: row.sequencePadding,
+    status: normalizeOption(row.status, serialStatusOptions, "draft")
+  };
+}
+
+export function serialRuleRowFromForm(form: SerialRuleForm): SerialRuleRow {
+  const unsupportedTokens = unsupportedSerialTokens(form.format);
+
+  return {
+    checks: {
+      activeRule: form.status === "active",
+      defaultRuleSet: form.is_default,
+      documentTypesCovered: true,
+      formatHasSequence: form.format.toUpperCase().includes("{SEQUENCE}") || form.format.toUpperCase().includes("{SEQ}"),
+      formatHasYear: form.format.toUpperCase().includes("{YEAR}") || form.format.toUpperCase().includes("{YY}"),
+      formatTokensSupported: unsupportedTokens.length === 0
+    },
+    code: form.code || "unsaved-serial-rule",
+    format: form.format,
+    id: form.id || 0,
+    isDefault: form.is_default,
+    lastUpdated: "-",
+    name: form.name || "Unsaved serial rule",
+    notes: form.notes || "-",
+    resetPolicy: form.reset_policy,
+    rule: form as unknown as JsonRecord,
+    sampleSerial: sampleSerialFor(form.format, form.sequence_padding),
+    scope: form.scope,
+    sequencePadding: form.sequence_padding,
+    status: form.status,
+    unsupportedTokens,
+    warningIssues: []
+  };
 }

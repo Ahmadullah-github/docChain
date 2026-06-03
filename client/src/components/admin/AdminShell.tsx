@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../app/AuthContext";
 import { useI18n } from "../../i18n";
 import { IconButton } from "../ui";
@@ -10,7 +10,9 @@ import { AdminTopbar } from "./AdminTopbar";
 export function AdminShell() {
   const auth = useAuth();
   const { t } = useI18n();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isTemplateBuilderRoute = location.pathname.startsWith("/admin/templates/builder");
 
   return (
     <div className="min-h-screen bg-[#f7f9fc] text-slate-950">
@@ -39,8 +41,8 @@ export function AdminShell() {
       ) : null}
 
       <div className="lg:ps-60">
-        <AdminTopbar onMenuClick={() => setMobileOpen(true)} user={auth.user} />
-        <AdminContent>
+        {isTemplateBuilderRoute ? null : <AdminTopbar onMenuClick={() => setMobileOpen(true)} user={auth.user} />}
+        <AdminContent compact={isTemplateBuilderRoute}>
           <Outlet />
         </AdminContent>
       </div>

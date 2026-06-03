@@ -1,17 +1,13 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { adminApi } from "../../api";
-import type { AdminAssignment, EntityId, Organization, Person, Position, Unit } from "../../api";
+import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../api";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   buildPositionRows,
-  buildReviewQueue,
   PositionDirectory,
-  PositionGovernanceReminder,
   PositionHierarchyPreview,
   PositionInspector,
   PositionRegistry,
-  PositionReviewQueue,
   PositionStats
 } from "../../components/admin/positions";
 import type { PositionAdminRow } from "../../components/admin/positions/types";
@@ -21,7 +17,6 @@ import { useI18n } from "../../i18n";
 
 type PositionsPageData = {
   assignments: AdminAssignment[];
-  organizations: Organization[];
   persons: Person[];
   positions: Position[];
   units: Unit[];
@@ -30,19 +25,19 @@ type PositionsPageData = {
 type ActiveModal = "create" | "edit" | "assign" | "actions" | "delete" | null;
 
 type PositionForm = {
-  organization_id: string;
+  unit_id: string;
   code: string;
   title: string;
   title_local: string;
   authority_level: string;
   is_signing_authority: boolean;
+  allows_multiple_active_assignments: boolean;
   description: string;
   status: string;
 };
 
 type HolderAssignmentForm = {
   person_id: string;
-  unit_id: string;
   position_id: string;
   status: string;
   is_primary: boolean;
@@ -52,7 +47,6 @@ type HolderAssignmentForm = {
 
 const emptyData: PositionsPageData = {
   assignments: [],
-  organizations: [],
   persons: [],
   positions: [],
   units: []
@@ -74,29 +68,45 @@ function chooseDefaultPosition(rows: ReturnType<typeof buildPositionRows>) {
   return rows.find((row) => row.status === "active") || rows.find((row) => row.status === "vacant") || rows[0] || null;
 }
 
-function positionFormDefaults(): PositionForm {
+function firstActiveUnit(units: Unit[]) {
+  return units.find((unit) => unit.status === "active") || units[0] || null;
+}
+
+function unitLabel(unit: Unit | null | undefined) {
+  return unit ? [unit.name, unit.code ? `(${unit.code})` : ""].filter(Boolean).join(" ") : "";
+}
+
+function positionOptionLabel(position: Position, unitsById: Map<EntityId, Unit>) {
+  const unit = unitsById.get(position.unit_id);
+  const unitName = unit?.name || position.unitName || position.unitCode || "";
+  return unitName ? `${position.title} - ${unitName}` : position.title;
+}
+
+function positionFormDefaults(unitId = ""): PositionForm {
   return {
+    allows_multiple_active_assignments: false,
     authority_level: "20",
     code: "",
     description: "",
     is_signing_authority: false,
-    organization_id: "",
     status: "active",
     title: "",
-    title_local: ""
+    title_local: "",
+    unit_id: unitId
   };
 }
 
 function positionFormFor(row: PositionAdminRow): PositionForm {
   return {
+    allows_multiple_active_assignments: Boolean(row.position.allows_multiple_active_assignments),
     authority_level: String(row.position.authority_level ?? 0),
     code: row.position.code,
     description: row.position.description || "",
     is_signing_authority: Boolean(row.position.is_signing_authority),
-    organization_id: row.position.organization_id ? String(row.position.organization_id) : "",
     status: row.position.status || "active",
     title: row.position.title,
-    title_local: row.position.title_local || ""
+    title_local: row.position.title_local || "",
+    unit_id: row.position.unit_id ? String(row.position.unit_id) : ""
   };
 }
 
@@ -109,9 +119,8 @@ function clonedPositionFormFor(row: PositionAdminRow): PositionForm {
   };
 }
 
-function assignmentFormFor(row: PositionAdminRow | null, persons: Person[], units: Unit[], positions: Position[]): HolderAssignmentForm {
+function assignmentFormFor(row: PositionAdminRow | null, persons: Person[], positions: Position[]): HolderAssignmentForm {
   const firstPerson = persons.find((person) => person.status === "active") || persons[0];
-  const firstUnit = units.find((unit) => unit.status === "active") || units[0];
   const firstPosition = positions.find((position) => position.status === "active") || positions[0];
 
   return {
@@ -120,17 +129,12 @@ function assignmentFormFor(row: PositionAdminRow | null, persons: Person[], unit
     person_id: firstPerson ? String(firstPerson.id) : "",
     position_id: String(row?.position.id || firstPosition?.id || ""),
     starts_at: "",
-    status: "active",
-    unit_id: firstUnit ? String(firstUnit.id) : ""
+    status: "active"
   };
 }
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Request failed.";
-}
-
-function nullableId(value: string) {
-  return value ? Number(value) : null;
 }
 
 function normalizeAuthorityLevel(value: string) {
@@ -140,7 +144,6 @@ function normalizeAuthorityLevel(value: string) {
 
 export function AdminPositionsPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const [data, setData] = useState<PositionsPageData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [selectedPositionId, setSelectedPositionId] = useState<EntityId | null>(null);
@@ -149,20 +152,19 @@ export function AdminPositionsPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [positionForm, setPositionForm] = useState<PositionForm>(positionFormDefaults);
-  const [assignmentForm, setAssignmentForm] = useState<HolderAssignmentForm>(() => assignmentFormFor(null, [], [], []));
+  const [assignmentForm, setAssignmentForm] = useState<HolderAssignmentForm>(() => assignmentFormFor(null, [], []));
   const inspectorRef = useRef<HTMLDivElement | null>(null);
 
   const refreshPositions = useCallback(async (nextSelectedPositionId?: EntityId | null) => {
     setLoading(true);
-    const [positions, assignments, units, persons, organizations] = await Promise.all([
+    const [positions, assignments, units, persons] = await Promise.all([
       safe(adminApi.positions.list(), [] as Position[]),
       safe(adminApi.assignments.list(), [] as AdminAssignment[]),
       safe(adminApi.units.list(), [] as Unit[]),
-      safe(adminApi.persons.list(), [] as Person[]),
-      safe(adminApi.organizations.list(), [] as Organization[])
+      safe(adminApi.persons.list(), [] as Person[])
     ]);
 
-    setData({ assignments, organizations, persons, positions, units });
+    setData({ assignments, persons, positions, units });
     setLoading(false);
     if (nextSelectedPositionId !== undefined) {
       setSelectedPositionId(nextSelectedPositionId);
@@ -174,7 +176,6 @@ export function AdminPositionsPage() {
   }, [refreshPositions]);
 
   const rows = useMemo(() => buildPositionRows(data), [data]);
-  const reviewQueue = useMemo(() => buildReviewQueue(rows), [rows]);
 
   useEffect(() => {
     const selectedStillExists = selectedPositionId ? rows.some((row) => row.id === selectedPositionId) : false;
@@ -188,11 +189,12 @@ export function AdminPositionsPage() {
   const activePersons = data.persons.filter((person) => person.status === "active");
   const activeUnits = data.units.filter((unit) => unit.status === "active");
   const assignablePositions = data.positions.filter((position) => !["disabled"].includes(position.status));
+  const unitsById = useMemo(() => new Map<EntityId, Unit>(data.units.map((unit) => [unit.id, unit])), [data.units]);
   const stats = {
     active: rows.filter((row) => row.status === "active").length,
     canSign: rows.filter((row) => row.canSign).length,
     multiUnit: rows.filter((row) => row.multiUnit).length,
-    pending: reviewQueue.length,
+    pending: rows.filter((row) => row.status === "pending" || row.status === "draft").length,
     total: rows.length,
     vacant: rows.filter((row) => row.status === "vacant").length
   };
@@ -229,7 +231,7 @@ export function AdminPositionsPage() {
   }
 
   function openCreatePositionModal() {
-    setPositionForm(positionFormDefaults());
+    setPositionForm(positionFormDefaults(String(firstActiveUnit(data.units)?.id || "")));
     setModalPositionId(null);
     setFormError(null);
     setActiveModal("create");
@@ -259,7 +261,7 @@ export function AdminPositionsPage() {
     } else {
       setModalPositionId(null);
     }
-    setAssignmentForm(assignmentFormFor(target || null, data.persons, data.units, data.positions));
+    setAssignmentForm(assignmentFormFor(target || null, data.persons, data.positions));
     setFormError(null);
     setActiveModal("assign");
   }
@@ -278,16 +280,6 @@ export function AdminPositionsPage() {
     setActiveModal("delete");
   }
 
-  function openPositionMatrix(row?: PositionAdminRow | null) {
-    closeModal();
-    navigate(row ? `/admin/workflow-rules?positionId=${row.id}` : "/admin/workflow-rules");
-  }
-
-  function openSignatureRules(row?: PositionAdminRow | null) {
-    closeModal();
-    navigate(row ? `/admin/signature-rules?positionId=${row.id}` : "/admin/signature-rules");
-  }
-
   async function handleCreatePosition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -295,14 +287,15 @@ export function AdminPositionsPage() {
 
     try {
       const createdPosition = await adminApi.positions.create({
+        allows_multiple_active_assignments: positionForm.allows_multiple_active_assignments,
         authority_level: normalizeAuthorityLevel(positionForm.authority_level),
         code: positionForm.code,
         description: positionForm.description || null,
         is_signing_authority: positionForm.is_signing_authority,
-        organization_id: nullableId(positionForm.organization_id),
         status: positionForm.status,
         title: positionForm.title,
-        title_local: positionForm.title_local || null
+        title_local: positionForm.title_local || null,
+        unit_id: Number(positionForm.unit_id)
       });
       await refreshPositions(createdPosition.id);
       closeModal();
@@ -323,14 +316,15 @@ export function AdminPositionsPage() {
 
     try {
       const updatedPosition = await adminApi.positions.update(modalPosition.id, {
+        allows_multiple_active_assignments: positionForm.allows_multiple_active_assignments,
         authority_level: normalizeAuthorityLevel(positionForm.authority_level),
         code: positionForm.code,
         description: positionForm.description || null,
         is_signing_authority: positionForm.is_signing_authority,
-        organization_id: nullableId(positionForm.organization_id),
         status: positionForm.status,
         title: positionForm.title,
-        title_local: positionForm.title_local || null
+        title_local: positionForm.title_local || null,
+        unit_id: Number(positionForm.unit_id)
       });
       await refreshPositions(updatedPosition.id);
       closeModal();
@@ -346,7 +340,7 @@ export function AdminPositionsPage() {
     setFormError(null);
 
     try {
-      if (!assignmentForm.person_id || !assignmentForm.unit_id || !assignmentForm.position_id) {
+      if (!assignmentForm.person_id || !assignmentForm.position_id) {
         throw new Error(t("admin.positions.form.assignmentRequired"));
       }
 
@@ -356,8 +350,7 @@ export function AdminPositionsPage() {
         person_id: Number(assignmentForm.person_id),
         position_id: Number(assignmentForm.position_id),
         starts_at: assignmentForm.starts_at || null,
-        status: assignmentForm.status,
-        unit_id: Number(assignmentForm.unit_id)
+        status: assignmentForm.status
       });
       await refreshPositions(Number(assignmentForm.position_id));
       closeModal();
@@ -420,6 +413,11 @@ export function AdminPositionsPage() {
   }
 
   function renderPositionFields(value: PositionForm, onChange: (next: PositionForm) => void) {
+    const selectedUnit = value.unit_id ? data.units.find((unit) => String(unit.id) === value.unit_id) : null;
+    const selectableUnits = selectedUnit && !activeUnits.some((unit) => unit.id === selectedUnit.id)
+      ? [...activeUnits, selectedUnit]
+      : activeUnits;
+
     return (
       <>
         <label className={labelClassName}>
@@ -435,11 +433,11 @@ export function AdminPositionsPage() {
           <input className={fieldClassName} maxLength={140} onChange={(event) => onChange({ ...value, title_local: event.target.value })} value={value.title_local} />
         </label>
         <label className={labelClassName}>
-          {t("admin.positions.form.organization")}
-          <select className={fieldClassName} onChange={(event) => onChange({ ...value, organization_id: event.target.value })} value={value.organization_id}>
-            <option value="">{t("admin.positions.form.noOrganization")}</option>
-            {data.organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>{organization.name}</option>
+          {t("admin.positions.form.unit")}
+          <select className={fieldClassName} onChange={(event) => onChange({ ...value, unit_id: event.target.value })} required value={value.unit_id}>
+            <option value="" disabled>{t("admin.positions.form.selectUnit")}</option>
+            {selectableUnits.map((unit) => (
+              <option key={unit.id} value={unit.id}>{unitLabel(unit)}</option>
             ))}
           </select>
         </label>
@@ -457,6 +455,10 @@ export function AdminPositionsPage() {
           <input checked={value.is_signing_authority} className={checkboxClassName} onChange={(event) => onChange({ ...value, is_signing_authority: event.target.checked })} type="checkbox" />
           {t("admin.positions.form.canSign")}
         </label>
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 md:col-span-2">
+          <input checked={value.allows_multiple_active_assignments} className={checkboxClassName} onChange={(event) => onChange({ ...value, allows_multiple_active_assignments: event.target.checked })} type="checkbox" />
+          {t("admin.positions.form.allowsMultipleActiveAssignments")}
+        </label>
         <label className={`${labelClassName} md:col-span-2`}>
           {t("admin.positions.form.description")}
           <textarea className={`${fieldClassName} min-h-24 resize-y`} onChange={(event) => onChange({ ...value, description: event.target.value })} value={value.description} />
@@ -472,7 +474,6 @@ export function AdminPositionsPage() {
           <>
             <Button icon="plus" onClick={openCreatePositionModal} variant="primary">{t("admin.positions.actions.newPosition")}</Button>
             <Button icon="hierarchy" onClick={() => openAssignPositionModal()}>{t("admin.positions.actions.assignPosition")}</Button>
-            <Button icon="workflow" onClick={() => openPositionMatrix(selectedPosition)}>{t("admin.positions.actions.positionMatrix")}</Button>
           </>
         )}
         description={t("admin.positions.description")}
@@ -515,7 +516,6 @@ export function AdminPositionsPage() {
             onAssignPosition={openAssignPositionModal}
             onClonePosition={openClonePositionModal}
             onEditPosition={openEditPositionModal}
-            onViewRules={openSignatureRules}
             selectedPosition={selectedPosition}
           />
         </div>
@@ -533,10 +533,6 @@ export function AdminPositionsPage() {
           selectedPositionId={selectedPositionId}
           units={data.units}
         />
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,.45fr)_minmax(0,1fr)]">
-          <PositionGovernanceReminder />
-          <PositionReviewQueue onSelectPosition={setSelectedPositionId} rows={reviewQueue} />
-        </div>
       </section>
 
       <AdminModal
@@ -600,14 +596,7 @@ export function AdminPositionsPage() {
             {t("admin.positions.form.position")}
             <select className={fieldClassName} onChange={(event) => setAssignmentForm((form) => ({ ...form, position_id: event.target.value }))} required value={assignmentForm.position_id}>
               <option value="" disabled>{t("admin.positions.form.selectPosition")}</option>
-              {assignablePositions.map((position) => <option key={position.id} value={position.id}>{position.title}</option>)}
-            </select>
-          </label>
-          <label className={labelClassName}>
-            {t("admin.positions.form.unit")}
-            <select className={fieldClassName} onChange={(event) => setAssignmentForm((form) => ({ ...form, unit_id: event.target.value }))} required value={assignmentForm.unit_id}>
-              <option value="" disabled>{t("admin.positions.form.selectUnit")}</option>
-              {activeUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+              {assignablePositions.map((position) => <option key={position.id} value={position.id}>{positionOptionLabel(position, unitsById)}</option>)}
             </select>
           </label>
           <label className={labelClassName}>
@@ -649,8 +638,6 @@ export function AdminPositionsPage() {
               <Button className="justify-start" icon="edit" onClick={() => openEditPositionModal(modalPosition)}>{t("admin.positions.directory.edit")}</Button>
               <Button className="justify-start" icon="users" onClick={() => openAssignPositionModal(modalPosition)}>{t("admin.positions.directory.assign")}</Button>
               <Button className="justify-start" icon="document" onClick={() => openClonePositionModal(modalPosition)}>{t("admin.positions.inspector.clonePosition")}</Button>
-              <Button className="justify-start" icon="signature" onClick={() => openSignatureRules(modalPosition)}>{t("admin.positions.inspector.viewRules")}</Button>
-              <Button className="justify-start" icon="workflow" onClick={() => openPositionMatrix(modalPosition)}>{t("admin.positions.actions.positionMatrix")}</Button>
               <Button className="justify-start" icon="userCheck" onClick={() => void updatePositionStatus(modalPosition, "active")}>{t("admin.positions.form.activate")}</Button>
               <Button className="justify-start" icon="document" onClick={() => void updatePositionStatus(modalPosition, "draft")}>{t("admin.positions.form.markDraft")}</Button>
               <Button className="justify-start" icon="pause" onClick={() => void updatePositionStatus(modalPosition, "suspended")}>{t("admin.positions.form.suspend")}</Button>

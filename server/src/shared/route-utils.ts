@@ -26,8 +26,7 @@ const tableNames = new Set([
   "retention_policies",
   "saved_searches",
   "transmissions",
-  "transmission_recipients",
-  "visibility_rules"
+  "transmission_recipients"
 ]);
 
 const tableOrderColumns: Record<string, Set<string>> = {
@@ -46,8 +45,7 @@ const tableOrderColumns: Record<string, Set<string>> = {
   retention_policies: new Set(["id"]),
   saved_searches: new Set(["id"]),
   transmissions: new Set(["id"]),
-  transmission_recipients: new Set(["id"]),
-  visibility_rules: new Set(["id", "priority"])
+  transmission_recipients: new Set(["id"])
 };
 
 function assertIdentifier(value: string) {

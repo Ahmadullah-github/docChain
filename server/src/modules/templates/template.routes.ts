@@ -12,9 +12,12 @@ import { requireAnyRole, requireAuth } from "../../middleware/auth";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
 import { assertDocumentAccess, getActiveAssignment, isAdmin } from "../../shared/document-access";
+import { calculateDocumentContentHash } from "../../shared/document-hash";
 import { AppError, forbidden, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
+import { documentContentToPlainText, normalizeDocumentContent, normalizeTemplateFieldRecord } from "../documents/document-content";
+import { signatureEventsWithAssets } from "./final-render-service";
 import { defaultTemplateLayout, renderTemplateHtml } from "./template-renderer";
 import type { TemplateLayout } from "./template-renderer";
 
@@ -31,10 +34,13 @@ const versionIdSchema = z.object({
 });
 const bindingIdSchema = z.object({ bindingId: z.coerce.number().int().positive() });
 const documentIdSchema = z.object({ documentId: z.coerce.number().int().positive() });
+const assetIdSchema = z.object({ assetId: z.coerce.number().int().positive() });
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
 const localeSchema = z.enum(["all", "en", "fa-AF", "ps-AF"]).default("all");
 const variantSchema = z.enum(["official", "internal", "archive", "routing_sheet"]).default("official");
-const layoutSchema = z.record(z.string(), z.unknown()).default(defaultTemplateLayout);
+const layoutSchema = z.record(z.string(), z.unknown());
+const maxTemplateLogoAssets = 10;
+const templateLogoPurpose = "template_logo";
 
 const createTemplateSchema = z.object({
   name: z.string().trim().min(1).max(180),
@@ -60,6 +66,12 @@ const bindingSchema = z.object({
   template_version_id: z.coerce.number().int().positive().optional()
 });
 
+const activeTemplatesQuerySchema = z.object({
+  document_type_id: z.coerce.number().int().positive().nullable().optional(),
+  locale: localeSchema,
+  variant: variantSchema
+});
+
 const assetUploadSchema = z.object({
   original_filename: z.string().trim().min(1).max(255),
   mime_type: z.enum(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]),
@@ -73,7 +85,39 @@ const renderSchema = z.object({
   layout_definition: layoutSchema.optional(),
   variant: variantSchema,
   locale: localeSchema,
-  output: z.enum(["html", "pdf"]).default("pdf")
+  output: z.enum(["html", "pdf"]).default("pdf"),
+  signature_visibility: z.array(z.object({
+    signature_event_id: z.coerce.number().int().positive().nullable().optional(),
+    is_visible: z.boolean(),
+    visibility_reason: optionalNullableString
+  })).default([])
+});
+
+const templateFieldKeySchema = z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9_.-]+$/);
+const templateFieldValueSchema = z.string().max(10_000);
+const draftPreviewSchema = z.object({
+  template_id: z.coerce.number().int().positive().nullable().optional(),
+  template_version_id: z.coerce.number().int().positive().nullable().optional(),
+  layout_definition: layoutSchema.optional(),
+  document_type_id: z.coerce.number().int().positive().nullable().optional(),
+  confidentiality_level_id: z.coerce.number().int().positive().nullable().optional(),
+  priority_level_id: z.coerce.number().int().positive().nullable().optional(),
+  document_date: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  subject: z.string().trim().max(255).optional(),
+  summary: z.string().trim().max(1000).nullable().optional(),
+  body: z.string().max(200_000).default(""),
+  document_content: z.unknown().optional(),
+  template_fields: z.record(templateFieldKeySchema, templateFieldValueSchema).optional(),
+  variant: variantSchema,
+  locale: localeSchema
+}).superRefine((input, context) => {
+  if (!input.layout_definition && !input.template_id && !input.template_version_id) {
+    context.addIssue({
+      code: "custom",
+      message: "Select a template to preview.",
+      path: ["template_id"]
+    });
+  }
 });
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -90,6 +134,34 @@ function parseJson<T>(value: unknown, fallback: T): T {
   }
 
   return value as T;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function assertTemplateLayout(value: unknown, message = "Template layout is invalid."): TemplateLayout {
+  if (!isRecord(value) || !isRecord(value.page)) {
+    throw new AppError(422, "invalid_template_layout", message);
+  }
+
+  const isWordTemplate = value.mode === "word_template" || value.schemaVersion === 2;
+  if (!Array.isArray(value.blocks) && !(isWordTemplate && isRecord(value.document))) {
+    throw new AppError(422, "invalid_template_layout", message);
+  }
+
+  return value as TemplateLayout;
+}
+
+function parseTemplateLayoutDefinition(value: unknown, message = "Template layout is invalid.") {
+  return assertTemplateLayout(parseJson<TemplateLayout | null>(value, null), message);
+}
+
+function activeBindingPayload(row: RowDataPacket) {
+  return {
+    ...row,
+    layout_definition: parseTemplateLayoutDefinition(row.layoutDefinition, "The active published template layout is invalid.")
+  };
 }
 
 function chromeExecutablePath() {
@@ -109,6 +181,38 @@ function chromeExecutablePath() {
       return false;
     }
   });
+}
+
+function extensionForMimeType(mimeType: string) {
+  return mimeType === "image/png" ? "png"
+    : mimeType === "image/webp" ? "webp"
+      : mimeType === "image/svg+xml" ? "svg"
+        : "jpg";
+}
+
+function base64ImageBuffer(value: string) {
+  return Buffer.from(value.replace(/^data:[^;]+;base64,/, ""), "base64");
+}
+
+function logoAssetPayload(row: RowDataPacket) {
+  return {
+    id: Number(row.id),
+    storage_path: String(row.storage_path),
+    original_filename: String(row.original_filename),
+    mime_type: String(row.mime_type),
+    byte_size: Number(row.byte_size),
+    created_at: row.created_at,
+    preview_url: `/api/admin/templates/logo-assets/${Number(row.id)}/content`
+  };
+}
+
+function templateAssetAbsolutePath(storagePath: string) {
+  const storageRoot = path.resolve(process.cwd(), "storage/template-assets");
+  const absolute = path.resolve(process.cwd(), storagePath);
+  if (!absolute.startsWith(`${storageRoot}${path.sep}`)) {
+    throw forbidden();
+  }
+  return absolute;
 }
 
 function isTemplateOwner(template: RowDataPacket, userId: number | undefined) {
@@ -207,21 +311,99 @@ async function templatePayload(templateId: number, request: Request, response: R
   };
 }
 
-async function getRenderableLayout(input: z.infer<typeof renderSchema>) {
+async function findActiveTemplateBindings(input: {
+  documentTypeId?: number | null;
+  limit?: number;
+  locale: z.infer<typeof localeSchema>;
+  variant: z.infer<typeof variantSchema>;
+}) {
+  const params: any[] = [
+    input.documentTypeId || null,
+    input.documentTypeId || null,
+    input.locale,
+    input.locale,
+    input.variant,
+    input.limit || 1
+  ];
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_template_bindings.*,
+      document_types.name AS documentTypeName,
+      document_templates.name AS templateName,
+      document_templates.description AS templateDescription,
+      document_template_versions.version_number AS templateVersionNumber,
+      document_template_versions.layout_definition AS layoutDefinition
+     FROM document_template_bindings
+     LEFT JOIN document_types ON document_template_bindings.document_type_id = document_types.id
+     INNER JOIN document_templates ON document_template_bindings.template_id = document_templates.id
+     INNER JOIN document_template_versions ON document_template_bindings.template_version_id = document_template_versions.id
+     WHERE document_template_bindings.status = 'active'
+       AND document_templates.status = 'published'
+       AND document_template_versions.status = 'active'
+       AND (document_template_bindings.document_type_id <=> ? OR document_template_bindings.document_type_id IS NULL OR ? IS NULL)
+       AND (document_template_bindings.locale = ? OR document_template_bindings.locale = 'all' OR ? = 'all')
+       AND document_template_bindings.variant = ?
+     ORDER BY
+       document_template_bindings.document_type_id IS NULL ASC,
+       document_template_bindings.locale = 'all' ASC,
+       document_template_bindings.id DESC
+     LIMIT ?`,
+    params
+  );
+  return rows;
+}
+
+async function fetchDocumentLayoutSnapshot(documentId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT *
+     FROM document_layout_drafts
+     WHERE document_id = ?
+       AND deleted_at IS NULL
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+    [documentId]
+  );
+  return rows[0] || null;
+}
+
+async function getRenderableLayout(input: z.infer<typeof renderSchema>, options: { documentId?: number; documentTypeId?: number | null } = {}) {
   if (input.layout_definition) {
-    return { layout: input.layout_definition as TemplateLayout, template: null, version: null, layoutDraft: null };
+    return { layout: assertTemplateLayout(input.layout_definition), template: null, version: null, layoutDraft: null };
   }
 
   if (input.layout_draft_id) {
+    const where = ["id = ?", "deleted_at IS NULL"];
+    const params: any[] = [input.layout_draft_id];
+    if (options.documentId) {
+      where.push("document_id = ?");
+      params.push(options.documentId);
+    }
     const [rows] = await pool.execute<RowDataPacket[]>(
-      "SELECT * FROM document_layout_drafts WHERE id = ? AND deleted_at IS NULL LIMIT 1",
-      [input.layout_draft_id]
+      `SELECT * FROM document_layout_drafts WHERE ${where.join(" AND ")} LIMIT 1`,
+      params
     );
     const layoutDraft = rows[0];
     if (!layoutDraft) {
       throw notFound("Layout draft");
     }
-    return { layout: parseJson(layoutDraft.layout_definition, defaultTemplateLayout()), template: null, version: null, layoutDraft };
+    return {
+      layout: parseTemplateLayoutDefinition(layoutDraft.layout_definition, "The saved document layout draft is invalid."),
+      template: null,
+      version: null,
+      layoutDraft
+    };
+  }
+
+  if (options.documentId) {
+    const layoutDraft = await fetchDocumentLayoutSnapshot(options.documentId);
+    if (layoutDraft) {
+      return {
+        layout: parseTemplateLayoutDefinition(layoutDraft.layout_definition, "The saved document layout snapshot is invalid."),
+        template: null,
+        version: null,
+        layoutDraft
+      };
+    }
   }
 
   const versionId = input.template_version_id;
@@ -231,22 +413,169 @@ async function getRenderableLayout(input: z.infer<typeof renderSchema>) {
       throw new AppError(422, "invalid_template_version", "Selected template version is not active.");
     }
     const template = await fetchTemplate(Number(version.template_id));
-    return { layout: parseJson(version.layout_definition, defaultTemplateLayout()), template, version, layoutDraft: null };
+    return {
+      layout: parseTemplateLayoutDefinition(version.layout_definition, "The selected template version layout is invalid."),
+      template,
+      version,
+      layoutDraft: null
+    };
   }
 
   if (input.template_id) {
     const template = await fetchTemplate(Number(input.template_id));
-    if (!template || !template.current_version_id) {
+    if (!template || template.status !== "published" || !template.current_version_id) {
       throw new AppError(422, "invalid_template", "Selected template has no active published version.");
     }
     const version = await fetchTemplateVersion(Number(template.current_version_id));
-    return { layout: parseJson(version?.layout_definition, defaultTemplateLayout()), template, version, layoutDraft: null };
+    if (!version || version.status !== "active") {
+      throw new AppError(422, "invalid_template", "Selected template has no active published version.");
+    }
+    return {
+      layout: parseTemplateLayoutDefinition(version.layout_definition, "The selected template layout is invalid."),
+      template,
+      version,
+      layoutDraft: null
+    };
+  }
+
+  if (options.documentTypeId) {
+    const binding = (await findActiveTemplateBindings({
+      documentTypeId: options.documentTypeId,
+      locale: input.locale,
+      variant: input.variant
+    }))[0];
+    if (!binding) {
+      throw new AppError(422, "template_required", "No active published template is bound to this document type.");
+    }
+    const [template, version] = await Promise.all([
+      fetchTemplate(Number(binding.template_id)),
+      fetchTemplateVersion(Number(binding.template_version_id))
+    ]);
+    return {
+      layout: parseTemplateLayoutDefinition(binding.layoutDefinition, "The active published template layout is invalid."),
+      template,
+      version,
+      layoutDraft: null
+    };
   }
 
   throw new AppError(422, "template_required", "Select a template, template version, layout draft, or direct layout definition.");
 }
 
-async function documentRenderContext(documentId: number) {
+type RenderSignatureVisibilityInput = z.infer<typeof renderSchema>["signature_visibility"];
+
+type RenderableLayout = {
+  layout: TemplateLayout;
+  layoutDraft: RowDataPacket | null;
+  template: RowDataPacket | null;
+  version: RowDataPacket | null;
+};
+
+type EnsureOfficialPdfRenderInput = {
+  assignmentId: number;
+  documentId: number;
+  layout_definition?: TemplateLayout;
+  layout_draft_id?: number | null;
+  locale?: z.infer<typeof localeSchema>;
+  signature_visibility?: RenderSignatureVisibilityInput;
+  template_id?: number | null;
+  template_version_id?: number | null;
+  variant?: z.infer<typeof variantSchema>;
+};
+
+function sha256Json(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function normalizedSignatureVisibility(input: RenderSignatureVisibilityInput) {
+  return input
+    .map((item) => ({
+      isVisible: item.is_visible,
+      signatureEventId: item.signature_event_id || null,
+      visibilityReason: item.visibility_reason || null
+    }))
+    .sort((left, right) => {
+      const leftId = left.signatureEventId || 0;
+      const rightId = right.signatureEventId || 0;
+      if (leftId !== rightId) {
+        return leftId - rightId;
+      }
+      return String(left.visibilityReason || "").localeCompare(String(right.visibilityReason || ""));
+    });
+}
+
+function officialRenderMetadata(input: {
+  cacheIdentityHash: string;
+  documentHash: string;
+  layoutHash: string;
+  locale: z.infer<typeof localeSchema>;
+  renderable: RenderableLayout;
+  signatureVisibilityHash: string;
+  sourceVersionNumber: number;
+  variant: z.infer<typeof variantSchema>;
+}) {
+  const layoutDraftId = input.renderable.layoutDraft ? Number(input.renderable.layoutDraft.id) || null : null;
+  const baseTemplateVersionId = input.renderable.layoutDraft ? Number(input.renderable.layoutDraft.base_template_version_id) || null : null;
+  const templateId = input.renderable.template ? Number(input.renderable.template.id) || null : null;
+  const templateVersionId = input.renderable.version ? Number(input.renderable.version.id) || null : null;
+  return {
+    baseTemplateVersionId,
+    cacheIdentityHash: input.cacheIdentityHash,
+    documentHash: input.documentHash,
+    layoutDraftId,
+    layoutHash: input.layoutHash,
+    layoutSource: layoutDraftId ? "document_layout_snapshot" : "template_binding",
+    locale: input.locale,
+    renderPurpose: "official_template_pdf",
+    signatureVisibilityHash: input.signatureVisibilityHash,
+    sourceVersionNumber: input.sourceVersionNumber,
+    templateId,
+    templateVersionId,
+    variant: input.variant
+  };
+}
+
+async function existingOfficialPdfRender(renderKey: string) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_renders.*,
+      file_assets.storage_path AS storagePath,
+      file_assets.byte_size AS byteSize
+     FROM document_renders
+     INNER JOIN file_assets ON document_renders.file_asset_id = file_assets.id
+     WHERE document_renders.render_key = ?
+       AND document_renders.render_type = 'template_pdf'
+       AND document_renders.status = 'generated'
+       AND file_assets.status = 'active'
+       AND file_assets.deleted_at IS NULL
+     LIMIT 1`,
+    [renderKey]
+  );
+  return rows[0] || null;
+}
+
+function officialPdfResponse(row: RowDataPacket, reused: boolean, metadata: Record<string, unknown>) {
+  return {
+    byteSize: Number(row.byteSize || row.byte_size || 0),
+    fileAssetId: Number(row.file_asset_id),
+    metadata,
+    renderId: Number(row.id),
+    reused,
+    storagePath: String(row.storagePath || "")
+  };
+}
+
+function renderSignatureVisibilityRecord(input: RenderSignatureVisibilityInput) {
+  const visibility: Record<string, boolean> = {};
+  for (const item of input) {
+    if (item.signature_event_id) {
+      visibility[`event:${item.signature_event_id}`] = item.is_visible;
+    }
+  }
+  return visibility;
+}
+
+async function documentRenderContext(documentId: number, signatureVisibility: RenderSignatureVisibilityInput = []) {
   const [documentRows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       documents.*,
@@ -272,26 +601,8 @@ async function documentRenderContext(documentId: number) {
     throw notFound("Document");
   }
 
-  const [signatureEvents, signatureSlots, workflowEvents, serialRows] = await Promise.all([
-    pool.execute<RowDataPacket[]>(
-      `SELECT signature_events.*, positions.title AS signerPositionTitle, units.name AS signerUnitName
-       FROM signature_events
-       INNER JOIN assignments ON signature_events.assignment_id = assignments.id
-       INNER JOIN positions ON assignments.position_id = positions.id
-       INNER JOIN units ON assignments.unit_id = units.id
-       WHERE signature_events.document_id = ?
-       ORDER BY signature_events.created_at DESC`,
-      [documentId]
-    ).then(([rows]) => rows),
-    pool.execute<RowDataPacket[]>(
-      `SELECT signature_slots.*, positions.title AS requiredPositionTitle, units.name AS targetUnitName
-       FROM signature_slots
-       INNER JOIN positions ON signature_slots.required_position_id = positions.id
-       LEFT JOIN units ON signature_slots.target_unit_id = units.id
-       WHERE signature_slots.document_id = ?
-       ORDER BY signature_slots.step_number ASC, signature_slots.id ASC`,
-      [documentId]
-    ).then(([rows]) => rows),
+  const [signatureEvents, workflowEvents, serialRows] = await Promise.all([
+    signatureEventsWithAssets(documentId),
     pool.execute<RowDataPacket[]>(
       "SELECT * FROM document_workflow_events WHERE document_id = ? ORDER BY created_at DESC",
       [documentId]
@@ -304,10 +615,247 @@ async function documentRenderContext(documentId: number) {
 
   return {
     document,
+    signatureVisibility: renderSignatureVisibilityRecord(signatureVisibility),
     signatureEvents,
-    signatureSlots,
     workflowEvents,
     serialAssignment: serialRows[0] || null
+  };
+}
+
+export async function ensureOfficialDocumentPdfRender(request: Request, input: EnsureOfficialPdfRenderInput) {
+  const locale = input.locale || "all";
+  const variant = input.variant || "official";
+  const signatureVisibility = input.signature_visibility || [];
+  const renderInput: z.infer<typeof renderSchema> = {
+    layout_definition: input.layout_definition,
+    layout_draft_id: input.layout_draft_id || null,
+    locale,
+    output: "pdf",
+    signature_visibility: signatureVisibility,
+    template_id: input.template_id || null,
+    template_version_id: input.template_version_id || null,
+    variant
+  };
+
+  const context = await documentRenderContext(input.documentId, signatureVisibility);
+  const renderable = await getRenderableLayout(renderInput, {
+    documentId: input.documentId,
+    documentTypeId: Number(context.document.document_type_id) || null
+  }) as RenderableLayout;
+  const sourceVersionNumber = Number(context.document.current_version_number || 1);
+  const documentHash = calculateDocumentContentHash(context.document);
+  const layoutHash = sha256Json(renderable.layout);
+  const signatureVisibilityHash = sha256Json(normalizedSignatureVisibility(signatureVisibility));
+  const layoutDraftId = renderable.layoutDraft ? Number(renderable.layoutDraft.id) || null : null;
+  const baseTemplateVersionId = renderable.layoutDraft ? Number(renderable.layoutDraft.base_template_version_id) || null : null;
+  const templateId = renderable.template ? Number(renderable.template.id) || null : null;
+  const templateVersionId = renderable.version ? Number(renderable.version.id) || null : null;
+  const cacheIdentity = {
+    baseTemplateVersionId,
+    documentHash,
+    layoutDraftId,
+    layoutHash,
+    locale,
+    signatureVisibilityHash,
+    sourceVersionNumber,
+    templateId,
+    templateVersionId,
+    variant
+  };
+  const cacheIdentityHash = sha256Json(cacheIdentity);
+  const renderKey = `official_template_pdf_${input.documentId}_${cacheIdentityHash.slice(0, 64)}`;
+  const metadata = officialRenderMetadata({
+    cacheIdentityHash,
+    documentHash,
+    layoutHash,
+    locale,
+    renderable,
+    signatureVisibilityHash,
+    sourceVersionNumber,
+    variant
+  });
+
+  const existing = await existingOfficialPdfRender(renderKey);
+  if (existing) {
+    return officialPdfResponse(existing, true, parseJson(existing.metadata, metadata));
+  }
+
+  const html = renderTemplateHtml(renderable.layout, context);
+  const pdfBuffer = await htmlToPdf(html);
+  const rendersDir = path.resolve(process.cwd(), "storage/document-renders");
+  await fs.mkdir(rendersDir, { recursive: true });
+  const pdfFilename = `${uuid()}.pdf`;
+  const storagePath = path.join("storage/document-renders", pdfFilename);
+  await fs.writeFile(path.resolve(process.cwd(), storagePath), pdfBuffer);
+  const checksum = createHash("sha256").update(pdfBuffer).digest("hex");
+
+  let renderId = 0;
+  let fileAssetId = 0;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [assetResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO file_assets (
+        uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
+        storage_disk, storage_path, original_filename, stored_filename,
+        mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        request.session.userId || null,
+        input.assignmentId,
+        "document_render_pdf",
+        "local",
+        storagePath,
+        `document-${input.documentId}.pdf`,
+        pdfFilename,
+        "application/pdf",
+        pdfBuffer.length,
+        checksum,
+        "not_encrypted",
+        "active",
+        JSON.stringify(metadata)
+      ]
+    );
+    fileAssetId = Number(assetResult.insertId);
+
+    const [renderResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_renders (
+        uuid, document_id, file_asset_id, render_key, render_type,
+        visibility_policy, source_version_number, document_hash, status,
+        created_by_assignment_id, render_definition, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.documentId,
+        fileAssetId,
+        renderKey,
+        "template_pdf",
+        variant,
+        sourceVersionNumber,
+        documentHash,
+        "generated",
+        input.assignmentId,
+        JSON.stringify(renderable.layout),
+        JSON.stringify(metadata)
+      ]
+    );
+    renderId = Number(renderResult.insertId);
+    for (const item of signatureVisibility) {
+      await connection.execute<ResultSetHeader>(
+        `INSERT INTO render_signature_visibility (
+          uuid, document_render_id, signature_event_id,
+          is_visible, visibility_reason, visibility_policy
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          uuid(),
+          renderId,
+          item.signature_event_id || null,
+          item.is_visible,
+          item.visibility_reason || null,
+          variant
+        ]
+      );
+    }
+    await writeAuditLog(request, { action: "document.template_render.create", entityType: "document_render", entityId: renderId }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  return {
+    byteSize: pdfBuffer.length,
+    fileAssetId,
+    metadata,
+    renderId,
+    reused: false,
+    storagePath
+  };
+}
+
+async function lookupReferenceName(table: string, id: number | null | undefined) {
+  if (!id) {
+    return null;
+  }
+
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT code, name FROM ${table} WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+async function draftRenderContext(request: Request, input: z.infer<typeof draftPreviewSchema>) {
+  const assignment = await getActiveAssignment(request, "previewing a document");
+  const [unitRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      units.name AS unitName,
+      units.code AS unitCode,
+      organizations.name AS organizationName,
+      positions.title AS positionTitle
+     FROM assignments
+     INNER JOIN positions ON assignments.position_id = positions.id
+     INNER JOIN units ON positions.unit_id = units.id
+     INNER JOIN organizations ON units.organization_id = organizations.id
+     WHERE assignments.id = ?
+     LIMIT 1`,
+    [assignment.id]
+  );
+  const assignmentContext = unitRows[0] || {};
+  const [documentType, confidentiality, priority] = await Promise.all([
+    lookupReferenceName("document_types", input.document_type_id),
+    lookupReferenceName("confidentiality_levels", input.confidentiality_level_id),
+    lookupReferenceName("priority_levels", input.priority_level_id)
+  ]);
+  const templateFields = normalizeTemplateFieldRecord(input.template_fields);
+  const documentContent = normalizeDocumentContent(input.document_content, {
+    body: input.body,
+    date: input.document_date || null,
+    subject: input.subject || "Draft subject",
+    summary: input.summary || null,
+    templateFields
+  });
+  const body = documentContentToPlainText(documentContent) || input.body || "";
+  const now = new Date().toISOString();
+
+  return {
+    document: {
+      id: 0,
+      uuid: "draft-preview",
+      internal_reference: "DRAFT",
+      official_serial: null,
+      document_type_id: input.document_type_id || null,
+      confidentiality_level_id: input.confidentiality_level_id || null,
+      priority_level_id: input.priority_level_id || null,
+      document_date: input.document_date || null,
+      subject: input.subject?.trim() || "Draft subject",
+      summary: input.summary || null,
+      body,
+      document_content: documentContent,
+      template_fields: templateFields,
+      status: "draft",
+      created_at: now,
+      updated_at: now,
+      documentTypeName: documentType?.name || "",
+      documentTypeCode: documentType?.code || "",
+      confidentialityName: confidentiality?.name || "",
+      confidentialityCode: confidentiality?.code || "",
+      priorityName: priority?.name || "",
+      priorityCode: priority?.code || "",
+      originUnitName: assignmentContext.unitName || "",
+      ownerUnitName: assignmentContext.unitName || "",
+      currentHolderUnitName: assignmentContext.unitName || "",
+      originUnitCode: assignmentContext.unitCode || "",
+      organizationName: assignmentContext.organizationName || "",
+      creatorPositionTitle: assignmentContext.positionTitle || ""
+    },
+    signatureVisibility: {},
+    signatureEvents: [],
+    workflowEvents: [],
+    serialAssignment: null
   };
 }
 
@@ -428,45 +976,30 @@ templateRouter.get("/default", asyncHandler(async (request, response) => {
     variant: variantSchema
   }).parse(request.query);
 
-  const params: any[] = [
-    query.document_type_id || null,
-    query.document_type_id || null,
-    query.locale,
-    query.locale,
-    query.variant
-  ];
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT
-      document_template_bindings.*,
-      document_templates.name AS templateName,
-      document_template_versions.layout_definition AS layoutDefinition
-     FROM document_template_bindings
-     INNER JOIN document_templates ON document_template_bindings.template_id = document_templates.id
-     INNER JOIN document_template_versions ON document_template_bindings.template_version_id = document_template_versions.id
-     WHERE document_template_bindings.status = 'active'
-       AND document_templates.status = 'published'
-       AND document_template_versions.status = 'active'
-       AND (document_template_bindings.document_type_id <=> ? OR document_template_bindings.document_type_id IS NULL OR ? IS NULL)
-       AND (document_template_bindings.locale = ? OR document_template_bindings.locale = 'all' OR ? = 'all')
-       AND document_template_bindings.variant = ?
-     ORDER BY
-       document_template_bindings.document_type_id IS NULL ASC,
-       document_template_bindings.locale = 'all' ASC,
-       document_template_bindings.id DESC
-     LIMIT 1`,
-    params
-  );
-  ok(response, rows[0] || null);
+  const rows = await findActiveTemplateBindings({
+    documentTypeId: query.document_type_id || null,
+    locale: query.locale,
+    variant: query.variant
+  });
+  ok(response, rows[0] ? activeBindingPayload(rows[0]) : null);
+}));
+
+templateRouter.get("/active", asyncHandler(async (request, response) => {
+  const query = activeTemplatesQuerySchema.parse(request.query);
+  const rows = await findActiveTemplateBindings({
+    documentTypeId: query.document_type_id || null,
+    limit: 100,
+    locale: query.locale,
+    variant: query.variant
+  });
+  ok(response, rows.map(activeBindingPayload));
 }));
 
 templateRouter.post("/assets", asyncHandler(async (request, response) => {
   const input = assetUploadSchema.parse(request.body);
   const assignment = await getActiveAssignment(request, "uploading a template asset").catch(() => null);
-  const extension = input.mime_type === "image/png" ? "png"
-    : input.mime_type === "image/webp" ? "webp"
-      : input.mime_type === "image/svg+xml" ? "svg"
-        : "jpg";
-  const buffer = Buffer.from(input.data_base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+  const extension = extensionForMimeType(input.mime_type);
+  const buffer = base64ImageBuffer(input.data_base64);
   if (!buffer.length || buffer.length > 2 * 1024 * 1024) {
     throw new AppError(422, "invalid_asset", "Template assets must be valid images up to 2MB.");
   }
@@ -507,6 +1040,29 @@ templateRouter.post("/assets", asyncHandler(async (request, response) => {
     storage_path: storagePath,
     data_url: `data:${input.mime_type};base64,${buffer.toString("base64")}`
   });
+}));
+
+templateRouter.post("/preview", asyncHandler(async (request, response) => {
+  const input = draftPreviewSchema.parse(request.body);
+  const renderable = await getRenderableLayout({
+    layout_draft_id: null,
+    layout_definition: input.layout_definition,
+    locale: input.locale,
+    output: "html",
+    signature_visibility: [],
+    template_id: input.template_id || null,
+    template_version_id: input.template_version_id || null,
+    variant: input.variant
+  });
+  if (!renderable.template && !input.layout_definition) {
+    throw new AppError(422, "invalid_template", "Selected template is not available.");
+  }
+  if (renderable.template) {
+    await assertTemplateReadable(Number(renderable.template.id), request, response);
+  }
+  const context = await draftRenderContext(request, input);
+  const html = renderTemplateHtml(renderable.layout, context);
+  ok(response, { html, layout_definition: renderable.layout });
 }));
 
 templateRouter.get("/:templateId", asyncHandler(async (request, response) => {
@@ -709,88 +1265,29 @@ templateRouter.post("/documents/:documentId/render", asyncHandler(async (request
   const { documentId } = documentIdSchema.parse(request.params);
   const input = renderSchema.parse(request.body);
   const { assignment } = await assertDocumentAccess(documentId, request, response);
-  const renderable = await getRenderableLayout(input);
-  const context = await documentRenderContext(documentId);
-  const html = renderTemplateHtml(renderable.layout, context);
-
-  if (input.output === "html") {
-    ok(response, { html, layout_definition: renderable.layout });
+  if (input.output === "pdf") {
+    created(response, await ensureOfficialDocumentPdfRender(request, {
+      assignmentId: assignment.id,
+      documentId,
+      layout_definition: input.layout_definition,
+      layout_draft_id: input.layout_draft_id || null,
+      locale: input.locale,
+      signature_visibility: input.signature_visibility,
+      template_id: input.template_id || null,
+      template_version_id: input.template_version_id || null,
+      variant: input.variant
+    }));
     return;
   }
 
-  const pdfBuffer = await htmlToPdf(html);
-  const rendersDir = path.resolve(process.cwd(), "storage/document-renders");
-  await fs.mkdir(rendersDir, { recursive: true });
-  const pdfFilename = `${uuid()}.pdf`;
-  const storagePath = path.join("storage/document-renders", pdfFilename);
-  await fs.writeFile(path.resolve(process.cwd(), storagePath), pdfBuffer);
-  const checksum = createHash("sha256").update(pdfBuffer).digest("hex");
+  const context = await documentRenderContext(documentId, input.signature_visibility);
+  const renderable = await getRenderableLayout(input, {
+    documentId,
+    documentTypeId: Number(context.document.document_type_id) || null
+  });
+  const html = renderTemplateHtml(renderable.layout, context);
 
-  let renderId = 0;
-  let fileAssetId = 0;
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [assetResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO file_assets (
-        uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
-        storage_disk, storage_path, original_filename, stored_filename,
-        mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        request.session.userId!,
-        assignment.id,
-        "document_render_pdf",
-        "local",
-        storagePath,
-        `document-${documentId}.pdf`,
-        pdfFilename,
-        "application/pdf",
-        pdfBuffer.length,
-        checksum,
-        "not_encrypted",
-        "active",
-        JSON.stringify({ templateId: renderable.template?.id || null })
-      ]
-    );
-    fileAssetId = Number(assetResult.insertId);
-
-    const [renderResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO document_renders (
-        uuid, document_id, file_asset_id, render_key, render_type,
-        visibility_policy, status, created_by_assignment_id, render_definition, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        documentId,
-        fileAssetId,
-        `template_render_${uuid()}`,
-        "template_pdf",
-        input.variant,
-        "generated",
-        assignment.id,
-        JSON.stringify(renderable.layout),
-        JSON.stringify({
-          templateId: renderable.template?.id || null,
-          templateVersionId: renderable.version?.id || null,
-          layoutDraftId: renderable.layoutDraft?.id || null,
-          locale: input.locale,
-          variant: input.variant
-        })
-      ]
-    );
-    renderId = Number(renderResult.insertId);
-    await writeAuditLog(request, { action: "document.template_render.create", entityType: "document_render", entityId: renderId }, connection);
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-
-  created(response, { renderId, fileAssetId, storagePath, byteSize: pdfBuffer.length });
+  ok(response, { html, layout_definition: renderable.layout });
 }));
 
 adminTemplateRouter.get("/", asyncHandler(async (_request, response) => {
@@ -828,6 +1325,126 @@ adminTemplateRouter.get("/review-queue", asyncHandler(async (_request, response)
   ok(response, rows.map((row) => ({ ...row, layout_definition: parseJson(row.layout_definition, defaultTemplateLayout()) })));
 }));
 
+adminTemplateRouter.get("/logo-assets", asyncHandler(async (_request, response) => {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT id, storage_path, original_filename, mime_type, byte_size, created_at
+     FROM file_assets
+     WHERE purpose = ?
+       AND status = 'active'
+       AND deleted_at IS NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+    [templateLogoPurpose, maxTemplateLogoAssets]
+  );
+  ok(response, rows.map(logoAssetPayload));
+}));
+
+adminTemplateRouter.post("/logo-assets", asyncHandler(async (request, response) => {
+  const input = assetUploadSchema.parse(request.body);
+  const [[countRow]] = await pool.execute<RowDataPacket[]>(
+    "SELECT COUNT(*) AS activeCount FROM file_assets WHERE purpose = ? AND status = 'active' AND deleted_at IS NULL",
+    [templateLogoPurpose]
+  );
+  if (Number(countRow?.activeCount || 0) >= maxTemplateLogoAssets) {
+    throw new AppError(409, "template_logo_limit_reached", `Only ${maxTemplateLogoAssets} active template logos are allowed.`);
+  }
+
+  const assignment = await getActiveAssignment(request, "uploading a template logo").catch(() => null);
+  const buffer = base64ImageBuffer(input.data_base64);
+  if (!buffer.length || buffer.length > 2 * 1024 * 1024) {
+    throw new AppError(422, "invalid_asset", "Template logos must be valid images up to 2MB.");
+  }
+
+  const extension = extensionForMimeType(input.mime_type);
+  const checksum = createHash("sha256").update(buffer).digest("hex");
+  const dir = path.resolve(process.cwd(), "storage/template-assets");
+  await fs.mkdir(dir, { recursive: true });
+  const storedFilename = `${uuid()}.${extension}`;
+  const storagePath = path.join("storage/template-assets", storedFilename);
+  await fs.writeFile(path.resolve(process.cwd(), storagePath), buffer);
+
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO file_assets (
+      uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
+      storage_disk, storage_path, original_filename, stored_filename,
+      mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      uuid(),
+      request.session.userId!,
+      assignment?.id || null,
+      templateLogoPurpose,
+      "local",
+      storagePath,
+      input.original_filename,
+      storedFilename,
+      input.mime_type,
+      buffer.length,
+      checksum,
+      "not_encrypted",
+      "active",
+      JSON.stringify({ assetType: "official_logo" })
+    ]
+  );
+
+  const payload = logoAssetPayload({
+    id: Number(result.insertId),
+    storage_path: storagePath,
+    original_filename: input.original_filename,
+    mime_type: input.mime_type,
+    byte_size: buffer.length,
+    created_at: new Date().toISOString()
+  } as RowDataPacket);
+
+  await writeAuditLog(request, { action: "template.logo.upload", entityType: "file_asset", entityId: result.insertId });
+  created(response, payload);
+}));
+
+adminTemplateRouter.get("/logo-assets/:assetId/content", asyncHandler(async (request, response) => {
+  const { assetId } = assetIdSchema.parse(request.params);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT *
+     FROM file_assets
+     WHERE id = ?
+       AND purpose = ?
+       AND status IN ('active', 'archived')
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [assetId, templateLogoPurpose]
+  );
+  const asset = rows[0];
+  if (!asset) {
+    throw notFound("Logo asset");
+  }
+
+  const absolutePath = templateAssetAbsolutePath(String(asset.storage_path));
+  await fs.access(absolutePath).catch(() => {
+    throw notFound("Logo file");
+  });
+  response.setHeader("content-type", String(asset.mime_type));
+  response.setHeader("cache-control", "private, max-age=3600");
+  response.sendFile(absolutePath);
+}));
+
+adminTemplateRouter.delete("/logo-assets/:assetId", asyncHandler(async (request, response) => {
+  const { assetId } = assetIdSchema.parse(request.params);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE file_assets
+     SET status = 'archived', updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?
+       AND purpose = ?
+       AND status = 'active'
+       AND deleted_at IS NULL`,
+    [assetId, templateLogoPurpose]
+  );
+  if (!result.affectedRows) {
+    throw notFound("Logo asset");
+  }
+
+  await writeAuditLog(request, { action: "template.logo.archive", entityType: "file_asset", entityId: assetId });
+  ok(response, { id: assetId, status: "archived" });
+}));
+
 adminTemplateRouter.post("/:templateId/versions/:versionId/approve", asyncHandler(async (request, response) => {
   const { templateId, versionId } = versionIdSchema.parse(request.params);
   const version = await fetchTemplateVersion(versionId);
@@ -852,6 +1469,13 @@ adminTemplateRouter.post("/:templateId/versions/:versionId/approve", asyncHandle
       `UPDATE document_templates
        SET status = 'published', visibility = 'public', current_version_id = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
+      [versionId, templateId]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_template_bindings
+       SET template_version_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE template_id = ?
+         AND status = 'active'`,
       [versionId, templateId]
     );
     await writeAuditLog(request, { action: "template.approve", entityType: "document_template", entityId: templateId, metadata: { versionId } }, connection);
@@ -931,23 +1555,35 @@ adminTemplateRouter.post("/bindings", asyncHandler(async (request, response) => 
     throw new AppError(422, "invalid_published_template", "Bindings require an active published template version.");
   }
 
-  await pool.execute<ResultSetHeader>(
-    `UPDATE document_template_bindings
-     SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
-     WHERE status = 'active'
-       AND document_type_id <=> ?
-       AND locale = ?
-       AND variant = ?`,
-    [input.document_type_id || null, input.locale, input.variant]
-  );
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO document_template_bindings (
-      uuid, document_type_id, locale, variant, template_id, template_version_id, status, created_by_user_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [uuid(), input.document_type_id || null, input.locale, input.variant, input.template_id, Number(versionId), "active", request.session.userId!]
-  );
-  await writeAuditLog(request, { action: "template.binding.create", entityType: "document_template_binding", entityId: result.insertId });
-  created(response, { id: Number(result.insertId) });
+  const documentTypeId = input.document_type_id || null;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_template_bindings
+       SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
+       WHERE status = 'active'
+         AND document_type_id <=> ?
+         AND locale = ?
+         AND variant = ?`,
+      [documentTypeId, input.locale, input.variant]
+    );
+
+    const [result] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_template_bindings (
+        uuid, document_type_id, locale, variant, template_id, template_version_id, status, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uuid(), documentTypeId, input.locale, input.variant, input.template_id, Number(versionId), "active", request.session.userId!]
+    );
+    await writeAuditLog(request, { action: "template.binding.create", entityType: "document_template_binding", entityId: result.insertId }, connection);
+    await connection.commit();
+    created(response, { id: Number(result.insertId) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }));
 
 adminTemplateRouter.patch("/bindings/:bindingId", asyncHandler(async (request, response) => {

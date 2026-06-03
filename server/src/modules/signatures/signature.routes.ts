@@ -1,28 +1,40 @@
 import argon2 from "argon2";
-import { createCipheriv, createHash, randomBytes } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { createHash, randomBytes } from "node:crypto";
 import { Router } from "express";
 import type { Request } from "express";
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
-import { env } from "../../config/env";
 import { pool } from "../../db/mysql";
 import { requireAnyRole, requireAuth } from "../../middleware/auth";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
 import { assertDocumentAccess, getActiveAssignment } from "../../shared/document-access";
+import { calculateDocumentContentHash } from "../../shared/document-hash";
 import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
+import { createFinalDocumentRender } from "../templates/final-render-service";
+import { assignOfficialSerial as assignOfficialSerialForTask } from "./serial-assignment-service";
+import { decryptSignatureFile, encryptAndStoreSignature } from "./signature-assets";
+import {
+  findUnsupportedSerialTokens,
+  previewSerialNumber,
+  serialResetPolicies,
+  serialScopes,
+  serialSequenceKey,
+  serialStatuses
+} from "./serial-numbering";
+import type { SerialContext, SerialRuleLike } from "./serial-numbering";
 
 export const signatureRouter = Router();
 export const adminSignatureRouter = Router();
+export const publicSignatureUploadRouter = Router();
 
 signatureRouter.use(requireAuth);
 adminSignatureRouter.use(requireAuth, requireAnyRole(["system_admin", "admin_staff"]));
 
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
+const endorsementCommentMaxLength = 300;
 
 const enrollSignatureSchema = z.object({
   pin: z.string().min(4).max(32),
@@ -31,12 +43,25 @@ const enrollSignatureSchema = z.object({
   mime_type: z.string().trim().min(1).max(160).optional()
 });
 
-const generateSlotsSchema = z.object({
-  force: z.boolean().default(false)
+const signatureUploadSchema = z.object({
+  signature_image_base64: z.string().min(20),
+  original_filename: z.string().trim().min(1).max(255).default("phone-signature.png"),
+  mime_type: z.string().trim().min(1).max(160).optional()
 });
 
-const signSlotSchema = z.object({
+const confirmUploadSchema = z.object({
   pin: z.string().min(4).max(32),
+  signature_image_base64: z.string().min(20).optional(),
+  original_filename: z.string().trim().min(1).max(255).optional(),
+  mime_type: z.string().trim().min(1).max(160).optional(),
+  upload_session_id: z.coerce.number().int().positive()
+});
+
+const signTaskSchema = z.object({
+  pin: z.string().min(4).max(32),
+  expected_document_hash: z.string().trim().length(64).optional(),
+  expected_document_version_number: z.coerce.number().int().positive().optional(),
+  response_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional(),
   render_page: z.coerce.number().int().nonnegative().nullable().optional(),
   render_x: z.coerce.number().nullable().optional(),
   render_y: z.coerce.number().nullable().optional(),
@@ -44,192 +69,45 @@ const signSlotSchema = z.object({
   render_height: z.coerce.number().positive().nullable().optional()
 });
 
-const createSignatureRuleSchema = z.object({
-  document_type_id: z.coerce.number().int().positive(),
-  origin_unit_type_id: z.coerce.number().int().positive().nullable().optional(),
-  step_number: z.coerce.number().int().positive(),
-  required_position_id: z.coerce.number().int().positive(),
-  required_unit_scope: z.string().trim().min(1).max(80),
-  signature_mode: z.string().trim().min(1).max(80).default("pin_signature_image"),
-  is_required: z.boolean().default(true),
-  is_parallel: z.boolean().default(false),
-  can_finalize_document: z.boolean().default(false),
-  can_be_hidden_later: z.boolean().default(false),
-  status: z.enum(["draft", "active", "inactive", "archived"]).default("draft"),
-  notes: optionalNullableString
-});
-
-const updateSignatureRuleSchema = z.object({
-  document_type_id: z.coerce.number().int().positive().optional(),
-  origin_unit_type_id: z.coerce.number().int().positive().nullable().optional(),
-  step_number: z.coerce.number().int().positive().optional(),
-  required_position_id: z.coerce.number().int().positive().optional(),
-  required_unit_scope: z.string().trim().min(1).max(80).optional(),
-  signature_mode: z.string().trim().min(1).max(80).optional(),
-  is_required: z.boolean().optional(),
-  is_parallel: z.boolean().optional(),
-  can_finalize_document: z.boolean().optional(),
-  can_be_hidden_later: z.boolean().optional(),
-  status: z.enum(["draft", "active", "inactive", "archived"]).optional(),
-  notes: optionalNullableString
-});
+const serialStatusSchema = z.enum(serialStatuses);
+const serialScopeSchema = z.enum(serialScopes);
+const serialResetPolicySchema = z.enum(serialResetPolicies);
 
 const createSerialRuleSchema = z.object({
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(140),
   format: z.string().trim().min(1).max(160).default("DOC-{YEAR}-{SEQUENCE}"),
-  scope: z.enum(["global"]).default("global"),
-  reset_policy: z.enum(["yearly"]).default("yearly"),
+  scope: serialScopeSchema.default("global"),
+  reset_policy: serialResetPolicySchema.default("yearly"),
   sequence_padding: z.coerce.number().int().min(1).max(12).default(6),
   is_default: z.boolean().default(false),
-  status: z.enum(["draft", "active", "inactive", "archived"]).default("draft"),
+  status: serialStatusSchema.default("draft"),
   notes: optionalNullableString
 });
 
-const updateStatusSchema = z.object({
-  status: z.enum(["draft", "active", "inactive", "archived"])
+const updateSerialRuleSchema = createSerialRuleSchema.partial();
+
+const previewSerialRuleSchema = z.object({
+  serial_rule_id: z.coerce.number().int().positive().optional(),
+  rule: z.object({
+    format: z.string().trim().min(1).max(160).default("DOC-{YEAR}-{SEQUENCE}"),
+    scope: serialScopeSchema.default("global"),
+    reset_policy: serialResetPolicySchema.default("yearly"),
+    sequence_padding: z.coerce.number().int().min(1).max(12).default(6)
+  }).optional(),
+  context: z.object({
+    documentTypeCode: z.string().trim().min(1).max(80).optional(),
+    organizationCode: z.string().trim().min(1).max(80).optional(),
+    originUnitCode: z.string().trim().min(1).max(80).optional()
+  }).optional(),
+  current_value: z.coerce.number().int().nonnegative().optional(),
+  date: z.coerce.date().optional(),
+  sequence_value: z.coerce.number().int().positive().optional()
 });
 
-function encryptionKey() {
-  return createHash("sha256").update(env.SIGNATURE_ENCRYPTION_KEY).digest();
-}
-
-function parseBase64Image(value: string, fallbackMimeType?: string) {
-  const dataUrlMatch = value.match(/^data:([^;]+);base64,(.+)$/);
-  const mimeType = dataUrlMatch?.[1] || fallbackMimeType || "image/png";
-  const base64 = dataUrlMatch?.[2] || value;
-  const buffer = Buffer.from(base64, "base64");
-
-  if (!buffer.length) {
-    throw new AppError(422, "invalid_signature_image", "Signature image payload is not valid base64.");
-  }
-
-  return { buffer, mimeType };
-}
-
-async function encryptAndStoreSignature(input: {
-  userId: number;
-  assignmentId?: number;
-  imageBase64: string;
-  originalFilename: string;
-  mimeType?: string;
-}) {
-  const { buffer, mimeType } = parseBase64Image(input.imageBase64, input.mimeType);
-  const checksum = createHash("sha256").update(buffer).digest("hex");
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(buffer), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  const encryptedPayload = Buffer.concat([iv, tag, ciphertext]);
-  const storageUuid = uuid();
-  const storageDir = path.resolve(process.cwd(), env.SIGNATURE_STORAGE_DIR);
-  const relativePath = path.join(env.SIGNATURE_STORAGE_DIR, `${storageUuid}.sigenc`);
-  const absolutePath = path.resolve(process.cwd(), relativePath);
-
-  await fs.mkdir(storageDir, { recursive: true });
-  await fs.writeFile(absolutePath, encryptedPayload);
-
-  return {
-    storagePath: relativePath,
-    originalFilename: input.originalFilename,
-    storedFilename: `${storageUuid}.sigenc`,
-    mimeType,
-    byteSize: encryptedPayload.length,
-    checksum,
-    metadata: {
-      encrypted: true,
-      algorithm: "aes-256-gcm",
-      iv: iv.toString("base64"),
-      tag: tag.toString("base64"),
-      plaintextByteSize: buffer.length
-    }
-  };
-}
-
-async function findAncestorUnit(startUnitId: number, targetUnitTypeCode: string) {
-  const fetchUnit = async (unitId: number) => {
-    const [rows] = await pool.execute<RowDataPacket[]>(
-      `SELECT units.id, units.parent_unit_id AS parentUnitId, unit_types.code AS unitTypeCode
-       FROM units
-       INNER JOIN unit_types ON units.unit_type_id = unit_types.id
-       WHERE units.id = ?
-       LIMIT 1`,
-      [unitId]
-    );
-    return rows[0] || null;
-  };
-
-  let current = await fetchUnit(startUnitId);
-
-  while (current) {
-    if (current.unitTypeCode === targetUnitTypeCode) {
-      return Number(current.id);
-    }
-
-    if (!current.parentUnitId) {
-      return null;
-    }
-
-    current = await fetchUnit(Number(current.parentUnitId));
-  }
-
-  return null;
-}
-
-async function resolveTargetUnitId(originUnitId: number, scope: string) {
-  const [originRows] = await pool.execute<RowDataPacket[]>(
-    "SELECT id, organization_id AS organizationId FROM units WHERE id = ? LIMIT 1",
-    [originUnitId]
-  );
-  const origin = originRows[0];
-  if (!origin) {
-    return null;
-  }
-
-  if (["same_unit", "same_department", "same_faculty", "same_committee"].includes(scope)) {
-    return originUnitId;
-  }
-
-  if (scope === "parent_faculty") {
-    return findAncestorUnit(originUnitId, "faculty");
-  }
-
-  if (scope === "parent_vice_chancellery") {
-    return findAncestorUnit(originUnitId, "vice_chancellery");
-  }
-
-  if (["university", "same_university"].includes(scope)) {
-    const [universityRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT units.id
-       FROM units
-       INNER JOIN unit_types ON units.unit_type_id = unit_types.id
-       WHERE units.organization_id = ?
-         AND unit_types.code = 'university'
-         AND units.deleted_at IS NULL
-       LIMIT 1`,
-      [origin.organizationId]
-    );
-    const university = universityRows[0];
-
-    return university ? Number(university.id) : null;
-  }
-
-  return null;
-}
-
-async function getDocumentOriginUnitType(documentId: number) {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT units.unit_type_id AS unitTypeId
-     FROM documents
-     INNER JOIN units ON documents.origin_unit_id = units.id
-     WHERE documents.id = ?
-     LIMIT 1`,
-    [documentId]
-  );
-  const row = rows[0];
-
-  return row ? Number(row.unitTypeId) : null;
-}
+const updateStatusSchema = z.object({
+  status: serialStatusSchema
+});
 
 async function getSignatureProfile(userId: number) {
   const [rows] = await pool.execute<RowDataPacket[]>(
@@ -362,128 +240,110 @@ async function verifySigningPin(request: Request, userId: number, assignmentId: 
   };
 }
 
-function formatSerial(rule: Record<string, any>, year: number, nextValue: number) {
-  const sequence = String(nextValue).padStart(Number(rule.sequence_padding), "0");
-  return String(rule.format)
-    .replaceAll("{YEAR}", String(year))
-    .replaceAll("{SEQUENCE}", sequence);
-}
-
-async function assignOfficialSerial(connection: PoolConnection, input: {
-  documentId: number;
-  assignmentId: number;
-  signatureEventId: number;
+async function createSignatureFileAsset(connection: PoolConnection, input: {
+  assignmentId?: number | null;
+  purpose: string;
+  status?: string;
+  stored: Awaited<ReturnType<typeof encryptAndStoreSignature>>;
+  userId: number;
 }) {
-  const [existingRows] = await connection.execute<RowDataPacket[]>(
-    "SELECT * FROM serial_assignments WHERE document_id = ? LIMIT 1",
-    [input.documentId]
-  );
-  const existing = existingRows[0];
-  if (existing) {
-    return existing;
-  }
-
-  const [serialRuleRows] = await connection.execute<RowDataPacket[]>(
-    `SELECT *
-     FROM serial_rules
-     WHERE status = 'active' AND is_default = TRUE
-     ORDER BY id ASC
-     LIMIT 1`
-  );
-  const serialRule = serialRuleRows[0];
-
-  if (!serialRule) {
-    throw new AppError(409, "serial_rule_required", "No active default serial rule exists.");
-  }
-
-  const year = new Date().getUTCFullYear();
-  const sequenceScope = "global";
-
-  await connection.execute<ResultSetHeader>(
-    `INSERT IGNORE INTO serial_sequences (
-      serial_rule_id, sequence_scope, sequence_year, current_value
-    ) VALUES (?, ?, ?, ?)`,
-    [serialRule.id, sequenceScope, year, 0]
-  );
-
-  const [sequenceRows] = await connection.execute<RowDataPacket[]>(
-    `SELECT *
-     FROM serial_sequences
-     WHERE serial_rule_id = ?
-       AND sequence_scope = ?
-       AND sequence_year = ?
-     LIMIT 1
-     FOR UPDATE`,
-    [serialRule.id, sequenceScope, year]
-  );
-  const sequence = sequenceRows[0];
-
-  const nextValue = Number(sequence.current_value) + 1;
-  const serialValue = formatSerial(serialRule, year, nextValue);
-
-  await connection.execute<ResultSetHeader>(
-    "UPDATE serial_sequences SET current_value = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    [nextValue, sequence.id]
-  );
-
-  const [serialAssignmentResult] = await connection.execute<ResultSetHeader>(
-    `INSERT INTO serial_assignments (
-      uuid, document_id, serial_rule_id, serial_sequence_id, serial_value,
-      assigned_by_assignment_id, signature_event_id, metadata
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  const [fileResult] = await connection.execute<ResultSetHeader>(
+    `INSERT INTO file_assets (
+      uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
+      storage_disk, storage_path, original_filename, stored_filename,
+      mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       uuid(),
-      input.documentId,
-      serialRule.id,
-      sequence.id,
-      serialValue,
-      input.assignmentId,
-      input.signatureEventId,
-      JSON.stringify({ year, sequenceScope, sequenceValue: nextValue })
+      input.userId,
+      input.assignmentId || null,
+      input.purpose,
+      "local_encrypted",
+      input.stored.storagePath,
+      input.stored.originalFilename,
+      input.stored.storedFilename,
+      input.stored.mimeType,
+      input.stored.byteSize,
+      input.stored.checksum,
+      "encrypted",
+      input.status || "active",
+      JSON.stringify(input.stored.metadata)
     ]
   );
-  const serialAssignmentId = serialAssignmentResult.insertId;
 
-  await connection.execute<ResultSetHeader>(
-    "UPDATE signature_events SET serial_assignment_id = ? WHERE id = ?",
-    [serialAssignmentId, input.signatureEventId]
-  );
-
-  await connection.execute<ResultSetHeader>(
-    `UPDATE documents
-     SET official_serial = ?,
-         status = 'serial_assigned',
-         finalized_at = CURRENT_TIMESTAMP,
-         finalized_by_assignment_id = ?,
-         official_serial_generated_at = CURRENT_TIMESTAMP,
-         official_serial_generated_by_assignment_id = ?,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [serialValue, input.assignmentId, input.assignmentId, input.documentId]
-  );
-
-  const [assignmentRows] = await connection.execute<RowDataPacket[]>(
-    "SELECT * FROM serial_assignments WHERE id = ? LIMIT 1",
-    [serialAssignmentId]
-  );
-  return assignmentRows[0] || null;
+  return Number(fileResult.insertId);
 }
 
-async function getSlotsForDocument(documentId: number) {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT
-      signature_slots.*,
-      positions.code AS requiredPositionCode,
-      positions.title AS requiredPositionTitle,
-      units.name AS targetUnitName
-    FROM signature_slots
-    INNER JOIN positions ON signature_slots.required_position_id = positions.id
-    LEFT JOIN units ON signature_slots.target_unit_id = units.id
-    WHERE signature_slots.document_id = ?
-    ORDER BY signature_slots.step_number ASC, signature_slots.id ASC`,
-    [documentId]
+async function activateSignatureAsset(connection: PoolConnection, request: Request, input: {
+  fileAssetId: number;
+  pin: string;
+  profileMetadata: Record<string, unknown>;
+  userId: number;
+}) {
+  const [existingRows] = await connection.execute<RowDataPacket[]>(
+    "SELECT * FROM signature_profiles WHERE user_id = ? AND deleted_at IS NULL LIMIT 1",
+    [input.userId]
   );
-  return rows;
+  const existing = existingRows[0];
+  const pinHash = await argon2.hash(input.pin, { type: argon2.argon2id });
+  let profileId = 0;
+
+  if (existing) {
+    profileId = Number(existing.id);
+    await connection.execute<ResultSetHeader>(
+      `UPDATE signature_profiles
+       SET pin_hash = ?,
+           status = 'active',
+           failed_pin_attempts = 0,
+           locked_until = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [pinHash, existing.id]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE signature_assets
+       SET status = 'superseded', updated_at = CURRENT_TIMESTAMP
+       WHERE signature_profile_id = ? AND status = 'active'`,
+      [existing.id]
+    );
+  } else {
+    const [profileResult] = await connection.execute<ResultSetHeader>(
+      "INSERT INTO signature_profiles (uuid, user_id, pin_hash, status) VALUES (?, ?, ?, ?)",
+      [uuid(), input.userId, pinHash, "active"]
+    );
+    profileId = Number(profileResult.insertId);
+  }
+
+  const [assetResult] = await connection.execute<ResultSetHeader>(
+    `INSERT INTO signature_assets (
+      uuid, signature_profile_id, file_asset_id, status, processing_status,
+      encryption_algorithm, accepted_at, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+    [
+      uuid(),
+      profileId,
+      input.fileAssetId,
+      "active",
+      "background_removed_preview_accepted",
+      "aes-256-gcm",
+      JSON.stringify(input.profileMetadata)
+    ]
+  );
+  const signatureAssetId = Number(assetResult.insertId);
+
+  await connection.execute<ResultSetHeader>(
+    `UPDATE signature_profiles
+     SET active_signature_asset_id = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [signatureAssetId, profileId]
+  );
+
+  await writeAuditLog(request, { action: "signature.profile.enroll", entityType: "signature_profile", entityId: profileId }, connection);
+  return profileId;
+}
+
+function tokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 signatureRouter.get("/profile", asyncHandler(async (_request, response) => {
@@ -492,106 +352,57 @@ signatureRouter.get("/profile", asyncHandler(async (_request, response) => {
   ok(response, profile || null);
 }));
 
+signatureRouter.get("/profile/asset", asyncHandler(async (_request, response) => {
+  const authUser = response.locals.authUser!;
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT file_assets.storage_path AS storagePath, file_assets.mime_type AS mimeType
+     FROM signature_profiles
+     INNER JOIN signature_assets ON signature_profiles.active_signature_asset_id = signature_assets.id
+     INNER JOIN file_assets ON signature_assets.file_asset_id = file_assets.id
+     WHERE signature_profiles.user_id = ?
+       AND signature_profiles.status = 'active'
+       AND signature_profiles.deleted_at IS NULL
+       AND signature_assets.status = 'active'
+       AND file_assets.status = 'active'
+     LIMIT 1`,
+    [authUser.id]
+  );
+  const asset = rows[0];
+  if (!asset) {
+    throw notFound("Signature asset");
+  }
+  const decrypted = await decryptSignatureFile({
+    mimeType: String(asset.mimeType),
+    storagePath: String(asset.storagePath)
+  });
+  ok(response, { data_url: decrypted.dataUrl, mime_type: decrypted.mimeType });
+}));
+
 signatureRouter.post("/profile", asyncHandler(async (request, response) => {
   const input = enrollSignatureSchema.parse(request.body);
   const authUser = response.locals.authUser!;
   const assignment = request.session.activeAssignmentId ? await getActiveAssignment(request) : null;
   const stored = await encryptAndStoreSignature({
-    userId: authUser.id,
-    assignmentId: assignment?.id,
     imageBase64: input.signature_image_base64,
     originalFilename: input.original_filename,
     mimeType: input.mime_type
   });
 
-  let profileId = 0;
-
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [existingRows] = await connection.execute<RowDataPacket[]>(
-      "SELECT * FROM signature_profiles WHERE user_id = ? AND deleted_at IS NULL LIMIT 1",
-      [authUser.id]
-    );
-    const existing = existingRows[0];
-    const pinHash = await argon2.hash(input.pin, { type: argon2.argon2id });
-
-    if (existing) {
-      profileId = Number(existing.id);
-      await connection.execute<ResultSetHeader>(
-        `UPDATE signature_profiles
-         SET pin_hash = ?,
-             status = 'active',
-             failed_pin_attempts = 0,
-             locked_until = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [pinHash, existing.id]
-      );
-      await connection.execute<ResultSetHeader>(
-        `UPDATE signature_assets
-         SET status = 'superseded', updated_at = CURRENT_TIMESTAMP
-         WHERE signature_profile_id = ? AND status = 'active'`,
-        [existing.id]
-      );
-    } else {
-      const [profileResult] = await connection.execute<ResultSetHeader>(
-        "INSERT INTO signature_profiles (uuid, user_id, pin_hash, status) VALUES (?, ?, ?, ?)",
-        [uuid(), authUser.id, pinHash, "active"]
-      );
-      profileId = Number(profileResult.insertId);
-    }
-
-    const [fileResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO file_assets (
-        uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
-        storage_disk, storage_path, original_filename, stored_filename,
-        mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        authUser.id,
-        assignment?.id || null,
-        "signature_image",
-        "local_encrypted",
-        stored.storagePath,
-        stored.originalFilename,
-        stored.storedFilename,
-        stored.mimeType,
-        stored.byteSize,
-        stored.checksum,
-        "encrypted",
-        "active",
-        JSON.stringify(stored.metadata)
-      ]
-    );
-    const fileAssetId = fileResult.insertId;
-
-    const [assetResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO signature_assets (
-        uuid, signature_profile_id, file_asset_id, status, processing_status,
-        encryption_algorithm, accepted_at, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
-      [
-        uuid(),
-        profileId,
-        fileAssetId,
-        "active",
-        "accepted_without_background_removal",
-        "aes-256-gcm",
-        JSON.stringify({ phase: 3, backgroundRemoval: "not_implemented_yet" })
-      ]
-    );
-    const signatureAssetId = assetResult.insertId;
-
-    await connection.execute<ResultSetHeader>(
-      `UPDATE signature_profiles
-       SET active_signature_asset_id = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [signatureAssetId, profileId]
-    );
-
-    await writeAuditLog(request, { action: "signature.profile.enroll", entityType: "signature_profile", entityId: profileId }, connection);
+    const fileAssetId = await createSignatureFileAsset(connection, {
+      assignmentId: assignment?.id,
+      purpose: "signature_image",
+      stored,
+      userId: authUser.id
+    });
+    await activateSignatureAsset(connection, request, {
+      fileAssetId,
+      pin: input.pin,
+      profileMetadata: { backgroundRemoval: "client_simple_cleanup", enrollmentSource: "desktop_upload" },
+      userId: authUser.id
+    });
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -603,111 +414,149 @@ signatureRouter.post("/profile", asyncHandler(async (request, response) => {
   created(response, await getSignatureProfile(authUser.id));
 }));
 
-signatureRouter.get("/documents/:documentId/slots", asyncHandler(async (request, response) => {
-  const { documentId } = z.object({ documentId: z.coerce.number().int().positive() }).parse(request.params);
-  await assertDocumentAccess(documentId, request, response);
-  ok(response, await getSlotsForDocument(documentId));
+signatureRouter.post("/upload-sessions", asyncHandler(async (request, response) => {
+  const authUser = response.locals.authUser!;
+  const assignment = request.session.activeAssignmentId ? await getActiveAssignment(request) : null;
+  const rawToken = randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO signature_upload_sessions (
+      uuid, user_id, assignment_id, token_hash, status, expires_at,
+      ip_address, user_agent, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      uuid(),
+      authUser.id,
+      assignment?.id || null,
+      tokenHash(rawToken),
+      "pending",
+      expiresAt,
+      request.ip || null,
+      request.get("user-agent") || null,
+      JSON.stringify({ uploadMode: "phone_qr" })
+    ]
+  );
+  const id = Number(result.insertId);
+  await writeAuditLog(request, { action: "signature.upload_session.create", entityType: "signature_upload_session", entityId: id });
+  created(response, {
+    id,
+    expires_at: expiresAt.toISOString(),
+    status: "pending",
+    token: rawToken,
+    upload_url: `/signature-upload/${rawToken}`
+  });
 }));
 
-signatureRouter.post("/documents/:documentId/slots/generate", asyncHandler(async (request, response) => {
-  const { documentId } = z.object({ documentId: z.coerce.number().int().positive() }).parse(request.params);
-  const input = generateSlotsSchema.parse(request.body);
-  const { document, assignment } = await assertDocumentAccess(documentId, request, response);
-  const originUnitTypeId = await getDocumentOriginUnitType(documentId);
+signatureRouter.get("/upload-sessions/:sessionId", asyncHandler(async (request, response) => {
+  const { sessionId } = z.object({ sessionId: z.coerce.number().int().positive() }).parse(request.params);
+  const authUser = response.locals.authUser!;
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT id, status, expires_at, consumed_at, uploaded_file_asset_id AS uploadedFileAssetId, created_at, updated_at
+     FROM signature_upload_sessions
+     WHERE id = ? AND user_id = ?
+     LIMIT 1`,
+    [sessionId, authUser.id]
+  );
+  const session = rows[0];
+  if (!session) {
+    throw notFound("Signature upload session");
+  }
+  ok(response, {
+    ...session,
+    expired: new Date(session.expires_at) <= new Date(),
+    preview_url: session.uploadedFileAssetId ? `/api/signatures/upload-sessions/${sessionId}/asset` : null
+  });
+}));
 
-  let createdCount = 0;
+signatureRouter.get("/upload-sessions/:sessionId/asset", asyncHandler(async (request, response) => {
+  const { sessionId } = z.object({ sessionId: z.coerce.number().int().positive() }).parse(request.params);
+  const authUser = response.locals.authUser!;
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT file_assets.storage_path AS storagePath, file_assets.mime_type AS mimeType
+     FROM signature_upload_sessions
+     INNER JOIN file_assets ON signature_upload_sessions.uploaded_file_asset_id = file_assets.id
+     WHERE signature_upload_sessions.id = ?
+       AND signature_upload_sessions.user_id = ?
+       AND file_assets.status = 'pending'
+     LIMIT 1`,
+    [sessionId, authUser.id]
+  );
+  const asset = rows[0];
+  if (!asset) {
+    throw notFound("Signature upload asset");
+  }
+  const decrypted = await decryptSignatureFile({
+    mimeType: String(asset.mimeType),
+    storagePath: String(asset.storagePath)
+  });
+  ok(response, { data_url: decrypted.dataUrl, mime_type: decrypted.mimeType });
+}));
+
+signatureRouter.post("/profile/confirm-upload", asyncHandler(async (request, response) => {
+  const input = confirmUploadSchema.parse(request.body);
+  const authUser = response.locals.authUser!;
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [existingSlots] = await connection.execute<RowDataPacket[]>(
-      "SELECT * FROM signature_slots WHERE document_id = ?",
-      [documentId]
-    );
-    if (existingSlots.length && !input.force) {
-      await connection.commit();
-      return;
-    }
-
-    if (existingSlots.length && input.force) {
-      const hasCompleted = existingSlots.some((slot) => slot.status === "completed");
-      if (hasCompleted) {
-        throw new AppError(409, "completed_slots_exist", "Cannot regenerate signature slots after signing has started.");
-      }
-      await connection.execute<ResultSetHeader>(
-        "DELETE FROM signature_slots WHERE document_id = ?",
-        [documentId]
-      );
-    }
-
-    const [rules] = await connection.execute<RowDataPacket[]>(
+    const [sessionRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
-       FROM signature_rules
-       WHERE document_type_id = ?
-         AND status = 'active'
-         AND (origin_unit_type_id = ? OR origin_unit_type_id IS NULL)
-       ORDER BY step_number ASC, id ASC`,
-      [document.document_type_id, originUnitTypeId]
+       FROM signature_upload_sessions
+       WHERE id = ? AND user_id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [input.upload_session_id, authUser.id]
     );
-
-    if (!rules.length) {
-      throw new AppError(409, "signature_rules_missing", "No active signature rules match this document.");
+    const session = sessionRows[0];
+    if (!session || !session.uploaded_file_asset_id) {
+      throw notFound("Signature upload session");
+    }
+    if (session.status !== "uploaded" || new Date(session.expires_at) <= new Date()) {
+      throw new AppError(409, "signature_upload_session_not_usable", "This signature upload session is no longer usable.");
     }
 
-    for (const rule of rules) {
-      const targetUnitId = await resolveTargetUnitId(Number(document.origin_unit_id), rule.required_unit_scope);
+    let fileAssetId = Number(session.uploaded_file_asset_id);
+    let enrollmentSource = "phone_upload";
+
+    if (input.signature_image_base64) {
+      const stored = await encryptAndStoreSignature({
+        imageBase64: input.signature_image_base64,
+        originalFilename: input.original_filename || "phone-signature-edited.png",
+        mimeType: input.mime_type || "image/png"
+      });
+      fileAssetId = await createSignatureFileAsset(connection, {
+        assignmentId: session.assignment_id ? Number(session.assignment_id) : null,
+        purpose: "signature_image",
+        stored,
+        userId: authUser.id
+      });
+      enrollmentSource = "phone_upload_desktop_confirmed_edit";
       await connection.execute<ResultSetHeader>(
-        `INSERT INTO signature_slots (
-          uuid, document_id, signature_rule_id, step_number, required_position_id,
-          target_unit_id, required_unit_scope, signature_mode, is_required,
-          is_parallel, can_finalize_document, can_be_hidden_later, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          uuid(),
-          documentId,
-          rule.id,
-          rule.step_number,
-          rule.required_position_id,
-          targetUnitId,
-          rule.required_unit_scope,
-          rule.signature_mode,
-          rule.is_required,
-          rule.is_parallel,
-          rule.can_finalize_document,
-          rule.can_be_hidden_later,
-          "pending"
-        ]
+        "UPDATE file_assets SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [session.uploaded_file_asset_id]
       );
-      createdCount += 1;
-    }
-
-    if (["draft", "under_review"].includes(document.status)) {
+    } else {
       await connection.execute<ResultSetHeader>(
-        "UPDATE documents SET status = 'pending_signatures', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [documentId]
+        "UPDATE file_assets SET purpose = 'signature_image', status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [session.uploaded_file_asset_id]
       );
     }
 
+    await activateSignatureAsset(connection, request, {
+      fileAssetId,
+      pin: input.pin,
+      profileMetadata: { backgroundRemoval: "client_simple_cleanup", enrollmentSource },
+      userId: authUser.id
+    });
     await connection.execute<ResultSetHeader>(
-      `INSERT INTO document_workflow_events (
-        uuid, document_id, actor_assignment_id, action, from_status,
-        to_status, from_unit_id, to_unit_id, note, payload
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        documentId,
-        assignment.id,
-        "generate_signature_slots",
-        document.status,
-        ["draft", "under_review"].includes(document.status) ? "pending_signatures" : document.status,
-        document.current_holder_unit_id,
-        document.current_holder_unit_id,
-        `Generated ${createdCount} signature slot(s).`,
-        JSON.stringify({ createdCount })
-      ]
+      `UPDATE signature_upload_sessions
+       SET status = 'consumed',
+           consumed_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [session.id]
     );
-
-    await writeAuditLog(request, { action: "signature.slots.generate", entityType: "document", entityId: documentId }, connection);
+    await writeAuditLog(request, { action: "signature.upload_session.consume", entityType: "signature_upload_session", entityId: session.id }, connection);
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -716,79 +565,155 @@ signatureRouter.post("/documents/:documentId/slots/generate", asyncHandler(async
     connection.release();
   }
 
-  created(response, await getSlotsForDocument(documentId));
+  ok(response, await getSignatureProfile(authUser.id));
 }));
 
-signatureRouter.post("/documents/:documentId/slots/:slotId/sign", asyncHandler(async (request, response) => {
+publicSignatureUploadRouter.post("/signature-upload/:token", asyncHandler(async (request, response) => {
+  const { token } = z.object({ token: z.string().trim().min(32).max(128) }).parse(request.params);
+  const input = signatureUploadSchema.parse(request.body);
+  const stored = await encryptAndStoreSignature({
+    imageBase64: input.signature_image_base64,
+    originalFilename: input.original_filename,
+    mimeType: input.mime_type
+  });
+
+  let sessionId = 0;
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [sessionRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT *
+       FROM signature_upload_sessions
+       WHERE token_hash = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [tokenHash(token)]
+    );
+    const session = sessionRows[0];
+    if (!session || session.status !== "pending" || new Date(session.expires_at) <= new Date()) {
+      throw new AppError(404, "signature_upload_session_not_found", "Signature upload link is invalid or expired.");
+    }
+    sessionId = Number(session.id);
+    const fileAssetId = await createSignatureFileAsset(connection, {
+      assignmentId: session.assignment_id ? Number(session.assignment_id) : null,
+      purpose: "signature_upload_pending",
+      status: "pending",
+      stored,
+      userId: Number(session.user_id)
+    });
+    await connection.execute<ResultSetHeader>(
+      `UPDATE signature_upload_sessions
+       SET status = 'uploaded',
+           uploaded_file_asset_id = ?,
+           ip_address = ?,
+           user_agent = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        fileAssetId,
+        request.ip || null,
+        request.get("user-agent") || null,
+        session.id
+      ]
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  created(response, { session_id: sessionId, status: "uploaded" });
+}));
+
+signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(async (request, response) => {
   const params = z.object({
     documentId: z.coerce.number().int().positive(),
-    slotId: z.coerce.number().int().positive()
+    taskId: z.coerce.number().int().positive()
   }).parse(request.params);
-  const input = signSlotSchema.parse(request.body);
+  const input = signTaskSchema.parse(request.body);
   const authUser = response.locals.authUser!;
-  const { document, assignment } = await assertDocumentAccess(params.documentId, request, response);
+  const { assignment } = await assertDocumentAccess(params.documentId, request, response);
   const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
 
   let signatureEventId = 0;
+  let shouldCreateFinalRender = false;
+  let signedDocumentHash = "";
+  let serialAssignmentAfterSign: RowDataPacket | null = null;
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [slotRows] = await connection.execute<RowDataPacket[]>(
+    const [lockedDocumentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE",
+      [params.documentId]
+    );
+    const lockedDocument = lockedDocumentRows[0];
+    if (!lockedDocument) {
+      throw notFound("Document");
+    }
+    if (["archived", "closed", "finalized", "serial_assigned"].includes(String(lockedDocument.status))) {
+      throw new AppError(409, "document_not_signable", "Finalized, closed, or archived documents cannot be signed.");
+    }
+
+    const [taskRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
-       FROM signature_slots
-       WHERE id = ? AND document_id = ?
+       FROM document_tasks
+       WHERE id = ?
+         AND document_id = ?
+         AND status = 'open'
+         AND deleted_at IS NULL
+         AND (required_action = 'sign' OR can_sign = TRUE)
+         AND (
+           assigned_assignment_id = ?
+           OR (
+             assigned_unit_id = ?
+             AND (assigned_position_id IS NULL OR assigned_position_id = ?)
+           )
+         )
        LIMIT 1
        FOR UPDATE`,
-      [params.slotId, params.documentId]
+      [params.taskId, params.documentId, assignment.id, assignment.unitId, assignment.positionId]
     );
-    const slot = slotRows[0];
+    const task = taskRows[0];
 
-    if (!slot) {
-      throw notFound("Signature slot");
+    if (!task) {
+      throw new AppError(404, "signature_task_not_found", "No open signature request is assigned to your active position.");
+    }
+    const responseNote = input.response_note?.trim() || "";
+    if (task.requires_comment && !responseNote) {
+      throw new AppError(422, "comment_required", "A comment is required before signing this request.");
     }
 
-    if (slot.status !== "pending") {
-      throw new AppError(409, "signature_slot_not_pending", "This signature slot is not pending.");
-    }
+    const documentHash = calculateDocumentContentHash(lockedDocument);
+    const documentVersionNumber = Number(lockedDocument.current_version_number || 1);
+    signedDocumentHash = documentHash;
 
-    if (Number(slot.required_position_id) !== assignment.positionId) {
-      throw new AppError(403, "signature_position_mismatch", "Your active assignment position cannot sign this slot.");
-    }
-
-    if (slot.target_unit_id && Number(slot.target_unit_id) !== assignment.unitId) {
-      throw new AppError(403, "signature_unit_mismatch", "Your active assignment unit cannot sign this slot.");
-    }
-
-    const [incompletePrerequisitesRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS count
-       FROM signature_slots
-       WHERE document_id = ?
-         AND is_required = TRUE
-         AND step_number < ?
-         AND status <> 'completed'`,
-      [params.documentId, slot.step_number]
-    );
-    const incompletePrerequisites = incompletePrerequisitesRows[0];
-
-    if (Number(incompletePrerequisites?.count || 0) > 0) {
-      throw new AppError(409, "signature_prerequisites_incomplete", "Earlier required signature slots must be completed first.");
+    if (
+      (input.expected_document_version_number && input.expected_document_version_number !== documentVersionNumber)
+      || (input.expected_document_hash && input.expected_document_hash !== documentHash)
+    ) {
+      throw new AppError(409, "document_version_changed", "The document changed after you opened it. Review the latest version before signing.");
     }
 
     const [eventResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO signature_events (
-        uuid, document_id, signature_slot_id, user_id, assignment_id,
-        signature_asset_id, pin_verification_event_id, status, render_page,
+        uuid, document_id, document_task_id, user_id, assignment_id,
+        signature_asset_id, pin_verification_event_id, document_version_number,
+        document_hash, status, render_page,
         render_x, render_y, render_width, render_height, ip_address, user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
         params.documentId,
-        params.slotId,
+        params.taskId,
         authUser.id,
         assignment.id,
         verification.signatureAssetId,
         verification.pinEventId,
+        documentVersionNumber,
+        documentHash,
         "completed",
         input.render_page || null,
         input.render_x || null,
@@ -803,35 +728,29 @@ signatureRouter.post("/documents/:documentId/slots/:slotId/sign", asyncHandler(a
     signatureEventId = Number(eventId);
 
     await connection.execute<ResultSetHeader>(
-      `UPDATE signature_slots
+      `UPDATE document_tasks
        SET status = 'completed',
-           completed_by_signature_event_id = ?,
            completed_at = CURRENT_TIMESTAMP,
+           completed_by_assignment_id = ?,
+           responded_by_assignment_id = ?,
+           completion_note = COALESCE(completion_note, 'Signed.'),
+           response_note = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [eventId, params.slotId]
+      [assignment.id, assignment.id, responseNote || null, params.taskId]
     );
 
-    const [remainingRequiredRows] = await connection.execute<RowDataPacket[]>(
-      `SELECT COUNT(*) AS count
-       FROM signature_slots
-       WHERE document_id = ?
-         AND is_required = TRUE
-         AND status <> 'completed'`,
-      [params.documentId]
-    );
-    const remainingRequired = remainingRequiredRows[0];
-    const requiredRemaining = Number(remainingRequired?.count || 0);
-
-    let nextStatus = requiredRemaining === 0 ? "fully_signed" : "partially_signed";
-    let serialAssignment = null;
-    if (requiredRemaining === 0 && slot.can_finalize_document) {
-      serialAssignment = await assignOfficialSerial(connection, {
-        documentId: params.documentId,
+    let nextStatus = "partially_signed";
+    if (task.can_finalize) {
+      const serialAssignment = await assignOfficialSerialForTask(connection, {
         assignmentId: assignment.id,
-        signatureEventId: eventId
+        documentId: params.documentId,
+        signatureEventId: eventId,
+        status: "finalized"
       });
-      nextStatus = "serial_assigned";
+      serialAssignmentAfterSign = serialAssignment;
+      shouldCreateFinalRender = true;
+      nextStatus = "finalized";
     } else {
       await connection.execute<ResultSetHeader>(
         "UPDATE documents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -841,34 +760,45 @@ signatureRouter.post("/documents/:documentId/slots/:slotId/sign", asyncHandler(a
 
     await connection.execute<ResultSetHeader>(
       `INSERT INTO document_workflow_events (
-        uuid, document_id, actor_assignment_id, action, from_status,
-        to_status, from_unit_id, to_unit_id, note, payload
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        uuid, document_id, actor_assignment_id, action, required_action,
+        from_status, to_status, from_unit_id, to_unit_id, to_position_id,
+        note, payload, permissions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
         params.documentId,
         assignment.id,
         "sign",
-        document.status,
+        "sign",
+        lockedDocument.status,
         nextStatus,
-        document.current_holder_unit_id,
-        document.current_holder_unit_id,
-        serialAssignment ? `Document signed and serial assigned: ${serialAssignment.serial_value}` : "Document signed.",
+        lockedDocument.current_holder_unit_id,
+        assignment.unitId,
+        assignment.positionId,
+        serialAssignmentAfterSign ? `Document signed and serial assigned: ${serialAssignmentAfterSign.serial_value}` : "Document signed.",
         JSON.stringify({
-          signatureSlotId: params.slotId,
+          documentHash,
+          documentTaskId: params.taskId,
+          documentVersionNumber,
+          responseNote: responseNote || null,
           signatureEventId: eventId,
-          serialAssignmentId: serialAssignment?.id || null
+          serialAssignmentId: serialAssignmentAfterSign?.id || null
+        }),
+        JSON.stringify({
+          canArchive: Boolean(task.can_archive),
+          canFinalize: Boolean(task.can_finalize),
+          canForward: Boolean(task.can_forward)
         })
       ]
     );
 
     await writeAuditLog(request, { action: "signature.event.create", entityType: "signature_event", entityId: eventId }, connection);
-    if (serialAssignment) {
+    if (serialAssignmentAfterSign) {
       await writeAuditLog(request, {
         action: "serial.assign",
         entityType: "document",
         entityId: params.documentId,
-        metadata: { serial: serialAssignment.serial_value }
+        metadata: { serial: serialAssignmentAfterSign.serial_value }
       }, connection);
     }
     await connection.commit();
@@ -879,222 +809,105 @@ signatureRouter.post("/documents/:documentId/slots/:slotId/sign", asyncHandler(a
     connection.release();
   }
 
+  const finalRender = shouldCreateFinalRender
+    ? await createFinalDocumentRender(request, {
+      assignmentId: assignment.id,
+      documentHash: signedDocumentHash,
+      documentId: params.documentId
+    }).catch(() => null)
+    : null;
   const [signatureEventRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_events WHERE id = ? LIMIT 1", [signatureEventId]);
   const [documentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM documents WHERE id = ? LIMIT 1", [params.documentId]);
+  const [taskRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [params.taskId]);
   const [serialAssignmentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM serial_assignments WHERE document_id = ? LIMIT 1", [params.documentId]);
   created(response, {
     signatureEvent: signatureEventRows[0] || null,
-    slots: await getSlotsForDocument(params.documentId),
+    task: taskRows[0] || null,
     document: documentRows[0] || null,
-    serialAssignment: serialAssignmentRows[0] || null
+    serialAssignment: serialAssignmentAfterSign || serialAssignmentRows[0] || null,
+    finalRender
   });
 }));
 
-adminSignatureRouter.get("/signature-rules", asyncHandler(async (_request, response) => {
-  const [rules] = await pool.execute<RowDataPacket[]>(
-    `SELECT
-      signature_rules.*,
-      document_types.code AS documentTypeCode,
-      document_types.name AS documentTypeName,
-      unit_types.code AS originUnitTypeCode,
-      positions.code AS requiredPositionCode,
-      positions.title AS requiredPositionTitle
-    FROM signature_rules
-    LEFT JOIN document_types ON signature_rules.document_type_id = document_types.id
-    LEFT JOIN unit_types ON signature_rules.origin_unit_type_id = unit_types.id
-    LEFT JOIN positions ON signature_rules.required_position_id = positions.id
-    ORDER BY signature_rules.document_type_id ASC, signature_rules.step_number ASC`
-  );
-
-  ok(response, rules);
-}));
-
-async function fetchSignatureRule(signatureRuleId: number) {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT
-      signature_rules.*,
-      document_types.code AS documentTypeCode,
-      document_types.name AS documentTypeName,
-      unit_types.code AS originUnitTypeCode,
-      positions.code AS requiredPositionCode,
-      positions.title AS requiredPositionTitle
-    FROM signature_rules
-    LEFT JOIN document_types ON signature_rules.document_type_id = document_types.id
-    LEFT JOIN unit_types ON signature_rules.origin_unit_type_id = unit_types.id
-    LEFT JOIN positions ON signature_rules.required_position_id = positions.id
-    WHERE signature_rules.id = ?
-    LIMIT 1`,
-    [signatureRuleId]
-  );
-
+async function fetchSerialRule(serialRuleId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM serial_rules WHERE id = ? LIMIT 1", [serialRuleId]);
   return rows[0] || null;
 }
 
-adminSignatureRouter.post("/signature-rules", asyncHandler(async (request, response) => {
-  const input = createSignatureRuleSchema.parse(request.body);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO signature_rules (
-      uuid, document_type_id, origin_unit_type_id, step_number,
-      required_position_id, required_unit_scope, signature_mode,
-      is_required, is_parallel, can_finalize_document, can_be_hidden_later,
-      status, activated_by_user_id, activated_at, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.document_type_id,
-      input.origin_unit_type_id || null,
-      input.step_number,
-      input.required_position_id,
-      input.required_unit_scope,
-      input.signature_mode,
-      input.is_required,
-      input.is_parallel,
-      input.can_finalize_document,
-      input.can_be_hidden_later,
-      input.status,
-      input.status === "active" ? request.session.userId || null : null,
-      input.status === "active" ? new Date() : null,
-      input.notes || null
-    ]
+function assertSupportedSerialFormat(format: string) {
+  const unsupportedTokens = findUnsupportedSerialTokens(format);
+  if (unsupportedTokens.length) {
+    throw new AppError(422, "unsupported_serial_tokens", "Serial format contains unsupported tokens.", { unsupportedTokens });
+  }
+}
+
+async function unsetOtherDefaultSerialRules(connection: PoolConnection, serialRuleId?: number) {
+  await connection.execute<ResultSetHeader>(
+    serialRuleId
+      ? "UPDATE serial_rules SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE is_default = TRUE AND id <> ?"
+      : "UPDATE serial_rules SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE is_default = TRUE",
+    serialRuleId ? [serialRuleId] : []
   );
-  const id = result.insertId;
+}
 
-  await writeAuditLog(request, { action: "admin.signature_rule.create", entityType: "signature_rule", entityId: id });
-  created(response, await fetchSignatureRule(id));
-}));
-
-adminSignatureRouter.patch("/signature-rules/:signatureRuleId", asyncHandler(async (request, response) => {
-  const { signatureRuleId } = z.object({ signatureRuleId: z.coerce.number().int().positive() }).parse(request.params);
-  const input = updateSignatureRuleSchema.parse(request.body);
-
-  const existingRule = await fetchSignatureRule(signatureRuleId);
-  if (!existingRule) {
-    throw notFound("Signature rule");
+async function currentSerialSequenceValue(rule: SerialRuleLike & { id?: unknown }, context: SerialContext, date = new Date()) {
+  if (!rule.id) {
+    return 0;
   }
 
-  const assignments: Array<[string, string | number | boolean | Date | null]> = [];
-  const addAssignment = (column: string, value: string | number | boolean | Date | null | undefined) => {
-    if (value !== undefined) {
-      assignments.push([column, value]);
-    }
-  };
-
-  addAssignment("document_type_id", input.document_type_id);
-  addAssignment("origin_unit_type_id", input.origin_unit_type_id === undefined ? undefined : input.origin_unit_type_id || null);
-  addAssignment("step_number", input.step_number);
-  addAssignment("required_position_id", input.required_position_id);
-  addAssignment("required_unit_scope", input.required_unit_scope);
-  addAssignment("signature_mode", input.signature_mode);
-  addAssignment("is_required", input.is_required);
-  addAssignment("is_parallel", input.is_parallel);
-  addAssignment("can_finalize_document", input.can_finalize_document);
-  addAssignment("can_be_hidden_later", input.can_be_hidden_later);
-  addAssignment("status", input.status);
-  addAssignment("notes", input.notes === undefined ? undefined : input.notes || null);
-
-  if (input.status !== undefined) {
-    addAssignment("activated_by_user_id", input.status === "active" ? request.session.userId || null : null);
-    addAssignment("activated_at", input.status === "active" ? new Date() : null);
-  }
-
-  if (assignments.length) {
-    await pool.execute<ResultSetHeader>(
-      `UPDATE signature_rules
-       SET ${assignments.map(([column]) => `${column} = ?`).join(", ")},
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [...assignments.map(([, value]) => value), signatureRuleId]
-    );
-
-    await writeAuditLog(request, {
-      action: "admin.signature_rule.update",
-      entityType: "signature_rule",
-      entityId: signatureRuleId,
-      metadata: { fields: assignments.map(([column]) => column) }
-    });
-  }
-
-  ok(response, await fetchSignatureRule(signatureRuleId));
-}));
-
-adminSignatureRouter.delete("/signature-rules/:signatureRuleId", asyncHandler(async (request, response) => {
-  const { signatureRuleId } = z.object({ signatureRuleId: z.coerce.number().int().positive() }).parse(request.params);
-  const existingRule = await fetchSignatureRule(signatureRuleId);
-
-  if (!existingRule) {
-    throw notFound("Signature rule");
-  }
-
-  await pool.execute<ResultSetHeader>("DELETE FROM signature_rules WHERE id = ?", [signatureRuleId]);
-  await writeAuditLog(request, {
-    action: "admin.signature_rule.delete",
-    entityType: "signature_rule",
-    entityId: signatureRuleId,
-    metadata: {
-      document_type_id: existingRule.document_type_id,
-      origin_unit_type_id: existingRule.origin_unit_type_id,
-      required_position_id: existingRule.required_position_id,
-      step_number: existingRule.step_number
-    }
-  });
-
-  ok(response, { id: signatureRuleId, deleted: true });
-}));
-
-adminSignatureRouter.patch("/signature-rules/:signatureRuleId/status", asyncHandler(async (request, response) => {
-  const { signatureRuleId } = z.object({ signatureRuleId: z.coerce.number().int().positive() }).parse(request.params);
-  const input = updateStatusSchema.parse(request.body);
-
-  const [ruleRows] = await pool.execute<RowDataPacket[]>(
-    "SELECT id FROM signature_rules WHERE id = ? LIMIT 1",
-    [signatureRuleId]
-  );
-  const rule = ruleRows[0];
-  if (!rule) {
-    throw notFound("Signature rule");
-  }
-
-  await pool.execute<ResultSetHeader>(
-    `UPDATE signature_rules
-     SET status = ?,
-         activated_by_user_id = ?,
-         activated_at = ?,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [
-      input.status,
-      input.status === "active" ? request.session.userId || null : null,
-      input.status === "active" ? new Date() : null,
-      signatureRuleId
-    ]
+  const key = serialSequenceKey(rule, context, date);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT current_value AS currentValue
+     FROM serial_sequences
+     WHERE serial_rule_id = ?
+       AND sequence_scope = ?
+       AND sequence_period = ?
+     LIMIT 1`,
+    [Number(rule.id), key.sequenceScope, key.sequencePeriod]
   );
 
-  await writeAuditLog(request, {
-    action: "admin.signature_rule.status_update",
-    entityType: "signature_rule",
-    entityId: signatureRuleId,
-    metadata: { status: input.status }
-  });
-
-  ok(response, await fetchSignatureRule(signatureRuleId));
-}));
+  return Number(rows[0]?.currentValue || 0);
+}
 
 adminSignatureRouter.get("/serial-rules", asyncHandler(async (_request, response) => {
   const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM serial_rules ORDER BY id ASC");
   ok(response, rows);
 }));
 
+adminSignatureRouter.post("/serial-rules/preview", asyncHandler(async (request, response) => {
+  const input = previewSerialRuleSchema.parse(request.body);
+  const existingRule = input.serial_rule_id ? await fetchSerialRule(input.serial_rule_id) : null;
+
+  if (input.serial_rule_id && !existingRule) {
+    throw notFound("Serial rule");
+  }
+
+  const rule = {
+    ...(existingRule || {}),
+    ...(input.rule || {})
+  };
+  assertSupportedSerialFormat(String(rule.format || "DOC-{YEAR}-{SEQUENCE}"));
+
+  const date = input.date || new Date();
+  const currentValue = input.current_value ?? await currentSerialSequenceValue(rule, input.context || {}, date);
+  ok(response, previewSerialNumber(rule, {
+    context: input.context,
+    currentValue,
+    date,
+    sequenceValue: input.sequence_value
+  }));
+}));
+
 adminSignatureRouter.post("/serial-rules", asyncHandler(async (request, response) => {
   const input = createSerialRuleSchema.parse(request.body);
+  assertSupportedSerialFormat(input.format);
   let serialRuleId = 0;
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     if (input.is_default) {
-      await connection.execute<ResultSetHeader>(
-        "UPDATE serial_rules SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE is_default = TRUE"
-      );
+      await unsetOtherDefaultSerialRules(connection);
     }
 
     const [result] = await connection.execute<ResultSetHeader>(
@@ -1128,19 +941,80 @@ adminSignatureRouter.post("/serial-rules", asyncHandler(async (request, response
     connection.release();
   }
 
-  const [createdRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM serial_rules WHERE id = ? LIMIT 1", [serialRuleId]);
-  created(response, createdRows[0] || null);
+  created(response, await fetchSerialRule(serialRuleId));
+}));
+
+adminSignatureRouter.patch("/serial-rules/:serialRuleId", asyncHandler(async (request, response) => {
+  const { serialRuleId } = z.object({ serialRuleId: z.coerce.number().int().positive() }).parse(request.params);
+  const input = updateSerialRuleSchema.parse(request.body);
+  const existingRule = await fetchSerialRule(serialRuleId);
+  if (!existingRule) {
+    throw notFound("Serial rule");
+  }
+
+  if (input.format !== undefined) {
+    assertSupportedSerialFormat(input.format);
+  }
+
+  const assignments: Array<[string, string | number | boolean | Date | null]> = [];
+  const addAssignment = (column: string, value: string | number | boolean | Date | null | undefined) => {
+    if (value !== undefined) {
+      assignments.push([column, value]);
+    }
+  };
+
+  addAssignment("code", input.code);
+  addAssignment("name", input.name);
+  addAssignment("format", input.format);
+  addAssignment("scope", input.scope);
+  addAssignment("reset_policy", input.reset_policy);
+  addAssignment("sequence_padding", input.sequence_padding);
+  addAssignment("is_default", input.is_default);
+  addAssignment("status", input.status);
+  addAssignment("notes", input.notes === undefined ? undefined : input.notes || null);
+
+  if (input.status !== undefined) {
+    addAssignment("activated_by_user_id", input.status === "active" ? request.session.userId || null : null);
+    addAssignment("activated_at", input.status === "active" ? new Date() : null);
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    if (input.is_default) {
+      await unsetOtherDefaultSerialRules(connection, serialRuleId);
+    }
+    if (assignments.length) {
+      await connection.execute<ResultSetHeader>(
+        `UPDATE serial_rules
+         SET ${assignments.map(([column]) => `${column} = ?`).join(", ")},
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [...assignments.map(([, value]) => value), serialRuleId]
+      );
+      await writeAuditLog(request, {
+        action: "admin.serial_rule.update",
+        entityType: "serial_rule",
+        entityId: serialRuleId,
+        metadata: { fields: assignments.map(([column]) => column) }
+      }, connection);
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  ok(response, await fetchSerialRule(serialRuleId));
 }));
 
 adminSignatureRouter.patch("/serial-rules/:serialRuleId/status", asyncHandler(async (request, response) => {
   const { serialRuleId } = z.object({ serialRuleId: z.coerce.number().int().positive() }).parse(request.params);
   const input = updateStatusSchema.parse(request.body);
 
-  const [ruleRows] = await pool.execute<RowDataPacket[]>(
-    "SELECT id FROM serial_rules WHERE id = ? LIMIT 1",
-    [serialRuleId]
-  );
-  const rule = ruleRows[0];
+  const rule = await fetchSerialRule(serialRuleId);
   if (!rule) {
     throw notFound("Serial rule");
   }
@@ -1167,6 +1041,31 @@ adminSignatureRouter.patch("/serial-rules/:serialRuleId/status", asyncHandler(as
     metadata: { status: input.status }
   });
 
-  const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM serial_rules WHERE id = ? LIMIT 1", [serialRuleId]);
-  ok(response, rows[0] || null);
+  ok(response, await fetchSerialRule(serialRuleId));
+}));
+
+adminSignatureRouter.delete("/serial-rules/:serialRuleId", asyncHandler(async (request, response) => {
+  const { serialRuleId } = z.object({ serialRuleId: z.coerce.number().int().positive() }).parse(request.params);
+  const rule = await fetchSerialRule(serialRuleId);
+  if (!rule) {
+    throw notFound("Serial rule");
+  }
+
+  await pool.execute<ResultSetHeader>(
+    `UPDATE serial_rules
+     SET status = 'archived',
+         is_default = FALSE,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [serialRuleId]
+  );
+
+  await writeAuditLog(request, {
+    action: "admin.serial_rule.archive",
+    entityType: "serial_rule",
+    entityId: serialRuleId,
+    metadata: { code: rule.code, name: rule.name }
+  });
+
+  ok(response, { id: serialRuleId, archived: true });
 }));

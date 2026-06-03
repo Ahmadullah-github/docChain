@@ -82,16 +82,6 @@ export function UserInspector({ onAssignUser, onEditUser, onManageAccess, onRese
       </PanelCard>
 
       <div className="grid gap-3">
-        <PanelCard title={t("admin.users.security.title")}>
-          <div className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-            <SecurityRow label={t("admin.users.security.passwordStatus")} value={selectedUser.user.mustChangePassword ? t("admin.users.security.changeRequired") : t("admin.users.security.set")} tone={selectedUser.user.mustChangePassword ? "amber" : "green"} />
-            <SecurityRow label={t("admin.users.security.activationStatus")} value={selectedUser.user.status === "active" ? t("admin.users.security.completed") : statusLabel(selectedUser.user.status)} tone={selectedUser.user.status === "active" ? "green" : "amber"} />
-            <SecurityRow label={t("admin.users.security.pinStatus")} value={t("admin.users.security.notTracked")} tone="slate" />
-            <SecurityRow label={t("admin.users.security.signatureImage")} value={t("admin.users.security.notTracked")} tone="slate" />
-            <SecurityRow label={t("admin.users.security.sessionState")} value={selectedUser.user.lastLoginAt ? t("admin.users.security.lastLoginRecorded") : t("admin.users.security.noRecentSession")} tone={selectedUser.user.lastLoginAt ? "blue" : "slate"} />
-            <SecurityRow label={t("admin.users.security.canSignDocuments")} value={selectedUser.canSign ? t("common.yes") : t("common.no")} tone={selectedUser.canSign ? "green" : "red"} />
-          </div>
-        </PanelCard>
 
         <PanelCard title={t("admin.users.assignments.title")}>
           <DataTable
@@ -139,17 +129,7 @@ export function UserInspector({ onAssignUser, onEditUser, onManageAccess, onRese
         </PanelCard>
       </div>
 
-      <PanelCard title={t("admin.users.accessEvents.title")}>
-        <div className="space-y-3">
-          {selectedUser.user.lastLoginAt ? (
-            <AccessEvent text={t("admin.users.accessEvents.login")} time={formatDateTime(selectedUser.user.lastLoginAt)} />
-          ) : null}
-          <AccessEvent text={t("admin.users.accessEvents.created")} time={formatDateTime(selectedUser.user.createdAt)} />
-          {selectedUser.user.mustChangePassword ? (
-            <AccessEvent text={t("admin.users.accessEvents.passwordRequired")} time={formatDateTime(selectedUser.user.createdAt)} />
-          ) : null}
-        </div>
-      </PanelCard>
+
     </section>
   );
 }

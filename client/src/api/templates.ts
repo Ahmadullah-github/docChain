@@ -1,6 +1,8 @@
 import { getJson, patchJson, postJson } from "./http";
 import { apiRequest } from "../lib/api";
 import type {
+  ActiveDocumentTemplate,
+  DocumentContent,
   DocumentLayoutDraft,
   DocumentTemplate,
   DocumentTemplateBinding,
@@ -13,6 +15,16 @@ import type {
 } from "./types";
 
 export type TemplateListScope = "visible" | "mine" | "published" | "submitted";
+
+export type TemplateLogoAsset = {
+  id: EntityId;
+  storage_path: string;
+  original_filename: string;
+  mime_type: string;
+  byte_size: number;
+  created_at?: string;
+  preview_url: string;
+};
 
 export type CreateTemplateInput = {
   name: string;
@@ -38,6 +50,28 @@ export type RenderTemplateInput = {
   locale: TemplateLocale;
   variant: TemplateVariant;
   output?: "html" | "pdf";
+  signature_visibility?: Array<{
+    signature_event_id?: EntityId | null;
+    is_visible: boolean;
+    visibility_reason?: string | null;
+  }>;
+};
+
+export type PreviewTemplateInput = {
+  template_id?: EntityId | null;
+  template_version_id?: EntityId | null;
+  layout_definition?: TemplateLayout;
+  document_type_id?: EntityId | null;
+  confidentiality_level_id?: EntityId | null;
+  priority_level_id?: EntityId | null;
+  document_date?: string | null;
+  subject?: string;
+  summary?: string | null;
+  body?: string;
+  document_content?: DocumentContent;
+  template_fields?: Record<string, string>;
+  locale: TemplateLocale;
+  variant: TemplateVariant;
 };
 
 export const templateApi = {
@@ -73,6 +107,10 @@ export const templateApi = {
     return getJson<DocumentTemplateBinding | null>("/api/templates/default", query);
   },
 
+  activeFor(query: { document_type_id?: EntityId | null; locale: TemplateLocale; variant: TemplateVariant }) {
+    return getJson<ActiveDocumentTemplate[]>("/api/templates/active", query);
+  },
+
   uploadAsset(input: { original_filename: string; mime_type: string; data_base64: string }) {
     return postJson<{ id: EntityId; storage_path: string; data_url: string }>("/api/templates/assets", input);
   },
@@ -89,10 +127,14 @@ export const templateApi = {
   },
 
   render(documentId: EntityId, input: RenderTemplateInput) {
-    return postJson<{ renderId?: EntityId; fileAssetId?: EntityId; storagePath?: string; byteSize?: number; html?: string }>(
+    return postJson<{ renderId?: EntityId; fileAssetId?: EntityId; storagePath?: string; byteSize?: number; html?: string; reused?: boolean; metadata?: Record<string, unknown> }>(
       `/api/templates/documents/${documentId}/render`,
       input
     );
+  },
+
+  preview(input: PreviewTemplateInput) {
+    return postJson<{ html?: string; layout_definition?: TemplateLayout }>("/api/templates/preview", input);
   },
 
   admin: {
@@ -130,6 +172,22 @@ export const templateApi = {
 
     removeBinding(bindingId: EntityId) {
       return apiRequest<{ id: EntityId; status: string }>(`/api/admin/templates/bindings/${bindingId}`, { method: "DELETE" });
+    },
+
+    listLogoAssets() {
+      return getJson<TemplateLogoAsset[]>("/api/admin/templates/logo-assets");
+    },
+
+    uploadLogoAsset(input: { original_filename: string; mime_type: string; data_base64: string }) {
+      return postJson<TemplateLogoAsset>("/api/admin/templates/logo-assets", input);
+    },
+
+    archiveLogoAsset(assetId: EntityId) {
+      return apiRequest<{ id: EntityId; status: string }>(`/api/admin/templates/logo-assets/${assetId}`, { method: "DELETE" });
+    },
+
+    logoAssetContentUrl(assetId: EntityId) {
+      return `/api/admin/templates/logo-assets/${assetId}/content`;
     }
   }
 };

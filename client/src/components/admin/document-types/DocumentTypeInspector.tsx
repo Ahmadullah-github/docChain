@@ -1,9 +1,12 @@
 import { useI18n } from "../../../i18n";
 import { Button, Icon, PanelCard, StatusBadge } from "../../ui";
 import { statusTone } from "./documentTypeUtils";
-import type { DocumentTypeChecks, DocumentTypeRow } from "./types";
+import type { DocumentTypeRow } from "./types";
 
 type DocumentTypeInspectorProps = {
+  onCloneType?: (row: DocumentTypeRow) => void;
+  onDisableType?: (row: DocumentTypeRow) => void;
+  onEditType?: (row: DocumentTypeRow) => void;
   selectedType: DocumentTypeRow | null;
 };
 
@@ -16,17 +19,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function checkItems(checks: DocumentTypeChecks, t: ReturnType<typeof useI18n>["t"]) {
-  return [
-    [t("admin.documentTypes.checks.activeType"), checks.activeType],
-    [t("admin.documentTypes.checks.routingConfigured"), checks.routingConfigured],
-    [t("admin.documentTypes.checks.signatureConfigured"), checks.signatureConfigured],
-    [t("admin.documentTypes.checks.visibilityConfigured"), checks.visibilityConfigured],
-    [t("admin.documentTypes.checks.serialReady"), checks.serialReady]
-  ] as Array<[string, boolean]>;
-}
-
-export function DocumentTypeInspector({ selectedType }: DocumentTypeInspectorProps) {
+export function DocumentTypeInspector({ onCloneType, onDisableType, onEditType, selectedType }: DocumentTypeInspectorProps) {
   const { t } = useI18n();
 
   return (
@@ -43,9 +36,7 @@ export function DocumentTypeInspector({ selectedType }: DocumentTypeInspectorPro
                 <p className="mt-1 font-mono text-sm font-semibold text-slate-500">{selectedType.code}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <StatusBadge tone={statusTone(selectedType.status)}>{selectedType.status}</StatusBadge>
-                  <StatusBadge tone={selectedType.requiresSerial ? "green" : "slate"}>
-                    {selectedType.requiresSerial ? t("admin.documentTypes.inspector.serialRequired") : t("admin.documentTypes.inspector.serialOptional")}
-                  </StatusBadge>
+                  <StatusBadge tone="green">{t("admin.documentTypes.inspector.serialRequired")}</StatusBadge>
                 </div>
               </div>
             </div>
@@ -55,17 +46,14 @@ export function DocumentTypeInspector({ selectedType }: DocumentTypeInspectorPro
               <DetailRow label={t("admin.documentTypes.inspector.code")} value={selectedType.code} />
               <DetailRow label={t("admin.documentTypes.inspector.status")} value={selectedType.status} />
               <DetailRow label={t("admin.documentTypes.inspector.documents")} value={String(selectedType.documentCount)} />
-              <DetailRow label={t("admin.documentTypes.inspector.routingRules")} value={String(selectedType.routingRulesCount)} />
-              <DetailRow label={t("admin.documentTypes.inspector.signatureRules")} value={String(selectedType.signatureRulesCount)} />
-              <DetailRow label={t("admin.documentTypes.inspector.finalSignatures")} value={String(selectedType.finalSignatureRules)} />
-              <DetailRow label={t("admin.documentTypes.inspector.visibilityRules")} value={String(selectedType.visibilityRulesCount)} />
+              <DetailRow label={t("admin.documentTypes.inspector.templateBindings")} value={String(selectedType.templateBindingsCount)} />
+              <DetailRow label={t("admin.documentTypes.inspector.serialRequired")} value={t("common.yes")} />
             </dl>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button icon="edit">{t("admin.documentTypes.inspector.editType")}</Button>
-              <Button icon="template">{t("admin.documentTypes.inspector.cloneType")}</Button>
-              <Button icon="workflow">{t("admin.documentTypes.inspector.viewRules")}</Button>
-              <Button icon="pause" variant="danger">{t("admin.documentTypes.inspector.disableType")}</Button>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Button disabled={!onEditType} icon="edit" onClick={() => onEditType?.(selectedType)}>{t("admin.documentTypes.inspector.editType")}</Button>
+              <Button disabled={!onCloneType} icon="template" onClick={() => onCloneType?.(selectedType)}>{t("admin.documentTypes.inspector.cloneType")}</Button>
+              <Button disabled={!onDisableType || selectedType.status !== "active"} icon="pause" onClick={() => onDisableType?.(selectedType)} variant="danger">{t("admin.documentTypes.inspector.disableType")}</Button>
             </div>
           </div>
         ) : (
@@ -74,21 +62,6 @@ export function DocumentTypeInspector({ selectedType }: DocumentTypeInspectorPro
           </div>
         )}
       </PanelCard>
-
-      {selectedType ? (
-        <PanelCard title={t("admin.documentTypes.checks.title")}>
-          <div className="space-y-3">
-            {checkItems(selectedType.checks, t).map(([label, ok]) => (
-              <div className="flex items-center gap-3 text-sm" key={label}>
-                <span className={ok ? "flex h-6 w-6 items-center justify-center rounded-full bg-emerald-50 text-emerald-700" : "flex h-6 w-6 items-center justify-center rounded-full bg-amber-50 text-amber-700"}>
-                  <Icon className="h-4 w-4" name={ok ? "activity" : "shield"} />
-                </span>
-                <span className="font-medium text-slate-700">{label}</span>
-              </div>
-            ))}
-          </div>
-        </PanelCard>
-      ) : null}
     </div>
   );
 }

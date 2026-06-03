@@ -23,13 +23,3 @@ export type AssignmentAdminRow = {
   status: string;
   unit: Unit | null;
 };
-
-export type AssignmentReviewQueueRow = {
-  assignmentId: EntityId;
-  date: string;
-  id: string;
-  issue: "position_vacant" | "delegation_update" | "temporary_renewal" | "pending_assignment";
-  positionTitle: string;
-  requestedBy: string;
-  status: "pending_review" | "awaiting_approval" | "draft";
-};

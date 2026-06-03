@@ -14,7 +14,6 @@ export type TransmissionRecipientInput = {
 export type CreateTransmissionInput = {
   transmission_type: string;
   visibility_policy?: string;
-  visibility_rule_id?: EntityId | null;
   subject_override?: string | null;
   message?: string | null;
   recipients: TransmissionRecipientInput[];
@@ -35,7 +34,6 @@ export type CreateDocumentRenderInput = {
   render_definition?: JsonRecord;
   signature_visibility?: Array<{
     signature_event_id?: EntityId | null;
-    signature_slot_id?: EntityId | null;
     is_visible: boolean;
     visibility_reason?: string | null;
   }>;

@@ -16,13 +16,3 @@ export type UserAdminRow = {
   unit: Unit | null;
   user: UserListItem;
 };
-
-export type UserReviewQueueRow = {
-  date: string;
-  id: string;
-  issue: string;
-  requestedBy: string;
-  status: "awaiting_setup" | "incomplete_setup" | "under_review";
-  userId: EntityId;
-  userName: string;
-};

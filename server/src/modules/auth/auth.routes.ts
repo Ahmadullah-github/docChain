@@ -17,6 +17,11 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1),
+  new_password: z.string().min(8).max(128)
+});
+
 const activeAssignmentSchema = z.object({
   assignmentId: z.coerce.number().int().positive()
 });
@@ -89,8 +94,8 @@ async function getUserPayload(userId: number, activeAssignmentId?: number) {
       positions.title AS positionTitle,
       positions.code AS positionCode
     FROM assignments
-    INNER JOIN units ON assignments.unit_id = units.id
     INNER JOIN positions ON assignments.position_id = positions.id
+    INNER JOIN units ON positions.unit_id = units.id
     WHERE assignments.person_id = ?
       AND assignments.status = 'active'
       AND assignments.deleted_at IS NULL
@@ -218,6 +223,42 @@ authRouter.get("/me", requireAuth, asyncHandler(async (request, response) => {
   const csrfToken = ensureCsrfToken(request);
   ok(response, {
     ...await getUserPayload(request.session.userId!, request.session.activeAssignmentId),
+    csrfToken
+  });
+}));
+
+authRouter.post("/change-password", requireAuth, asyncHandler(async (request, response) => {
+  const input = changePasswordSchema.parse(request.body);
+  const userId = request.session.userId!;
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    "SELECT id, password_hash FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+    [userId]
+  );
+  const user = rows[0];
+  if (!user) {
+    throw new AppError(401, "unauthorized", "Authentication is required.");
+  }
+
+  const currentOk = await argon2.verify(user.password_hash, input.current_password);
+  if (!currentOk) {
+    throw new AppError(401, "invalid_current_password", "Current password is not correct.");
+  }
+
+  const passwordHash = await argon2.hash(input.new_password, { type: argon2.argon2id });
+  await pool.execute<ResultSetHeader>(
+    `UPDATE users
+     SET password_hash = ?,
+         must_change_password = FALSE,
+         failed_login_attempts = 0,
+         locked_until = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [passwordHash, userId]
+  );
+  await writeAuditLog(request, { action: "auth.change_password", entityType: "user", entityId: userId });
+  const csrfToken = ensureCsrfToken(request);
+  ok(response, {
+    ...await getUserPayload(userId, request.session.activeAssignmentId),
     csrfToken
   });
 }));

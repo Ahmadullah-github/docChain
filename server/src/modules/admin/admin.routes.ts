@@ -99,10 +99,54 @@ async function fetchUserAdminRow(executor: Pool | PoolConnection, id: number) {
   };
 }
 
+async function fetchPositionAdminRow(executor: Pool | PoolConnection, id: number) {
+  const [rows] = await executor.execute<RowDataPacket[]>(
+    `SELECT
+      positions.*,
+      units.code AS unitCode,
+      units.name AS unitName,
+      units.organization_id AS organizationId,
+      organizations.name AS organizationName
+    FROM positions
+    INNER JOIN units ON positions.unit_id = units.id
+    INNER JOIN organizations ON units.organization_id = organizations.id
+    WHERE positions.id = ?
+      AND positions.deleted_at IS NULL
+    LIMIT 1`,
+    [id]
+  );
+
+  return rows[0] || null;
+}
+
+async function fetchAssignmentAdminRow(executor: Pool | PoolConnection, id: number) {
+  const [rows] = await executor.execute<RowDataPacket[]>(
+    `SELECT
+      assignments.*,
+      positions.unit_id AS unit_id,
+      positions.unit_id AS unitId,
+      persons.display_name AS personDisplayName,
+      units.name AS unitName,
+      units.code AS unitCode,
+      positions.title AS positionTitle,
+      positions.code AS positionCode
+    FROM assignments
+    INNER JOIN persons ON assignments.person_id = persons.id
+    INNER JOIN positions ON assignments.position_id = positions.id
+    INNER JOIN units ON positions.unit_id = units.id
+    WHERE assignments.id = ?
+      AND assignments.deleted_at IS NULL
+    LIMIT 1`,
+    [id]
+  );
+
+  return rows[0] || null;
+}
+
 async function resolveRoles(connection: PoolConnection, roleNames: string[]) {
   const uniqueRoleNames = Array.from(new Set(roleNames.map((role) => role.trim()).filter(Boolean)));
   if (!uniqueRoleNames.length) {
-    throw new AppError(422, "invalid_roles", "At least one role is required.");
+    return [] as RowDataPacket[];
   }
 
   const rolePlaceholders = uniqueRoleNames.map(() => "?").join(", ");
@@ -193,6 +237,118 @@ async function validateUnitHierarchy(input: { organization_id?: number; unit_typ
   }
 }
 
+async function validatePositionUnit(executor: Pool | PoolConnection, unitId: number) {
+  const [unitRows] = await executor.execute<RowDataPacket[]>(
+    `SELECT id
+     FROM units
+     WHERE id = ?
+       AND status = 'active'
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [unitId]
+  );
+
+  if (!unitRows[0]) {
+    throw new AppError(422, "invalid_unit", "Selected unit does not exist or is inactive.");
+  }
+}
+
+async function validateAssignmentPerson(executor: Pool | PoolConnection, personId: number) {
+  const [personRows] = await executor.execute<RowDataPacket[]>(
+    `SELECT id
+     FROM persons
+     WHERE id = ?
+       AND status = 'active'
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [personId]
+  );
+
+  if (!personRows[0]) {
+    throw new AppError(422, "invalid_person", "Selected person does not exist or is inactive.");
+  }
+}
+
+async function activePositionContext(executor: Pool | PoolConnection, positionId: number) {
+  const [positionRows] = await executor.execute<RowDataPacket[]>(
+    `SELECT
+      positions.id,
+      positions.unit_id AS unitId,
+      positions.allows_multiple_active_assignments AS allowsMultipleActiveAssignments
+     FROM positions
+     INNER JOIN units ON positions.unit_id = units.id
+     WHERE positions.id = ?
+       AND positions.status = 'active'
+       AND positions.deleted_at IS NULL
+       AND units.status = 'active'
+       AND units.deleted_at IS NULL
+     LIMIT 1`,
+    [positionId]
+  );
+  const position = positionRows[0];
+
+  if (!position) {
+    throw new AppError(422, "invalid_position", "Selected position does not exist, is inactive, or belongs to an inactive unit.");
+  }
+
+  return {
+    allowsMultipleActiveAssignments: Boolean(position.allowsMultipleActiveAssignments),
+    id: Number(position.id),
+    unitId: Number(position.unitId)
+  };
+}
+
+function assignmentStatusCanHoldActivePosition(status: string, endsAt: Date | string | null | undefined) {
+  if (status !== "active") {
+    return false;
+  }
+  if (!endsAt) {
+    return true;
+  }
+  return new Date(endsAt) > new Date();
+}
+
+async function validateAssignmentTarget(executor: Pool | PoolConnection, input: {
+  assignmentId?: number;
+  endsAt?: Date | string | null;
+  personId: number;
+  positionId: number;
+  status: string;
+}) {
+  await validateAssignmentPerson(executor, input.personId);
+  const position = await activePositionContext(executor, input.positionId);
+
+  if (position.allowsMultipleActiveAssignments || !assignmentStatusCanHoldActivePosition(input.status, input.endsAt)) {
+    return position;
+  }
+
+  const where = [
+    "position_id = ?",
+    "status = 'active'",
+    "deleted_at IS NULL",
+    "(ends_at IS NULL OR ends_at > CURRENT_TIMESTAMP)"
+  ];
+  const params: any[] = [input.positionId];
+  if (input.assignmentId) {
+    where.push("id <> ?");
+    params.push(input.assignmentId);
+  }
+
+  const [holderRows] = await executor.execute<RowDataPacket[]>(
+    `SELECT id
+     FROM assignments
+     WHERE ${where.join(" AND ")}
+     LIMIT 1`,
+    params
+  );
+
+  if (holderRows[0]) {
+    throw new AppError(409, "position_active_holder_exists", "Selected position already has an active assignment.");
+  }
+
+  return position;
+}
+
 const auditLogQuerySchema = z.object({
   action: z.string().trim().min(1).max(120).optional(),
   actor_user_id: z.coerce.number().int().positive().optional(),
@@ -269,7 +425,7 @@ adminRouter.get("/audit-logs", asyncHandler(async (request, response) => {
      LEFT JOIN persons ON users.person_id = persons.id
      LEFT JOIN assignments ON audit_logs.actor_assignment_id = assignments.id
      LEFT JOIN positions ON assignments.position_id = positions.id
-     LEFT JOIN units ON assignments.unit_id = units.id
+     LEFT JOIN units ON positions.unit_id = units.id
      ${whereClause}
      ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
      LIMIT ?`,
@@ -379,7 +535,7 @@ const createUserSchema = z.object({
   password: z.string().min(8),
   status: z.string().trim().min(1).default("pending_activation"),
   must_change_password: z.boolean().default(true),
-  role_names: z.array(z.string().trim().min(1)).min(1).default(["user"])
+  role_names: z.array(z.string().trim().min(1)).default([])
 });
 
 const updateUserSchema = z.object({
@@ -388,7 +544,7 @@ const updateUserSchema = z.object({
   password: z.string().min(8).optional(),
   status: z.string().trim().min(1).optional(),
   must_change_password: z.boolean().optional(),
-  role_names: z.array(z.string().trim().min(1)).min(1).optional()
+  role_names: z.array(z.string().trim().min(1)).optional()
 });
 
 const resetUserPasswordSchema = z.object({
@@ -507,7 +663,7 @@ adminRouter.patch("/users/:userId", asyncHandler(async (request, response) => {
       );
     }
 
-    if (input.role_names) {
+    if (input.role_names !== undefined) {
       const roles = await resolveRoles(connection, input.role_names);
       await connection.execute<ResultSetHeader>("DELETE FROM user_roles WHERE user_id = ?", [userId]);
       for (const role of roles) {
@@ -633,6 +789,108 @@ adminRouter.patch("/organizations/:organizationId", asyncHandler(async (request,
   await writeAuditLog(request, { action: "admin.organization.update", entityType: "organization", entityId: organizationId });
   await refreshSearchIndexForEntitySafe("organization", organizationId);
   ok(response, await fetchById("organizations", organizationId));
+}));
+
+adminRouter.delete("/organizations/:organizationId", asyncHandler(async (request, response) => {
+  const { organizationId } = z.object({ organizationId: z.coerce.number().int().positive() }).parse(request.params);
+  const connection = await pool.getConnection();
+  const changedUnitIds: number[] = [];
+  const changedPositionIds: number[] = [];
+  const changedAssignmentIds: number[] = [];
+
+  try {
+    await connection.beginTransaction();
+    const [organizationRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT id FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+      [organizationId]
+    );
+    if (!organizationRows[0]) {
+      throw new AppError(404, "not_found", "Organization was not found.");
+    }
+
+    const [unitRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT id FROM units WHERE organization_id = ? AND deleted_at IS NULL",
+      [organizationId]
+    );
+    changedUnitIds.push(...unitRows.map((row) => Number(row.id)));
+
+    if (changedUnitIds.length) {
+      const unitPlaceholders = changedUnitIds.map(() => "?").join(", ");
+      const [positionRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT id FROM positions WHERE unit_id IN (${unitPlaceholders}) AND deleted_at IS NULL`,
+        changedUnitIds
+      );
+      changedPositionIds.push(...positionRows.map((row) => Number(row.id)));
+    }
+
+    if (changedPositionIds.length) {
+      const positionPlaceholders = changedPositionIds.map(() => "?").join(", ");
+      const [assignmentRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT id FROM assignments WHERE position_id IN (${positionPlaceholders}) AND deleted_at IS NULL`,
+        changedPositionIds
+      );
+      changedAssignmentIds.push(...assignmentRows.map((row) => Number(row.id)));
+
+      if (changedAssignmentIds.length) {
+        const assignmentPlaceholders = changedAssignmentIds.map(() => "?").join(", ");
+        await connection.execute<ResultSetHeader>(
+          `UPDATE assignments
+           SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE id IN (${assignmentPlaceholders})`,
+          changedAssignmentIds
+        );
+      }
+
+      await connection.execute<ResultSetHeader>(
+        `UPDATE positions
+         SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${positionPlaceholders})`,
+        changedPositionIds
+      );
+    }
+
+    if (changedUnitIds.length) {
+      const unitPlaceholders = changedUnitIds.map(() => "?").join(", ");
+      await connection.execute<ResultSetHeader>(
+        `UPDATE units
+         SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${unitPlaceholders})`,
+        changedUnitIds
+      );
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE organizations
+       SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND deleted_at IS NULL`,
+      [organizationId]
+    );
+
+    await writeAuditLog(request, {
+      action: "admin.organization.delete",
+      entityType: "organization",
+      entityId: organizationId,
+      metadata: {
+        assignmentIds: changedAssignmentIds,
+        positionIds: changedPositionIds,
+        unitIds: changedUnitIds
+      }
+    }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await Promise.all([
+    refreshSearchIndexForEntitySafe("organization", organizationId),
+    ...changedUnitIds.map((id) => refreshSearchIndexForEntitySafe("unit", id)),
+    ...changedPositionIds.map((id) => refreshSearchIndexForEntitySafe("position", id)),
+    ...changedAssignmentIds.map((id) => refreshSearchIndexForEntitySafe("assignment", id))
+  ]);
+  ok(response, { id: organizationId, deleted: true });
 }));
 
 const createUnitTypeSchema = z.object({
@@ -797,34 +1055,140 @@ adminRouter.patch("/units/:unitId", asyncHandler(async (request, response) => {
   ok(response, await fetchById("units", unitId));
 }));
 
+adminRouter.delete("/units/:unitId", asyncHandler(async (request, response) => {
+  const { unitId } = z.object({ unitId: z.coerce.number().int().positive() }).parse(request.params);
+  const connection = await pool.getConnection();
+  const changedUnitIds: number[] = [];
+  const changedPositionIds: number[] = [];
+  const changedAssignmentIds: number[] = [];
+
+  try {
+    await connection.beginTransaction();
+    const [unitRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT id FROM units WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+      [unitId]
+    );
+    if (!unitRows[0]) {
+      throw new AppError(404, "not_found", "Unit was not found.");
+    }
+
+    const [descendantRows] = await connection.query<RowDataPacket[]>(
+      `WITH RECURSIVE unit_tree AS (
+        SELECT id FROM units WHERE id = ? AND deleted_at IS NULL
+        UNION ALL
+        SELECT units.id
+        FROM units
+        INNER JOIN unit_tree ON units.parent_unit_id = unit_tree.id
+        WHERE units.deleted_at IS NULL
+      )
+      SELECT id FROM unit_tree`,
+      [unitId]
+    );
+    changedUnitIds.push(...descendantRows.map((row) => Number(row.id)));
+
+    const unitPlaceholders = changedUnitIds.map(() => "?").join(", ");
+    const [positionRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT id FROM positions WHERE unit_id IN (${unitPlaceholders}) AND deleted_at IS NULL`,
+      changedUnitIds
+    );
+    changedPositionIds.push(...positionRows.map((row) => Number(row.id)));
+
+    if (changedPositionIds.length) {
+      const positionPlaceholders = changedPositionIds.map(() => "?").join(", ");
+      const [assignmentRows] = await connection.execute<RowDataPacket[]>(
+        `SELECT id FROM assignments WHERE position_id IN (${positionPlaceholders}) AND deleted_at IS NULL`,
+        changedPositionIds
+      );
+      changedAssignmentIds.push(...assignmentRows.map((row) => Number(row.id)));
+
+      if (changedAssignmentIds.length) {
+        const assignmentPlaceholders = changedAssignmentIds.map(() => "?").join(", ");
+        await connection.execute<ResultSetHeader>(
+          `UPDATE assignments
+           SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           WHERE id IN (${assignmentPlaceholders})`,
+          changedAssignmentIds
+        );
+      }
+
+      await connection.execute<ResultSetHeader>(
+        `UPDATE positions
+         SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id IN (${positionPlaceholders})`,
+        changedPositionIds
+      );
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE units
+       SET status = 'disabled', deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id IN (${unitPlaceholders})`,
+      changedUnitIds
+    );
+
+    await writeAuditLog(request, {
+      action: "admin.unit.delete",
+      entityType: "unit",
+      entityId: unitId,
+      metadata: {
+        assignmentIds: changedAssignmentIds,
+        positionIds: changedPositionIds,
+        unitIds: changedUnitIds
+      }
+    }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await Promise.all([
+    ...changedUnitIds.map((id) => refreshSearchIndexForEntitySafe("unit", id)),
+    ...changedPositionIds.map((id) => refreshSearchIndexForEntitySafe("position", id)),
+    ...changedAssignmentIds.map((id) => refreshSearchIndexForEntitySafe("assignment", id))
+  ]);
+  ok(response, { id: unitId, deleted: true });
+}));
+
 const createPositionSchema = z.object({
-  organization_id: z.coerce.number().int().positive().nullable().optional(),
+  unit_id: z.coerce.number().int().positive(),
   code: z.string().trim().min(1).max(80),
   title: z.string().trim().min(1).max(140),
   title_local: optionalNullableString,
   authority_level: z.coerce.number().int().nonnegative().default(0),
   is_signing_authority: z.boolean().default(false),
+  allows_multiple_active_assignments: z.boolean().default(false),
   description: optionalNullableString,
   status: statusSchema
 });
 
 const updatePositionSchema = z.object({
-  organization_id: z.coerce.number().int().positive().nullable().optional(),
+  unit_id: z.coerce.number().int().positive().optional(),
   code: z.string().trim().min(1).max(80).optional(),
   title: z.string().trim().min(1).max(140).optional(),
   title_local: optionalNullableString,
   authority_level: z.coerce.number().int().nonnegative().optional(),
   is_signing_authority: z.boolean().optional(),
+  allows_multiple_active_assignments: z.boolean().optional(),
   description: optionalNullableString,
   status: z.string().trim().min(1).optional()
 });
 
 adminRouter.get("/positions", asyncHandler(async (_request, response) => {
   const [positions] = await pool.execute<RowDataPacket[]>(
-    `SELECT *
+    `SELECT
+      positions.*,
+      units.code AS unitCode,
+      units.name AS unitName,
+      units.organization_id AS organizationId,
+      organizations.name AS organizationName
      FROM positions
-     WHERE deleted_at IS NULL
-     ORDER BY id DESC
+     INNER JOIN units ON positions.unit_id = units.id
+     INNER JOIN organizations ON units.organization_id = organizations.id
+     WHERE positions.deleted_at IS NULL
+     ORDER BY positions.id DESC
      LIMIT 250`
   );
 
@@ -832,19 +1196,21 @@ adminRouter.get("/positions", asyncHandler(async (_request, response) => {
 }));
 adminRouter.post("/positions", asyncHandler(async (request, response) => {
   const input = createPositionSchema.parse(request.body);
+  await validatePositionUnit(pool, input.unit_id);
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO positions (
-      uuid, organization_id, code, title, title_local, authority_level,
-      is_signing_authority, description, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      uuid, unit_id, code, title, title_local, authority_level,
+      is_signing_authority, allows_multiple_active_assignments, description, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       uuid(),
-      input.organization_id || null,
+      input.unit_id,
       input.code,
       input.title,
       input.title_local || null,
       input.authority_level,
       input.is_signing_authority,
+      input.allows_multiple_active_assignments,
       input.description || null,
       input.status
     ]
@@ -852,21 +1218,25 @@ adminRouter.post("/positions", asyncHandler(async (request, response) => {
   const id = result.insertId;
   await writeAuditLog(request, { action: "admin.position.create", entityType: "position", entityId: id });
   await refreshSearchIndexForEntitySafe("position", id);
-  created(response, await fetchById("positions", Number(id)));
+  created(response, await fetchPositionAdminRow(pool, Number(id)));
 }));
 
 adminRouter.patch("/positions/:positionId", asyncHandler(async (request, response) => {
   const { positionId } = z.object({ positionId: z.coerce.number().int().positive() }).parse(request.params);
   const input = updatePositionSchema.parse(request.body);
   requirePatch(input);
+  if (input.unit_id) {
+    await validatePositionUnit(pool, input.unit_id);
+  }
 
   const { set, values } = updateParts(clean(input), [
-    "organization_id",
+    "unit_id",
     "code",
     "title",
     "title_local",
     "authority_level",
     "is_signing_authority",
+    "allows_multiple_active_assignments",
     "description",
     "status"
   ]);
@@ -883,7 +1253,7 @@ adminRouter.patch("/positions/:positionId", asyncHandler(async (request, respons
 
   await writeAuditLog(request, { action: "admin.position.update", entityType: "position", entityId: positionId });
   await refreshSearchIndexForEntitySafe("position", positionId);
-  ok(response, await fetchById("positions", positionId));
+  ok(response, await fetchPositionAdminRow(pool, positionId));
 }));
 
 adminRouter.delete("/positions/:positionId", asyncHandler(async (request, response) => {
@@ -908,7 +1278,6 @@ adminRouter.delete("/positions/:positionId", asyncHandler(async (request, respon
 
 const createAssignmentSchema = z.object({
   person_id: z.coerce.number().int().positive(),
-  unit_id: z.coerce.number().int().positive(),
   position_id: z.coerce.number().int().positive(),
   status: statusSchema,
   is_primary: z.boolean().default(false),
@@ -918,7 +1287,6 @@ const createAssignmentSchema = z.object({
 
 const updateAssignmentSchema = z.object({
   person_id: z.coerce.number().int().positive().optional(),
-  unit_id: z.coerce.number().int().positive().optional(),
   position_id: z.coerce.number().int().positive().optional(),
   status: z.string().trim().min(1).optional(),
   is_primary: z.boolean().optional(),
@@ -931,13 +1299,17 @@ adminRouter.get("/assignments", asyncHandler(async (_request, response) => {
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       assignments.*,
+      positions.unit_id AS unit_id,
+      positions.unit_id AS unitId,
       persons.display_name AS personDisplayName,
       units.name AS unitName,
+      units.code AS unitCode,
+      positions.code AS positionCode,
       positions.title AS positionTitle
     FROM assignments
     INNER JOIN persons ON assignments.person_id = persons.id
-    INNER JOIN units ON assignments.unit_id = units.id
     INNER JOIN positions ON assignments.position_id = positions.id
+    INNER JOIN units ON positions.unit_id = units.id
     WHERE assignments.deleted_at IS NULL
     ORDER BY assignments.id DESC
     LIMIT 250`
@@ -952,6 +1324,13 @@ adminRouter.post("/assignments", asyncHandler(async (request, response) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    await validateAssignmentTarget(connection, {
+      endsAt: input.ends_at || null,
+      personId: input.person_id,
+      positionId: input.position_id,
+      status: input.status
+    });
+
     if (input.is_primary) {
       await connection.execute<ResultSetHeader>(
         `UPDATE assignments
@@ -963,13 +1342,12 @@ adminRouter.post("/assignments", asyncHandler(async (request, response) => {
 
     const [assignmentResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO assignments (
-        uuid, person_id, unit_id, position_id, status, is_primary,
+        uuid, person_id, position_id, status, is_primary,
         starts_at, ends_at, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
         input.person_id,
-        input.unit_id,
         input.position_id,
         input.status,
         input.is_primary,
@@ -990,7 +1368,7 @@ adminRouter.post("/assignments", asyncHandler(async (request, response) => {
     await writeAuditLog(request, { action: "admin.assignment.create", entityType: "assignment", entityId: id }, connection);
     await connection.commit();
     await refreshSearchIndexForEntitySafe("assignment", id);
-    created(response, await fetchById("assignments", id));
+    created(response, await fetchAssignmentAdminRow(pool, id));
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1018,6 +1396,20 @@ adminRouter.patch("/assignments/:assignmentId", asyncHandler(async (request, res
     }
 
     const nextPersonId = input.person_id || Number(current.person_id);
+    const nextPositionId = input.position_id || Number(current.position_id);
+    const nextStatus = input.status || String(current.status);
+    const nextEndsAt = input.ends_at === undefined ? current.ends_at : input.ends_at;
+
+    if (input.person_id || input.position_id || nextStatus === "active") {
+      await validateAssignmentTarget(connection, {
+        assignmentId,
+        endsAt: nextEndsAt || null,
+        personId: nextPersonId,
+        positionId: nextPositionId,
+        status: nextStatus
+      });
+    }
+
     if (input.is_primary) {
       await connection.execute<ResultSetHeader>(
         `UPDATE assignments
@@ -1030,7 +1422,6 @@ adminRouter.patch("/assignments/:assignmentId", asyncHandler(async (request, res
     const fromStatus = String(current.status);
     const patch = clean({
       person_id: input.person_id,
-      unit_id: input.unit_id,
       position_id: input.position_id,
       status: input.status,
       is_primary: input.is_primary,
@@ -1039,7 +1430,6 @@ adminRouter.patch("/assignments/:assignmentId", asyncHandler(async (request, res
     });
     const { set, values } = updateParts(patch, [
       "person_id",
-      "unit_id",
       "position_id",
       "status",
       "is_primary",
@@ -1066,7 +1456,7 @@ adminRouter.patch("/assignments/:assignmentId", asyncHandler(async (request, res
     await writeAuditLog(request, { action: "admin.assignment.update", entityType: "assignment", entityId: assignmentId }, connection);
     await connection.commit();
     await refreshSearchIndexForEntitySafe("assignment", assignmentId);
-    ok(response, await fetchById("assignments", assignmentId));
+    ok(response, await fetchAssignmentAdminRow(pool, assignmentId));
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1135,8 +1525,69 @@ const updateDocumentTypeSchema = z.object({
   status: z.string().trim().min(1).optional()
 });
 
+const optionalRuleForeignKey = z.coerce.number().int().positive().nullable().optional();
+const documentWriteModeSchema = z.enum(["locked", "free"]);
+
+const createDocumentWriteRuleSchema = z.object({
+  document_type_id: z.coerce.number().int().positive(),
+  unit_type_id: optionalRuleForeignKey,
+  position_id: optionalRuleForeignKey,
+  role_id: optionalRuleForeignKey,
+  mode: documentWriteModeSchema.default("locked"),
+  status: statusSchema,
+  notes: optionalNullableString
+});
+
+const updateDocumentWriteRuleSchema = z.object({
+  document_type_id: z.coerce.number().int().positive().optional(),
+  unit_type_id: optionalRuleForeignKey,
+  position_id: optionalRuleForeignKey,
+  role_id: optionalRuleForeignKey,
+  mode: documentWriteModeSchema.optional(),
+  status: z.string().trim().min(1).optional(),
+  notes: optionalNullableString
+});
+
+async function listDocumentWriteRules() {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_write_rules.id,
+      document_write_rules.uuid,
+      document_write_rules.document_type_id,
+      document_types.code AS documentTypeCode,
+      document_types.name AS documentTypeName,
+      document_write_rules.unit_type_id,
+      unit_types.code AS unitTypeCode,
+      unit_types.name AS unitTypeName,
+      document_write_rules.position_id,
+      positions.code AS positionCode,
+      positions.title AS positionTitle,
+      document_write_rules.role_id,
+      roles.name AS roleName,
+      roles.display_name AS roleDisplayName,
+      document_write_rules.mode,
+      document_write_rules.status,
+      document_write_rules.notes,
+      document_write_rules.created_at,
+      document_write_rules.updated_at
+     FROM document_write_rules
+     INNER JOIN document_types ON document_write_rules.document_type_id = document_types.id
+     LEFT JOIN unit_types ON document_write_rules.unit_type_id = unit_types.id
+     LEFT JOIN positions ON document_write_rules.position_id = positions.id
+     LEFT JOIN roles ON document_write_rules.role_id = roles.id
+     ORDER BY document_write_rules.status ASC, document_types.name ASC, document_write_rules.id DESC
+     LIMIT 500`
+  );
+  return rows;
+}
+
+async function fetchDocumentWriteRuleById(id: number) {
+  const rows = await listDocumentWriteRules();
+  return rows.find((row) => Number(row.id) === id) || null;
+}
+
 adminRouter.get("/document-types", listRoute("document_types"));
-adminRouter.post("/document-types", asyncHandler(async (request, response) => {
+adminRouter.post("/document-types", requireAnyRole(["system_admin"]), asyncHandler(async (request, response) => {
   const input = createDocumentTypeSchema.parse(request.body);
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO document_types (uuid, code, name, description, requires_serial, status)
@@ -1149,7 +1600,7 @@ adminRouter.post("/document-types", asyncHandler(async (request, response) => {
   created(response, await fetchById("document_types", Number(id)));
 }));
 
-adminRouter.patch("/document-types/:documentTypeId", asyncHandler(async (request, response) => {
+adminRouter.patch("/document-types/:documentTypeId", requireAnyRole(["system_admin"]), asyncHandler(async (request, response) => {
   const { documentTypeId } = z.object({ documentTypeId: z.coerce.number().int().positive() }).parse(request.params);
   const input = updateDocumentTypeSchema.parse(request.body);
   requirePatch(input);
@@ -1169,6 +1620,116 @@ adminRouter.patch("/document-types/:documentTypeId", asyncHandler(async (request
   await writeAuditLog(request, { action: "admin.document_type.update", entityType: "document_type", entityId: documentTypeId });
   await refreshSearchIndexForEntitySafe("document_type", documentTypeId);
   ok(response, await fetchById("document_types", documentTypeId));
+}));
+
+adminRouter.delete("/document-types/:documentTypeId", requireAnyRole(["system_admin"]), asyncHandler(async (request, response) => {
+  const { documentTypeId } = z.object({ documentTypeId: z.coerce.number().int().positive() }).parse(request.params);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [currentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT id, status FROM document_types WHERE id = ? LIMIT 1",
+      [documentTypeId]
+    );
+    const current = currentRows[0];
+    if (!current) {
+      throw new AppError(404, "not_found", "Document type was not found.");
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_types
+       SET status = 'archived',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [documentTypeId]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_write_rules
+       SET status = 'archived',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE document_type_id = ? AND status <> 'archived'`,
+      [documentTypeId]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_template_bindings
+       SET status = 'inactive',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE document_type_id = ? AND status = 'active'`,
+      [documentTypeId]
+    );
+
+    await writeAuditLog(request, {
+      action: "admin.document_type.archive",
+      entityType: "document_type",
+      entityId: documentTypeId,
+      metadata: { fromStatus: String(current.status) }
+    }, connection);
+    await connection.commit();
+    await refreshSearchIndexForEntitySafe("document_type", documentTypeId);
+    ok(response, { id: documentTypeId, deleted: true, status: "archived" });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+adminRouter.get("/document-write-rules", asyncHandler(async (_request, response) => {
+  ok(response, await listDocumentWriteRules());
+}));
+
+adminRouter.post("/document-write-rules", asyncHandler(async (request, response) => {
+  const input = createDocumentWriteRuleSchema.parse(request.body);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO document_write_rules (
+      uuid, document_type_id, unit_type_id, position_id, role_id, mode, status, notes, created_by_user_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      uuid(),
+      input.document_type_id,
+      input.unit_type_id ?? null,
+      input.position_id ?? null,
+      input.role_id ?? null,
+      input.mode,
+      input.status,
+      input.notes || null,
+      request.session.userId || null
+    ]
+  );
+  const id = Number(result.insertId);
+  await writeAuditLog(request, { action: "admin.document_write_rule.create", entityType: "document_write_rule", entityId: id });
+  created(response, await fetchDocumentWriteRuleById(id));
+}));
+
+adminRouter.patch("/document-write-rules/:ruleId", asyncHandler(async (request, response) => {
+  const { ruleId } = z.object({ ruleId: z.coerce.number().int().positive() }).parse(request.params);
+  const input = updateDocumentWriteRuleSchema.parse(request.body);
+  requirePatch(input);
+
+  const { set, values } = updateParts(clean(input), [
+    "document_type_id",
+    "unit_type_id",
+    "position_id",
+    "role_id",
+    "mode",
+    "status",
+    "notes"
+  ]);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE document_write_rules
+     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [...values, ruleId]
+  );
+
+  if (!result.affectedRows) {
+    throw new AppError(404, "not_found", "Document write rule was not found.");
+  }
+
+  await writeAuditLog(request, { action: "admin.document_write_rule.update", entityType: "document_write_rule", entityId: ruleId });
+  ok(response, await fetchDocumentWriteRuleById(ruleId));
 }));
 
 const createConfidentialityLevelSchema = z.object({
@@ -1291,6 +1852,7 @@ const createPriorityLevelSchema = z.object({
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(140),
   rank: z.coerce.number().int().nonnegative().default(0),
+  is_default: z.boolean().default(false),
   default_due_days: z.coerce.number().int().positive().nullable().optional(),
   color: optionalNullableString,
   description: optionalNullableString,
@@ -1301,6 +1863,7 @@ const updatePriorityLevelSchema = z.object({
   code: z.string().trim().min(1).max(80).optional(),
   name: z.string().trim().min(1).max(140).optional(),
   rank: z.coerce.number().int().nonnegative().optional(),
+  is_default: z.boolean().optional(),
   default_due_days: z.coerce.number().int().positive().nullable().optional(),
   color: optionalNullableString,
   description: optionalNullableString,
@@ -1310,24 +1873,41 @@ const updatePriorityLevelSchema = z.object({
 adminRouter.get("/priority-levels", listRoute("priority_levels", "rank"));
 adminRouter.post("/priority-levels", asyncHandler(async (request, response) => {
   const input = createPriorityLevelSchema.parse(request.body);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO priority_levels (
-      uuid, code, name, \`rank\`, default_due_days, color, description, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.code,
-      input.name,
-      input.rank,
-      input.default_due_days ?? null,
-      input.color || null,
-      input.description || null,
-      input.status
-    ]
-  );
-  const id = result.insertId;
-  await writeAuditLog(request, { action: "admin.priority_level.create", entityType: "priority_level", entityId: id });
-  created(response, await fetchById("priority_levels", Number(id)));
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    if (input.is_default) {
+      await connection.execute<ResultSetHeader>(
+        "UPDATE priority_levels SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE is_default = TRUE"
+      );
+    }
+
+    const [result] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO priority_levels (
+        uuid, code, name, \`rank\`, is_default, default_due_days, color, description, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.code,
+        input.name,
+        input.rank,
+        input.is_default,
+        input.default_due_days ?? null,
+        input.color || null,
+        input.description || null,
+        input.status
+      ]
+    );
+    const id = result.insertId;
+    await writeAuditLog(request, { action: "admin.priority_level.create", entityType: "priority_level", entityId: id }, connection);
+    await connection.commit();
+    created(response, await fetchById("priority_levels", Number(id)));
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }));
 
 adminRouter.patch("/priority-levels/:priorityLevelId", asyncHandler(async (request, response) => {
@@ -1335,26 +1915,46 @@ adminRouter.patch("/priority-levels/:priorityLevelId", asyncHandler(async (reque
   const input = updatePriorityLevelSchema.parse(request.body);
   requirePatch(input);
 
-  const { set, values } = updateParts(clean(input), [
-    "code",
-    "name",
-    "rank",
-    "default_due_days",
-    "color",
-    "description",
-    "status"
-  ]);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE priority_levels
-     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [...values, priorityLevelId]
-  );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    if (input.is_default) {
+      await connection.execute<ResultSetHeader>(
+        `UPDATE priority_levels
+         SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE is_default = TRUE AND id <> ?`,
+        [priorityLevelId]
+      );
+    }
 
-  if (!result.affectedRows) {
-    throw new AppError(404, "not_found", "Priority level was not found.");
+    const { set, values } = updateParts(clean(input), [
+      "code",
+      "name",
+      "rank",
+      "is_default",
+      "default_due_days",
+      "color",
+      "description",
+      "status"
+    ]);
+    const [result] = await connection.execute<ResultSetHeader>(
+      `UPDATE priority_levels
+       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [...values, priorityLevelId]
+    );
+
+    if (!result.affectedRows) {
+      throw new AppError(404, "not_found", "Priority level was not found.");
+    }
+
+    await writeAuditLog(request, { action: "admin.priority_level.update", entityType: "priority_level", entityId: priorityLevelId }, connection);
+    await connection.commit();
+    ok(response, await fetchById("priority_levels", priorityLevelId));
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  await writeAuditLog(request, { action: "admin.priority_level.update", entityType: "priority_level", entityId: priorityLevelId });
-  ok(response, await fetchById("priority_levels", priorityLevelId));
 }));

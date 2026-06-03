@@ -6,16 +6,17 @@ import { normalizeSearch, rowMatchesSearch, statusTone } from "./documentTypeUti
 import type { DocumentTypeRow } from "./types";
 
 type DocumentTypeDirectoryProps = {
+  onEditType?: (row: DocumentTypeRow) => void;
+  onOpenTypeActions?: (row: DocumentTypeRow) => void;
   onSelectType: (typeId: EntityId) => void;
   rows: DocumentTypeRow[];
   selectedTypeId: EntityId | null;
 };
 
-export function DocumentTypeDirectory({ onSelectType, rows, selectedTypeId }: DocumentTypeDirectoryProps) {
+export function DocumentTypeDirectory({ onEditType, onOpenTypeActions, onSelectType, rows, selectedTypeId }: DocumentTypeDirectoryProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [serialFilter, setSerialFilter] = useState("all");
 
   const filteredRows = useMemo(() => {
     const normalized = normalizeSearch(search);
@@ -23,13 +24,10 @@ export function DocumentTypeDirectory({ onSelectType, rows, selectedTypeId }: Do
     return rows.filter((row) => {
       const matchesSearch = rowMatchesSearch(row, normalized);
       const matchesStatus = statusFilter === "all" || row.status === statusFilter;
-      const matchesSerial = serialFilter === "all"
-        || (serialFilter === "required" && row.requiresSerial)
-        || (serialFilter === "not_required" && !row.requiresSerial);
 
-      return matchesSearch && matchesStatus && matchesSerial;
+      return matchesSearch && matchesStatus;
     });
-  }, [rows, search, serialFilter, statusFilter]);
+  }, [rows, search, statusFilter]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -51,12 +49,7 @@ export function DocumentTypeDirectory({ onSelectType, rows, selectedTypeId }: Do
             <option value="inactive">{t("admin.documentTypes.status.inactive")}</option>
             <option value="archived">{t("admin.documentTypes.status.archived")}</option>
           </SelectFilter>
-          <SelectFilter aria-label={t("admin.documentTypes.directory.serialFilter")} onChange={(event) => setSerialFilter(event.target.value)} value={serialFilter}>
-            <option value="all">{t("admin.documentTypes.directory.serialAll")}</option>
-            <option value="required">{t("admin.documentTypes.directory.serialRequired")}</option>
-            <option value="not_required">{t("admin.documentTypes.directory.serialNotRequired")}</option>
-          </SelectFilter>
-          <Button icon="reset" onClick={() => { setSearch(""); setStatusFilter("all"); setSerialFilter("all"); }}>
+          <Button icon="reset" onClick={() => { setSearch(""); setStatusFilter("all"); }}>
             {t("admin.documentTypes.directory.reset")}
           </Button>
         </Toolbar>
@@ -86,21 +79,13 @@ export function DocumentTypeDirectory({ onSelectType, rows, selectedTypeId }: Do
               key: "serial",
               header: t("admin.documentTypes.directory.columns.serial"),
               cell: (row) => (
-                <StatusBadge tone={row.requiresSerial ? "green" : "slate"}>
-                  {row.requiresSerial ? t("common.yes") : t("common.no")}
-                </StatusBadge>
+                <StatusBadge tone="green">{t("common.yes")}</StatusBadge>
               )
             },
             {
-              key: "routing",
-              header: t("admin.documentTypes.directory.columns.routing"),
-              cell: (row) => <span className="font-semibold text-slate-800">{row.routingRulesCount}</span>,
-              hideOnMobile: true
-            },
-            {
-              key: "signatures",
-              header: t("admin.documentTypes.directory.columns.signatures"),
-              cell: (row) => <span className="font-semibold text-slate-800">{row.signatureRulesCount}</span>,
+              key: "templates",
+              header: t("admin.documentTypes.directory.columns.templates"),
+              cell: (row) => <span className="font-semibold text-slate-800">{row.templateBindingsCount}</span>,
               hideOnMobile: true
             },
             {
@@ -114,8 +99,8 @@ export function DocumentTypeDirectory({ onSelectType, rows, selectedTypeId }: Do
               cell: (row) => (
                 <div className="flex items-center justify-end gap-1">
                   <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.documentTypes.directory.view")} onClick={() => onSelectType(row.id)} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.documentTypes.directory.edit")} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.documentTypes.directory.more")} />
+                  <IconButton className="h-8 w-8 border-transparent" disabled={!onEditType} icon="edit" label={t("admin.documentTypes.directory.edit")} onClick={() => onEditType?.(row)} />
+                  <IconButton className="h-8 w-8 border-transparent" disabled={!onOpenTypeActions} icon="more" label={t("admin.documentTypes.directory.more")} onClick={() => onOpenTypeActions?.(row)} />
                 </div>
               ),
               className: "w-28 text-end"

@@ -6,12 +6,15 @@ import { formatLabel, normalizeSearch, rowMatchesSearch, statusTone } from "./se
 import type { SerialRuleRow } from "./types";
 
 type SerialRuleDirectoryProps = {
+  onEditRule?: (row: SerialRuleRow) => void;
+  onOpenRuleActions?: (row: SerialRuleRow) => void;
   onSelectRule: (ruleId: EntityId) => void;
+  onViewRule?: (row: SerialRuleRow) => void;
   rows: SerialRuleRow[];
   selectedRuleId: EntityId | null;
 };
 
-export function SerialRuleDirectory({ onSelectRule, rows, selectedRuleId }: SerialRuleDirectoryProps) {
+export function SerialRuleDirectory({ onEditRule, onOpenRuleActions, onSelectRule, onViewRule, rows, selectedRuleId }: SerialRuleDirectoryProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -130,9 +133,37 @@ export function SerialRuleDirectory({ onSelectRule, rows, selectedRuleId }: Seri
               header: t("admin.serialSettings.directory.columns.actions"),
               cell: (row) => (
                 <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.serialSettings.directory.view")} onClick={() => onSelectRule(row.id)} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.serialSettings.directory.edit")} />
-                  <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.serialSettings.directory.more")} />
+                  <IconButton
+                    className="h-8 w-8 border-transparent"
+                    icon="view"
+                    label={t("admin.serialSettings.directory.view")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (onViewRule) {
+                        onViewRule(row);
+                      } else {
+                        onSelectRule(row.id);
+                      }
+                    }}
+                  />
+                  <IconButton
+                    className="h-8 w-8 border-transparent"
+                    icon="edit"
+                    label={t("admin.serialSettings.directory.edit")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onEditRule?.(row);
+                    }}
+                  />
+                  <IconButton
+                    className="h-8 w-8 border-transparent"
+                    icon="more"
+                    label={t("admin.serialSettings.directory.more")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenRuleActions?.(row);
+                    }}
+                  />
                 </div>
               ),
               className: "sticky end-0 z-10 w-32 bg-white text-end group-hover:bg-slate-50/70"

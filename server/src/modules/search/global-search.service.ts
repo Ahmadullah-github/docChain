@@ -45,8 +45,6 @@ const adminPages: GlobalSearchRecord[] = [
   page("users", "Users", "User accounts and access", "/admin/users", "user account person role login access"),
   page("positions", "Positions", "Positions and authority", "/admin/positions", "position authority signing role title"),
   page("assignments", "Assignments", "Position holders and delegations", "/admin/assignments", "assignment holder delegation active position person"),
-  page("workflow-rules", "Workflow Rules", "Routing and workflow policy", "/admin/workflow-rules", "workflow routing rule transition"),
-  page("signature-rules", "Signature Rules", "Signature chains and visibility", "/admin/signature-rules", "signature sign final approval rule"),
   page("serial-settings", "Serial Settings", "Official number rules", "/admin/serial-settings", "serial official number registry"),
   page("document-types", "Document Types", "Document type governance", "/admin/document-types", "document type template serial workflow"),
   page("templates", "Templates", "Document templates and bindings", "/admin/templates", "template layout render document"),
@@ -277,8 +275,8 @@ async function recordForEntity(entityType: SearchEntityType, entityId: string | 
         `SELECT assignments.*, persons.display_name AS personDisplayName, units.name AS unitName, positions.title AS positionTitle
          FROM assignments
          INNER JOIN persons ON assignments.person_id = persons.id
-         INNER JOIN units ON assignments.unit_id = units.id
          INNER JOIN positions ON assignments.position_id = positions.id
+         INNER JOIN units ON positions.unit_id = units.id
          WHERE assignments.id = ? AND assignments.deleted_at IS NULL
          LIMIT 1`,
         [entityId]

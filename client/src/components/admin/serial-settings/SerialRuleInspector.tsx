@@ -5,6 +5,10 @@ import { formatLabel, statusTone } from "./serialSettingsUtils";
 import type { SerialSettingsChecks, SerialRuleRow } from "./types";
 
 type SerialRuleInspectorProps = {
+  onCloneRule?: (row: SerialRuleRow) => void;
+  onDisableRule?: (row: SerialRuleRow) => void;
+  onEditRule?: (row: SerialRuleRow) => void;
+  onPreviewRule?: (row: SerialRuleRow) => void;
   selectedRule: SerialRuleRow | null;
 };
 
@@ -31,11 +35,12 @@ function checkItems(checks: SerialSettingsChecks, t: ReturnType<typeof useI18n>[
     [t("admin.serialSettings.checks.defaultRule"), checks.defaultRuleSet],
     [t("admin.serialSettings.checks.yearToken"), checks.formatHasYear],
     [t("admin.serialSettings.checks.sequenceToken"), checks.formatHasSequence],
+    [t("admin.serialSettings.checks.supportedTokens"), checks.formatTokensSupported],
     [t("admin.serialSettings.checks.documentTypes"), checks.documentTypesCovered]
   ] as Array<[string, boolean]>;
 }
 
-export function SerialRuleInspector({ selectedRule }: SerialRuleInspectorProps) {
+export function SerialRuleInspector({ onCloneRule, onDisableRule, onEditRule, onPreviewRule, selectedRule }: SerialRuleInspectorProps) {
   const { t } = useI18n();
 
   return (
@@ -69,10 +74,10 @@ export function SerialRuleInspector({ selectedRule }: SerialRuleInspectorProps) 
             </dl>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="edit">{t("admin.serialSettings.inspector.editRule")}</Button>
-              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="template">{t("admin.serialSettings.inspector.cloneRule")}</Button>
-              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="pause" variant="danger">{t("admin.serialSettings.inspector.disableRule")}</Button>
-              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="view">{t("admin.serialSettings.inspector.previewResult")}</Button>
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="edit" onClick={() => onEditRule?.(selectedRule)}>{t("admin.serialSettings.inspector.editRule")}</Button>
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="template" onClick={() => onCloneRule?.(selectedRule)}>{t("admin.serialSettings.inspector.cloneRule")}</Button>
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="pause" onClick={() => onDisableRule?.(selectedRule)} variant="danger">{t("admin.serialSettings.inspector.disableRule")}</Button>
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="view" onClick={() => onPreviewRule?.(selectedRule)}>{t("admin.serialSettings.inspector.previewResult")}</Button>
             </div>
           </div>
         ) : (

@@ -4,7 +4,10 @@ import { statusTone } from "./documentTypeUtils";
 import type { DocumentTypeRow } from "./types";
 
 type DocumentTypeProfileBuilderProps = {
+  onCloneType?: (row: DocumentTypeRow) => void;
+  onEditType?: (row: DocumentTypeRow) => void;
   onSelectStatus: (status: string) => void;
+  onUpdateStatus?: (row: DocumentTypeRow, status: string) => void;
   selectedStatus: string;
   selectedType: DocumentTypeRow | null;
 };
@@ -18,7 +21,7 @@ function FieldCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function DocumentTypeProfileBuilder({ onSelectStatus, selectedStatus, selectedType }: DocumentTypeProfileBuilderProps) {
+export function DocumentTypeProfileBuilder({ onCloneType, onEditType, onSelectStatus, onUpdateStatus, selectedStatus, selectedType }: DocumentTypeProfileBuilderProps) {
   const { t } = useI18n();
 
   return (
@@ -34,9 +37,7 @@ export function DocumentTypeProfileBuilder({ onSelectStatus, selectedStatus, sel
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 <StatusBadge tone={statusTone(selectedType.status)}>{selectedType.status}</StatusBadge>
-                <StatusBadge tone={selectedType.requiresSerial ? "green" : "slate"}>
-                  {selectedType.requiresSerial ? t("admin.documentTypes.builder.serialRequired") : t("admin.documentTypes.builder.serialOptional")}
-                </StatusBadge>
+                <StatusBadge tone="green">{t("admin.documentTypes.builder.serialRequired")}</StatusBadge>
               </div>
             </div>
           </section>
@@ -46,8 +47,9 @@ export function DocumentTypeProfileBuilder({ onSelectStatus, selectedStatus, sel
               <FieldCard label={t("admin.documentTypes.builder.code")} value={selectedType.code} />
               <FieldCard
                 label={t("admin.documentTypes.builder.serial")}
-                value={selectedType.requiresSerial ? t("common.yes") : t("common.no")}
+                value={t("common.yes")}
               />
+              <FieldCard label={t("admin.documentTypes.builder.templates")} value={String(selectedType.templateBindingsCount)} />
               <label className="min-w-0 space-y-1 text-xs font-bold text-slate-600">
                 <span>{t("admin.documentTypes.builder.status")}</span>
                 <SelectFilter className="w-full min-w-0" value={selectedStatus} onChange={(event) => onSelectStatus(event.target.value)}>
@@ -72,17 +74,16 @@ export function DocumentTypeProfileBuilder({ onSelectStatus, selectedStatus, sel
               <p>
                 {t("admin.documentTypes.builder.explanation", {
                   code: selectedType.code,
-                  routing: selectedType.routingRulesCount,
-                  signatures: selectedType.signatureRulesCount
+                  templates: selectedType.templateBindingsCount
                 })}
               </p>
             </div>
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
-            <Button icon="document" variant="primary">{t("admin.documentTypes.builder.saveType")}</Button>
-            <Button icon="template">{t("admin.documentTypes.builder.saveDraft")}</Button>
-            <Button>{t("admin.documentTypes.builder.cancel")}</Button>
+            <Button disabled={!onEditType} icon="edit" onClick={() => onEditType?.(selectedType)} variant="primary">{t("admin.documentTypes.inspector.editType")}</Button>
+            <Button disabled={!onCloneType} icon="template" onClick={() => onCloneType?.(selectedType)}>{t("admin.documentTypes.inspector.cloneType")}</Button>
+            <Button disabled={!onUpdateStatus || selectedType.status === "draft"} icon="document" onClick={() => onUpdateStatus?.(selectedType, "draft")}>{t("admin.documentTypes.builder.saveDraft")}</Button>
           </div>
         </div>
       ) : (

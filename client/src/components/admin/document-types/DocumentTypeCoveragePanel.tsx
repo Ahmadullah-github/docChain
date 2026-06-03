@@ -51,7 +51,8 @@ export function DocumentTypeCoveragePanel({ selectedType }: DocumentTypeCoverage
   }
 
   const score = readinessScore(selectedType);
-  const percent = Math.round((score / 5) * 100);
+  const totalChecks = Object.keys(selectedType.checks).length;
+  const percent = Math.round((score / totalChecks) * 100);
 
   return (
     <PanelCard className="h-full overflow-hidden" title={t("admin.documentTypes.coverage.title")}>
@@ -60,10 +61,10 @@ export function DocumentTypeCoveragePanel({ selectedType }: DocumentTypeCoverage
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("admin.documentTypes.coverage.readiness")}</p>
-              <p className="mt-1 text-3xl font-black text-[#061d49]">{score}/5</p>
+              <p className="mt-1 text-3xl font-black text-[#061d49]">{score}/{totalChecks}</p>
             </div>
-            <StatusBadge tone={score === 5 ? "green" : "amber"}>
-              {score === 5 ? t("admin.documentTypes.coverage.ready") : t("admin.documentTypes.coverage.attention")}
+            <StatusBadge tone={score === totalChecks ? "green" : "amber"}>
+              {score === totalChecks ? t("admin.documentTypes.coverage.ready") : t("admin.documentTypes.coverage.attention")}
             </StatusBadge>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
@@ -73,31 +74,23 @@ export function DocumentTypeCoveragePanel({ selectedType }: DocumentTypeCoverage
 
         <div className="grid gap-3 sm:grid-cols-2">
           <CoverageCard
-            count={t("admin.documentTypes.coverage.countRules", { count: selectedType.routingRulesCount })}
-            icon="workflow"
-            label={t("admin.documentTypes.coverage.routingRules")}
-            ok={selectedType.checks.routingConfigured}
+            count={selectedType.status}
+            icon="activity"
+            label={t("admin.documentTypes.checks.activeType")}
+            ok={selectedType.checks.activeType}
             readyLabel={t("admin.documentTypes.coverage.ready")}
             attentionLabel={t("admin.documentTypes.coverage.attention")}
           />
           <CoverageCard
-            count={t("admin.documentTypes.coverage.countRules", { count: selectedType.signatureRulesCount })}
-            icon="signature"
-            label={t("admin.documentTypes.coverage.signatureSteps")}
-            ok={selectedType.checks.signatureConfigured}
+            count={t("admin.documentTypes.coverage.countTemplates", { count: selectedType.templateBindingsCount })}
+            icon="template"
+            label={t("admin.documentTypes.coverage.templateReady")}
+            ok={selectedType.checks.templateReady}
             readyLabel={t("admin.documentTypes.coverage.ready")}
             attentionLabel={t("admin.documentTypes.coverage.attention")}
           />
           <CoverageCard
-            count={t("admin.documentTypes.coverage.countRules", { count: selectedType.visibilityRulesCount })}
-            icon="view"
-            label={t("admin.documentTypes.coverage.visibilityPolicies")}
-            ok={selectedType.checks.visibilityConfigured}
-            readyLabel={t("admin.documentTypes.coverage.ready")}
-            attentionLabel={t("admin.documentTypes.coverage.attention")}
-          />
-          <CoverageCard
-            count={selectedType.requiresSerial ? t("admin.documentTypes.coverage.required") : t("admin.documentTypes.coverage.notRequired")}
+            count={t("admin.documentTypes.coverage.required")}
             icon="serial"
             label={t("admin.documentTypes.coverage.serialReady")}
             ok={selectedType.checks.serialReady}

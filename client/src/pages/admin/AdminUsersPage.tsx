@@ -3,12 +3,9 @@ import { adminApi } from "../../api";
 import type { AdminAssignment, EntityId, Person, Position, Role, Unit, UserListItem } from "../../api";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
-  buildReviewQueue,
   buildUserRows,
   UserDirectory,
-  UserGovernanceReminder,
   UserInspector,
-  UserReviewQueue,
   UserStats
 } from "../../components/admin/users";
 import type { UserAdminRow } from "../../components/admin/users/types";
@@ -56,7 +53,6 @@ type EditUserForm = {
 };
 
 type AssignmentForm = {
-  unit_id: string;
   position_id: string;
   status: string;
   is_primary: boolean;
@@ -101,12 +97,7 @@ function roleLabel(role: Role) {
   return role.displayName || role.display_name || role.name;
 }
 
-function defaultRoleNames(roles: Role[]) {
-  const role = roles.find((item) => item.name === "user") || roles[0];
-  return role ? [role.name] : [];
-}
-
-function createFormDefaults(roles: Role[]): CreateUserForm {
+function createFormDefaults(): CreateUserForm {
   return {
     account_email: "",
     display_name: "",
@@ -118,13 +109,13 @@ function createFormDefaults(roles: Role[]): CreateUserForm {
     person_email: "",
     person_id: "",
     phone: "",
-    role_names: defaultRoleNames(roles),
+    role_names: [],
     status: "pending_activation",
     username: ""
   };
 }
 
-function editFormFor(row: UserAdminRow, roles: Role[]): EditUserForm {
+function editFormFor(row: UserAdminRow): EditUserForm {
   return {
     account_email: row.user.email,
     display_name: row.person?.display_name || row.user.personDisplayName,
@@ -133,28 +124,32 @@ function editFormFor(row: UserAdminRow, roles: Role[]): EditUserForm {
     must_change_password: row.user.mustChangePassword,
     person_email: row.person?.email || "",
     phone: row.person?.phone || "",
-    role_names: row.user.roleNames?.length ? row.user.roleNames : defaultRoleNames(roles),
+    role_names: row.user.roleNames || [],
     status: row.user.status,
     username: row.user.username
   };
 }
 
-function accessFormFor(row: UserAdminRow, roles: Role[]): AccessForm {
+function accessFormFor(row: UserAdminRow): AccessForm {
   return {
     must_change_password: row.user.mustChangePassword,
-    role_names: row.user.roleNames?.length ? row.user.roleNames : defaultRoleNames(roles),
+    role_names: row.user.roleNames || [],
     status: row.user.status
   };
 }
 
-function assignmentFormFor(row: UserAdminRow, units: Unit[], positions: Position[]): AssignmentForm {
-  const firstUnit = units.find((unit) => unit.status === "active") || units[0];
+function positionOptionLabel(position: Position, unitsById: Map<EntityId, Unit>) {
+  const unit = unitsById.get(position.unit_id);
+  const unitName = unit?.name || position.unitName || position.unitCode || "";
+  return unitName ? `${position.title} - ${unitName}` : position.title;
+}
+
+function assignmentFormFor(row: UserAdminRow, positions: Position[]): AssignmentForm {
   const firstPosition = positions.find((position) => position.status === "active") || positions[0];
   return {
     is_primary: row.activeAssignments.length === 0,
     position_id: String(row.position?.id || firstPosition?.id || ""),
-    status: "active",
-    unit_id: String(row.unit?.id || firstUnit?.id || "")
+    status: "active"
   };
 }
 
@@ -183,7 +178,7 @@ export function AdminUsersPage() {
   const [modalUserId, setModalUserId] = useState<EntityId | null>(null);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [createForm, setCreateForm] = useState<CreateUserForm>(() => createFormDefaults([]));
+  const [createForm, setCreateForm] = useState<CreateUserForm>(() => createFormDefaults());
   const [editForm, setEditForm] = useState<EditUserForm>(() => editFormFor({
     activeAssignments: [],
     assignments: [],
@@ -197,8 +192,8 @@ export function AdminUsersPage() {
     setupStatus: "pending",
     unit: null,
     user: { createdAt: "", email: "", id: 0, mustChangePassword: true, personDisplayName: "", personId: 0, status: "pending_activation", username: "", uuid: "" }
-  }, []));
-  const [assignmentForm, setAssignmentForm] = useState<AssignmentForm>({ is_primary: false, position_id: "", status: "active", unit_id: "" });
+  }));
+  const [assignmentForm, setAssignmentForm] = useState<AssignmentForm>({ is_primary: false, position_id: "", status: "active" });
   const [accessForm, setAccessForm] = useState<AccessForm>({ must_change_password: true, role_names: [], status: "pending_activation" });
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordForm>(resetPasswordDefaults);
   const inspectorRef = useRef<HTMLDivElement | null>(null);
@@ -235,9 +230,8 @@ export function AdminUsersPage() {
   const rows = useMemo(() => buildUserRows(data), [data]);
   const selectedUser = rows.find((row) => row.id === selectedUserId) || null;
   const modalUser = modalUserId ? rows.find((row) => row.id === modalUserId) || null : null;
-  const reviewQueue = useMemo(() => buildReviewQueue(rows), [rows]);
-  const activeUnits = data.units.filter((unit) => unit.status === "active");
   const activePositions = data.positions.filter((position) => position.status === "active");
+  const unitsById = useMemo(() => new Map<EntityId, Unit>(data.units.map((unit) => [unit.id, unit])), [data.units]);
   const stats = {
     active: data.users.filter((user) => user.status === "active").length,
     disabled: data.users.filter((user) => ["disabled", "inactive"].includes(user.status)).length,
@@ -273,28 +267,28 @@ export function AdminUsersPage() {
   }
 
   function openCreateUserModal() {
-    setCreateForm(createFormDefaults(data.roles));
+    setCreateForm(createFormDefaults());
     setFormError(null);
     setActiveModal("create");
   }
 
   function openEditUserModal(row: UserAdminRow) {
     setModalUserId(row.id);
-    setEditForm(editFormFor(row, data.roles));
+    setEditForm(editFormFor(row));
     setFormError(null);
     setActiveModal("edit");
   }
 
   function openAssignUserModal(row: UserAdminRow) {
     setModalUserId(row.id);
-    setAssignmentForm(assignmentFormFor(row, data.units, data.positions));
+    setAssignmentForm(assignmentFormFor(row, data.positions));
     setFormError(null);
     setActiveModal("assign");
   }
 
   function openAccessModal(row: UserAdminRow) {
     setModalUserId(row.id);
-    setAccessForm(accessFormFor(row, data.roles));
+    setAccessForm(accessFormFor(row));
     setFormError(null);
     setActiveModal("access");
   }
@@ -318,19 +312,12 @@ export function AdminUsersPage() {
     setActiveModal("delete");
   }
 
-  function ensureRoles(roleNames: string[]) {
-    if (!roleNames.length) {
-      throw new Error(t("admin.users.form.rolesRequired"));
-    }
-  }
-
   async function handleCreateUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setFormError(null);
 
     try {
-      ensureRoles(createForm.role_names);
       let personId = Number(createForm.person_id);
       if (createForm.personMode === "new") {
         const person = await adminApi.persons.create({
@@ -375,7 +362,6 @@ export function AdminUsersPage() {
     setFormError(null);
 
     try {
-      ensureRoles(editForm.role_names);
       await adminApi.persons.update(modalUser.user.personId, {
         display_name: editForm.display_name || undefined,
         email: editForm.person_email || null,
@@ -413,8 +399,7 @@ export function AdminUsersPage() {
         is_primary: assignmentForm.is_primary,
         person_id: modalUser.user.personId,
         position_id: Number(assignmentForm.position_id),
-        status: assignmentForm.status,
-        unit_id: Number(assignmentForm.unit_id)
+        status: assignmentForm.status
       });
       await refreshUsers(modalUser.id);
       closeModal();
@@ -434,7 +419,6 @@ export function AdminUsersPage() {
     setFormError(null);
 
     try {
-      ensureRoles(accessForm.role_names);
       await adminApi.users.update(modalUser.id, {
         must_change_password: accessForm.must_change_password,
         role_names: accessForm.role_names,
@@ -501,7 +485,7 @@ export function AdminUsersPage() {
 
   function renderRoleCheckboxes(value: string[], onChange: (next: string[]) => void) {
     if (!data.roles.length) {
-      return <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">{t("admin.users.form.noRoles")}</p>;
+      return <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">{t("admin.users.form.noRoles")}</p>;
     }
 
     return (
@@ -558,10 +542,6 @@ export function AdminUsersPage() {
       </section>
 
       <section className="min-w-0">
-        <UserReviewQueue onSelectUser={setSelectedUserId} rows={reviewQueue} />
-      </section>
-
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,32rem)]">
         <div ref={inspectorRef} tabIndex={-1}>
           <UserInspector
             onAssignUser={openAssignUserModal}
@@ -571,7 +551,6 @@ export function AdminUsersPage() {
             selectedUser={selectedUser}
           />
         </div>
-        <UserGovernanceReminder />
       </section>
 
       <AdminModal
@@ -661,6 +640,7 @@ export function AdminUsersPage() {
           </label>
           <div className="md:col-span-2">
             <p className={labelClassName}>{t("admin.users.form.roles")}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{t("admin.users.form.rolesHelp")}</p>
             <div className="mt-1">{renderRoleCheckboxes(createForm.role_names, (role_names) => setCreateForm((form) => ({ ...form, role_names })))}</div>
           </div>
         </form>
@@ -720,6 +700,7 @@ export function AdminUsersPage() {
           </label>
           <div className="md:col-span-2">
             <p className={labelClassName}>{t("admin.users.form.roles")}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{t("admin.users.form.rolesHelp")}</p>
             <div className="mt-1">{renderRoleCheckboxes(editForm.role_names, (role_names) => setEditForm((form) => ({ ...form, role_names })))}</div>
           </div>
         </form>
@@ -743,17 +724,10 @@ export function AdminUsersPage() {
             <input className={fieldClassName} disabled readOnly value={modalUser?.user.personDisplayName || ""} />
           </label>
           <label className={labelClassName}>
-            {t("admin.users.form.unit")}
-            <select className={fieldClassName} onChange={(event) => setAssignmentForm((form) => ({ ...form, unit_id: event.target.value }))} required value={assignmentForm.unit_id}>
-              <option value="" disabled>{t("admin.users.form.selectUnit")}</option>
-              {activeUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
-            </select>
-          </label>
-          <label className={labelClassName}>
             {t("admin.users.form.position")}
             <select className={fieldClassName} onChange={(event) => setAssignmentForm((form) => ({ ...form, position_id: event.target.value }))} required value={assignmentForm.position_id}>
               <option value="" disabled>{t("admin.users.form.selectPosition")}</option>
-              {activePositions.map((position) => <option key={position.id} value={position.id}>{position.title}</option>)}
+              {activePositions.map((position) => <option key={position.id} value={position.id}>{positionOptionLabel(position, unitsById)}</option>)}
             </select>
           </label>
           <label className={labelClassName}>
@@ -796,6 +770,7 @@ export function AdminUsersPage() {
           </label>
           <div>
             <p className={labelClassName}>{t("admin.users.form.roles")}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">{t("admin.users.form.rolesHelp")}</p>
             <div className="mt-1">{renderRoleCheckboxes(accessForm.role_names, (role_names) => setAccessForm((form) => ({ ...form, role_names })))}</div>
           </div>
         </form>

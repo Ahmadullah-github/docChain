@@ -10,6 +10,7 @@ type UserMenuButtonProps = {
   activeAssignment?: AuthAssignment | null;
   onLogout?: () => void;
   roles?: AuthRole[];
+  settingsTo?: string;
   user: AuthUser | null;
 };
 
@@ -27,7 +28,7 @@ function initials(name?: string) {
     .toUpperCase();
 }
 
-export function UserMenuButton({ activeAssignment, label, onClick, onLogout, roles = [], user }: UserMenuButtonProps) {
+export function UserMenuButton({ activeAssignment, label, onClick, onLogout, roles = [], settingsTo = "/app/signature-profile", user }: UserMenuButtonProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -74,7 +75,7 @@ export function UserMenuButton({ activeAssignment, label, onClick, onLogout, rol
             ) : null}
           </div>
           <div className="space-y-1 p-2">
-            <Link className="block rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => setOpen(false)} to="/admin/settings">
+            <Link className="block rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50" onClick={() => setOpen(false)} to={settingsTo}>
               {t("admin.userMenu.settings")}
             </Link>
             <div className="rounded-lg px-3 py-2">

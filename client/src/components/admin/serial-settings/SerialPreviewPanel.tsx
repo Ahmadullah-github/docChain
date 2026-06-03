@@ -3,11 +3,13 @@ import { Icon, PanelCard, StatusBadge } from "../../ui";
 import type { SerialRuleRow } from "./types";
 
 type SerialPreviewPanelProps = {
+  previewSerial?: string | null;
   selectedRule: SerialRuleRow | null;
 };
 
-export function SerialPreviewPanel({ selectedRule }: SerialPreviewPanelProps) {
+export function SerialPreviewPanel({ previewSerial, selectedRule }: SerialPreviewPanelProps) {
   const { t } = useI18n();
+  const serialValue = previewSerial || selectedRule?.sampleSerial || "";
 
   return (
     <PanelCard bodyClassName="p-3 sm:p-4" className="h-full overflow-hidden" title={t("admin.serialSettings.preview.title")}>
@@ -15,7 +17,7 @@ export function SerialPreviewPanel({ selectedRule }: SerialPreviewPanelProps) {
         <div className="space-y-3">
           <div className="rounded-lg border border-blue-200 bg-[radial-gradient(circle_at_top,#dbeafe,transparent_42%),linear-gradient(180deg,#fff,#eff6ff)] p-4 text-center">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("admin.serialSettings.preview.nextSerial")}</p>
-            <p className="force-ltr mt-3 truncate text-center font-mono text-3xl font-black tracking-tight text-[#061d49]" title={selectedRule.sampleSerial}>{selectedRule.sampleSerial}</p>
+	            <p className="force-ltr mt-3 truncate text-center font-mono text-3xl font-black tracking-tight text-[#061d49]" title={serialValue}>{serialValue}</p>
             <div className="mt-4 flex justify-center gap-2">
               <StatusBadge tone="blue">{selectedRule.resetPolicy}</StatusBadge>
               <StatusBadge tone={selectedRule.isDefault ? "green" : "slate"}>{selectedRule.isDefault ? "default" : "secondary"}</StatusBadge>

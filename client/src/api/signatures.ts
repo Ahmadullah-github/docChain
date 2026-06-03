@@ -3,42 +3,55 @@ import type {
   EnrollSignatureProfileInput,
   EntityId,
   JsonRecord,
-  SignSlotInput,
+  SignTaskInput,
+  SignatureAssetPreview,
   SignatureProfile,
-  SignatureSlot
+  SignatureUploadSession
 } from "./types";
 
-export type GenerateSignatureSlotsInput = {
-  force?: boolean;
-};
-
-export type CreateSignatureRuleInput = {
-  document_type_id: EntityId;
-  origin_unit_type_id?: EntityId | null;
-  step_number: number;
-  required_position_id: EntityId;
-  required_unit_scope: string;
-  signature_mode?: string;
-  is_required?: boolean;
-  is_parallel?: boolean;
-  can_finalize_document?: boolean;
-  can_be_hidden_later?: boolean;
-  status?: "draft" | "active" | "inactive" | "archived";
-  notes?: string | null;
-};
-
-export type UpdateSignatureRuleInput = Partial<CreateSignatureRuleInput>;
+export type SerialRuleStatus = "draft" | "active" | "inactive" | "archived";
+export type SerialRuleScope = "global" | "organization" | "origin_unit" | "document_type" | "origin_unit_document_type";
+export type SerialRuleResetPolicy = "yearly" | "monthly" | "never";
 
 export type CreateSerialRuleInput = {
   code: string;
   name: string;
   format?: string;
-  scope?: "global";
-  reset_policy?: "yearly";
+  scope?: SerialRuleScope;
+  reset_policy?: SerialRuleResetPolicy;
   sequence_padding?: number;
   is_default?: boolean;
-  status?: "draft" | "active" | "inactive" | "archived";
+  status?: SerialRuleStatus;
   notes?: string | null;
+};
+
+export type UpdateSerialRuleInput = Partial<CreateSerialRuleInput>;
+
+export type PreviewSerialRuleInput = {
+  serial_rule_id?: EntityId;
+  rule?: {
+    format?: string;
+    reset_policy?: SerialRuleResetPolicy;
+    scope?: SerialRuleScope;
+    sequence_padding?: number;
+  };
+  context?: {
+    documentTypeCode?: string;
+    organizationCode?: string;
+    originUnitCode?: string;
+  };
+  current_value?: number;
+  date?: string | Date;
+  sequence_value?: number;
+};
+
+export type PreviewSerialRuleResponse = {
+  serialValue: string;
+  sequencePeriod: string;
+  sequenceScope: string;
+  sequenceValue: number;
+  sequenceYear: number;
+  unsupportedTokens: string[];
 };
 
 export const signatureApi = {
@@ -46,45 +59,48 @@ export const signatureApi = {
     return getJson<SignatureProfile | null>("/api/signatures/profile");
   },
 
+  getProfileAsset() {
+    return getJson<SignatureAssetPreview>("/api/signatures/profile/asset");
+  },
+
   enrollProfile(input: EnrollSignatureProfileInput) {
     return postJson<SignatureProfile>("/api/signatures/profile", input);
   },
 
-  listSlots(documentId: EntityId) {
-    return getJson<SignatureSlot[]>(`/api/signatures/documents/${documentId}/slots`);
+  createUploadSession() {
+    return postJson<SignatureUploadSession>("/api/signatures/upload-sessions");
   },
 
-  generateSlots(documentId: EntityId, input: GenerateSignatureSlotsInput = {}) {
-    return postJson<SignatureSlot[]>(`/api/signatures/documents/${documentId}/slots/generate`, input);
+  getUploadSession(sessionId: EntityId) {
+    return getJson<SignatureUploadSession>(`/api/signatures/upload-sessions/${sessionId}`);
   },
 
-  signSlot(documentId: EntityId, slotId: EntityId, input: SignSlotInput) {
+  getUploadSessionAsset(sessionId: EntityId) {
+    return getJson<SignatureAssetPreview>(`/api/signatures/upload-sessions/${sessionId}/asset`);
+  },
+
+  uploadPhoneSignature(token: string, input: { signature_image_base64: string; original_filename?: string; mime_type?: string }) {
+    return postJson<{ session_id: EntityId; status: string }>(`/api/signature-upload/${token}`, input);
+  },
+
+  confirmUpload(input: {
+    upload_session_id: EntityId;
+    pin: string;
+    signature_image_base64?: string;
+    original_filename?: string;
+    mime_type?: string;
+  }) {
+    return postJson<SignatureProfile>("/api/signatures/profile/confirm-upload", input);
+  },
+
+  signTask(documentId: EntityId, taskId: EntityId, input: SignTaskInput) {
     return postJson<{
-      signatureEvent: JsonRecord;
-      slots: SignatureSlot[];
-      document: JsonRecord;
+      detail?: JsonRecord;
+      document?: JsonRecord;
+      finalRender?: JsonRecord | null;
       serialAssignment: JsonRecord | null;
-    }>(`/api/signatures/documents/${documentId}/slots/${slotId}/sign`, input);
-  },
-
-  listSignatureRules() {
-    return getJson<JsonRecord[]>("/api/admin/signature-rules");
-  },
-
-  createSignatureRule(input: CreateSignatureRuleInput) {
-    return postJson<JsonRecord>("/api/admin/signature-rules", input);
-  },
-
-  updateSignatureRule(signatureRuleId: EntityId, input: UpdateSignatureRuleInput) {
-    return patchJson<JsonRecord>(`/api/admin/signature-rules/${signatureRuleId}`, input);
-  },
-
-  updateSignatureRuleStatus(signatureRuleId: EntityId, status: "draft" | "active" | "inactive" | "archived") {
-    return patchJson<JsonRecord>(`/api/admin/signature-rules/${signatureRuleId}/status`, { status });
-  },
-
-  removeSignatureRule(signatureRuleId: EntityId) {
-    return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/signature-rules/${signatureRuleId}`);
+      signatureEvent: JsonRecord;
+    }>(`/api/signatures/documents/${documentId}/tasks/${taskId}/sign`, input);
   },
 
   listSerialRules() {
@@ -95,7 +111,19 @@ export const signatureApi = {
     return postJson<JsonRecord>("/api/admin/serial-rules", input);
   },
 
-  updateSerialRuleStatus(serialRuleId: EntityId, status: "draft" | "active" | "inactive" | "archived") {
+  updateSerialRule(serialRuleId: EntityId, input: UpdateSerialRuleInput) {
+    return patchJson<JsonRecord>(`/api/admin/serial-rules/${serialRuleId}`, input);
+  },
+
+  updateSerialRuleStatus(serialRuleId: EntityId, status: SerialRuleStatus) {
     return patchJson<JsonRecord>(`/api/admin/serial-rules/${serialRuleId}/status`, { status });
+  },
+
+  removeSerialRule(serialRuleId: EntityId) {
+    return deleteJson<{ id: EntityId; archived: boolean }>(`/api/admin/serial-rules/${serialRuleId}`);
+  },
+
+  previewSerialRule(input: PreviewSerialRuleInput) {
+    return postJson<PreviewSerialRuleResponse>("/api/admin/serial-rules/preview", input);
   }
 };

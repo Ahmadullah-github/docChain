@@ -5,6 +5,8 @@ import type {
   AdminAssignment,
   AuditLog,
   ConfidentialityLevel,
+  DocumentWriteMode,
+  DocumentWriteRule,
   DocumentType,
   EntityId,
   JsonRecord,
@@ -67,7 +69,6 @@ type PositionInput = Partial<Position> & {
 
 type AssignmentInput = Partial<AdminAssignment> & {
   person_id?: EntityId;
-  unit_id?: EntityId;
   position_id?: EntityId;
   reason?: string | null;
 };
@@ -75,6 +76,16 @@ type AssignmentInput = Partial<AdminAssignment> & {
 type DocumentTypeInput = Partial<DocumentType> & {
   code?: string;
   name?: string;
+};
+
+type DocumentWriteRuleInput = {
+  document_type_id?: EntityId;
+  unit_type_id?: EntityId | null;
+  position_id?: EntityId | null;
+  role_id?: EntityId | null;
+  mode?: DocumentWriteMode;
+  status?: string;
+  notes?: string | null;
 };
 
 type ConfidentialityLevelInput = Partial<ConfidentialityLevel> & {
@@ -85,10 +96,6 @@ type ConfidentialityLevelInput = Partial<ConfidentialityLevel> & {
 type PriorityLevelInput = Partial<PriorityLevel> & {
   code?: string;
   name?: string;
-};
-
-type VisibilityRuleInput = JsonRecord & {
-  visibility_policy?: string;
 };
 
 type RetentionPolicyInput = JsonRecord & {
@@ -196,7 +203,13 @@ export const adminApi = {
   },
   organizations: resourceApi<Organization, OrganizationInput>("/api/admin/organizations"),
   unitTypes: resourceApi<UnitType, UnitTypeInput>("/api/admin/unit-types"),
-  units: resourceApi<Unit, UnitInput>("/api/admin/units"),
+  units: {
+    ...resourceApi<Unit, UnitInput>("/api/admin/units"),
+
+    remove(id: EntityId) {
+      return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/units/${id}`);
+    }
+  },
   structure: {
     export() {
       return apiBlobRequest("/api/admin/structure/export");
@@ -252,10 +265,26 @@ export const adminApi = {
       return deleteJson<{ id: EntityId; deleted: boolean }>(`/api/admin/assignments/${id}`);
     }
   },
-  documentTypes: resourceApi<DocumentType, DocumentTypeInput>("/api/admin/document-types"),
+  documentTypes: {
+    list() {
+      return getJson<DocumentType[]>("/api/admin/document-types");
+    },
+
+    create(input: DocumentTypeInput) {
+      return postJson<DocumentType>("/api/admin/document-types", input);
+    },
+
+    update(id: EntityId, input: Partial<DocumentTypeInput>) {
+      return patchJson<DocumentType>(`/api/admin/document-types/${id}`, input);
+    },
+
+    remove(id: EntityId) {
+      return deleteJson<{ id: EntityId; deleted: boolean; status: string }>(`/api/admin/document-types/${id}`);
+    }
+  },
+  documentWriteRules: resourceApi<DocumentWriteRule, DocumentWriteRuleInput>("/api/admin/document-write-rules"),
   confidentialityLevels: resourceApi<ConfidentialityLevel, ConfidentialityLevelInput>("/api/admin/confidentiality-levels"),
   priorityLevels: resourceApi<PriorityLevel, PriorityLevelInput>("/api/admin/priority-levels"),
-  visibilityRules: createOnlyResourceApi<JsonRecord, VisibilityRuleInput>("/api/admin/visibility-rules"),
   retentionPolicies: createOnlyResourceApi<JsonRecord, RetentionPolicyInput>("/api/admin/retention-policies"),
   confidentialityAccessRules: createOnlyResourceApi<JsonRecord, ConfidentialityAccessRuleInput>("/api/admin/confidentiality-access-rules"),
   externalOrganizations: createOnlyResourceApi<JsonRecord, ExternalOrganizationInput>("/api/admin/external-organizations"),

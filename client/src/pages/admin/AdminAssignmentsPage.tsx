@@ -5,14 +5,11 @@ import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../ap
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   AssignmentDirectory,
-  AssignmentGovernanceReminder,
   AssignmentInspector,
   AssignmentRegistry,
   AssignmentRelationshipPreview,
-  AssignmentReviewQueue,
   AssignmentStats,
-  buildAssignmentRows,
-  buildReviewQueue
+  buildAssignmentRows
 } from "../../components/admin/assignments";
 import {
   assignmentTypeText,
@@ -39,7 +36,6 @@ type AssignmentForm = {
   reason: string;
   starts_at: string;
   status: string;
-  unit_id: string;
 };
 
 type BulkAssignmentForm = Omit<AssignmentForm, "person_id"> & {
@@ -86,9 +82,14 @@ function firstActive<T extends { status?: string }>(items: T[]) {
   return items.find((item) => item.status === "active") || items[0];
 }
 
+function positionOptionLabel(position: Position, unitsById: Map<EntityId, Unit>) {
+  const unit = unitsById.get(position.unit_id);
+  const unitName = unit?.name || position.unitName || position.unitCode || "";
+  return unitName ? `${position.title} - ${unitName}` : position.title;
+}
+
 function assignmentFormDefaults(data: AssignmentsPageData, row?: AssignmentAdminRow | null): AssignmentForm {
   const firstPerson = firstActive(data.persons);
-  const firstUnit = firstActive(data.units);
   const firstPosition = firstActive(data.positions);
 
   return {
@@ -98,13 +99,11 @@ function assignmentFormDefaults(data: AssignmentsPageData, row?: AssignmentAdmin
     position_id: String(row?.assignment.position_id || firstPosition?.id || ""),
     reason: "",
     starts_at: dateTimeInput(row?.assignment.starts_at),
-    status: row?.status || "active",
-    unit_id: String(row?.assignment.unit_id || firstUnit?.id || "")
+    status: row?.status || "active"
   };
 }
 
 function bulkAssignmentDefaults(data: AssignmentsPageData): BulkAssignmentForm {
-  const firstUnit = firstActive(data.units);
   const firstPosition = firstActive(data.positions);
 
   return {
@@ -114,8 +113,7 @@ function bulkAssignmentDefaults(data: AssignmentsPageData): BulkAssignmentForm {
     position_id: String(firstPosition?.id || ""),
     reason: "",
     starts_at: "",
-    status: "active",
-    unit_id: String(firstUnit?.id || "")
+    status: "active"
   };
 }
 
@@ -127,8 +125,7 @@ function assignmentPayload(form: AssignmentForm) {
     position_id: Number(form.position_id),
     reason: form.reason.trim() || null,
     starts_at: form.starts_at ? form.starts_at : null,
-    status: form.status,
-    unit_id: Number(form.unit_id)
+    status: form.status
   };
 }
 
@@ -175,7 +172,6 @@ export function AdminAssignmentsPage() {
   }, []);
 
   const rows = useMemo(() => buildAssignmentRows(data), [data]);
-  const reviewQueue = useMemo(() => buildReviewQueue(rows), [rows]);
 
   useEffect(() => {
     const selectedStillExists = selectedAssignmentId ? rows.some((row) => row.id === selectedAssignmentId) : false;
@@ -186,6 +182,7 @@ export function AdminAssignmentsPage() {
 
   const selectedAssignment = rows.find((row) => row.id === selectedAssignmentId) || null;
   const modalAssignment = rows.find((row) => row.id === modalAssignmentId) || selectedAssignment;
+  const unitsById = useMemo(() => new Map<EntityId, Unit>(data.units.map((unit) => [unit.id, unit])), [data.units]);
   const stats = {
     active: rows.filter((row) => row.status === "active").length,
     canSign: rows.filter((row) => row.signEligibility !== "no").length,
@@ -269,7 +266,7 @@ export function AdminAssignmentsPage() {
   }
 
   function validateForm(form: AssignmentForm) {
-    if (!form.person_id || !form.unit_id || !form.position_id || !form.status) {
+    if (!form.person_id || !form.position_id || !form.status) {
       setFormError(t("admin.assignments.form.requiredFields"));
       return false;
     }
@@ -283,7 +280,7 @@ export function AdminAssignmentsPage() {
   }
 
   function validateBulkForm(form: BulkAssignmentForm) {
-    if (!form.person_ids.length || !form.unit_id || !form.position_id || !form.status) {
+    if (!form.person_ids.length || !form.position_id || !form.status) {
       setFormError(t("admin.assignments.form.noPeopleSelected"));
       return false;
     }
@@ -387,8 +384,7 @@ export function AdminAssignmentsPage() {
         position_id: Number(bulkForm.position_id),
         reason: bulkForm.reason.trim() || null,
         starts_at: bulkForm.starts_at ? bulkForm.starts_at : null,
-        status: bulkForm.status,
-        unit_id: Number(bulkForm.unit_id)
+        status: bulkForm.status
       })));
       await refreshAssignments(created[0]?.id || null);
       closeModal();
@@ -500,26 +496,15 @@ export function AdminAssignmentsPage() {
         ) : null}
 
         {!accessOnly && !transferOnly ? (
-          <>
-            <label className={labelClassName}>
-              {t("admin.assignments.form.unit")}
-              <select className={fieldClassName} onChange={(event) => onChange({ ...value, unit_id: event.target.value })} required value={value.unit_id}>
-                <option value="">{t("admin.assignments.form.selectUnit")}</option>
-                {data.units.map((unit) => (
-                  <option key={unit.id} value={unit.id}>{unit.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className={labelClassName}>
-              {t("admin.assignments.form.position")}
-              <select className={fieldClassName} onChange={(event) => onChange({ ...value, position_id: event.target.value })} required value={value.position_id}>
-                <option value="">{t("admin.assignments.form.selectPosition")}</option>
-                {data.positions.map((position) => (
-                  <option key={position.id} value={position.id}>{position.title}</option>
-                ))}
-              </select>
-            </label>
-          </>
+          <label className={labelClassName}>
+            {t("admin.assignments.form.position")}
+            <select className={fieldClassName} onChange={(event) => onChange({ ...value, position_id: event.target.value })} required value={value.position_id}>
+              <option value="">{t("admin.assignments.form.selectPosition")}</option>
+              {data.positions.map((position) => (
+                <option key={position.id} value={position.id}>{positionOptionLabel(position, unitsById)}</option>
+              ))}
+            </select>
+          </label>
         ) : null}
 
         <label className={labelClassName}>
@@ -573,20 +558,11 @@ export function AdminAssignmentsPage() {
           </select>
         </label>
         <label className={labelClassName}>
-          {t("admin.assignments.form.unit")}
-          <select className={fieldClassName} onChange={(event) => setBulkForm({ ...bulkForm, unit_id: event.target.value })} required value={bulkForm.unit_id}>
-            <option value="">{t("admin.assignments.form.selectUnit")}</option>
-            {data.units.map((unit) => (
-              <option key={unit.id} value={unit.id}>{unit.name}</option>
-            ))}
-          </select>
-        </label>
-        <label className={labelClassName}>
           {t("admin.assignments.form.position")}
           <select className={fieldClassName} onChange={(event) => setBulkForm({ ...bulkForm, position_id: event.target.value })} required value={bulkForm.position_id}>
             <option value="">{t("admin.assignments.form.selectPosition")}</option>
             {data.positions.map((position) => (
-              <option key={position.id} value={position.id}>{position.title}</option>
+              <option key={position.id} value={position.id}>{positionOptionLabel(position, unitsById)}</option>
             ))}
           </select>
         </label>
@@ -634,7 +610,6 @@ export function AdminAssignmentsPage() {
         actions={(
           <>
             <Button icon="plus" onClick={openCreateModal} variant="primary">{t("admin.assignments.actions.newAssignment")}</Button>
-            <Button icon="users" onClick={openBulkModal}>{t("admin.assignments.actions.bulkAssign")}</Button>
             <Button disabled={!selectedAssignment} icon="move" onClick={() => selectedAssignment && openTransferModal(selectedAssignment)}>{t("admin.assignments.actions.transferAssignment")}</Button>
           </>
         )}
@@ -695,10 +670,6 @@ export function AdminAssignmentsPage() {
           selectedAssignmentId={selectedAssignmentId}
           units={data.units}
         />
-        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,.45fr)_minmax(0,1fr)]">
-          <AssignmentGovernanceReminder />
-          <AssignmentReviewQueue onSelectAssignment={setSelectedAssignmentId} rows={reviewQueue} />
-        </div>
       </section>
 
       <AdminModal

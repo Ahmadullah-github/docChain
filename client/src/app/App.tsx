@@ -1,24 +1,34 @@
 import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext";
 import { BrandLogo } from "../components/BrandLogo";
-import { AdminShell, adminNavItems, LanguageSwitcher } from "../components/admin";
+import { AppShell } from "../components/app";
+import { AdminShell, LanguageSwitcher } from "../components/admin";
 import { I18nProvider, useI18n } from "../i18n";
 import { AdminAssignmentsPage } from "../pages/admin/AdminAssignmentsPage";
-import { AdminAuditLogsPage } from "../pages/admin/AdminAuditLogsPage";
-import { AdminDashboardPage } from "../pages/admin/AdminDashboardPage";
+import { AdminDocumentSettingsPage } from "../pages/admin/AdminDocumentSettingsPage";
 import { AdminDocumentTypesPage } from "../pages/admin/AdminDocumentTypesPage";
 import { AdminOrganizationsPage } from "../pages/admin/AdminOrganizationsPage";
 import { AdminPositionsPage } from "../pages/admin/AdminPositionsPage";
-import { AdminReportsPage } from "../pages/admin/AdminReportsPage";
 import { AdminSearchPage } from "../pages/admin/AdminSearchPage";
 import { AdminSerialSettingsPage } from "../pages/admin/AdminSerialSettingsPage";
-import { AdminSignatureRulesPage } from "../pages/admin/AdminSignatureRulesPage";
-import { AdminTemplatesPage } from "../pages/admin/AdminTemplatesPage";
-import { AdminUnitsPage } from "../pages/admin/AdminUnitsPage";
+import {
+  AdminTemplateBuilderPage,
+  AdminTemplatesPage
+} from "../pages/admin/AdminTemplatesPage";
+import { AdminTemplateAdminPage } from "../pages/admin/templates/AdminTemplateAdminPage";
+import { AdminTemplateLibraryPage } from "../pages/admin/templates/AdminTemplateLibraryPage";
+import { AdminTemplatePublishPage } from "../pages/admin/templates/AdminTemplatePublishPage";
 import { AdminUsersPage } from "../pages/admin/AdminUsersPage";
-import { AdminWorkflowRulesPage } from "../pages/admin/AdminWorkflowRulesPage";
-import { AdminPlaceholderPage } from "../pages/admin/AdminPlaceholderPage";
+import { ChangePasswordPage } from "../pages/ChangePasswordPage";
+import { DocumentCreatePage } from "../pages/app/DocumentCreatePage";
+import { DocumentDetailPage } from "../pages/app/DocumentDetailPage";
+import { DocumentEditPage } from "../pages/app/DocumentEditPage";
+import { DocumentsPage } from "../pages/app/DocumentsPage";
+import { SignatureProfilePage } from "../pages/app/SignatureProfilePage";
+import { WorkPage } from "../pages/app/WorkPage";
 import { LoginPage } from "../pages/LoginPage";
+import { SignatureUploadPage } from "../pages/SignatureUploadPage";
+import { VerifyDocumentPage } from "../pages/VerifyDocumentPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
@@ -30,6 +40,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (!auth.user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (auth.user.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
   }
 
   return children;
@@ -45,6 +59,10 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
   if (!auth.user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (auth.user.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
   }
 
   if (!auth.isAdmin) {
@@ -85,8 +103,6 @@ function PublicShell({ children }: { children: React.ReactNode }) {
 }
 
 function AppRoutes() {
-  const { t } = useI18n();
-
   return (
     <Routes>
       <Route
@@ -98,13 +114,53 @@ function AppRoutes() {
         )}
       />
       <Route
+        path="/change-password"
+        element={(
+          <PublicShell>
+            <ChangePasswordPage />
+          </PublicShell>
+        )}
+      />
+      <Route
+        path="/verify/:token"
+        element={(
+          <PublicShell>
+            <VerifyDocumentPage />
+          </PublicShell>
+        )}
+      />
+      <Route
+        path="/signature-upload/:token"
+        element={(
+          <PublicShell>
+            <SignatureUploadPage />
+          </PublicShell>
+        )}
+      />
+      <Route
         path="/"
         element={(
           <ProtectedRoute>
-            <Navigate to="/admin/dashboard" replace />
+            <Navigate to="/app/work" replace />
           </ProtectedRoute>
         )}
       />
+      <Route
+        path="/app"
+        element={(
+          <ProtectedRoute>
+            <AppShell />
+          </ProtectedRoute>
+        )}
+      >
+        <Route index element={<Navigate to="/app/work" replace />} />
+        <Route path="work" element={<WorkPage />} />
+        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="documents/new" element={<DocumentCreatePage />} />
+        <Route path="documents/:documentId/edit" element={<DocumentEditPage />} />
+        <Route path="documents/:documentId" element={<DocumentDetailPage />} />
+        <Route path="signature-profile" element={<SignatureProfilePage />} />
+      </Route>
       <Route
         path="/admin"
         element={(
@@ -113,30 +169,28 @@ function AppRoutes() {
           </AdminRoute>
         )}
       >
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="dashboard" element={<AdminDashboardPage />} />
+        <Route index element={<Navigate to="/admin/organizations" replace />} />
+        <Route path="dashboard" element={<Navigate to="/admin/organizations" replace />} />
         <Route path="organizations" element={<AdminOrganizationsPage />} />
-        <Route path="units" element={<AdminUnitsPage />} />
+        <Route path="units" element={<Navigate to="/admin/organizations" replace />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="positions" element={<AdminPositionsPage />} />
         <Route path="assignments" element={<AdminAssignmentsPage />} />
-        <Route path="workflow-rules" element={<AdminWorkflowRulesPage />} />
-        <Route path="signature-rules" element={<AdminSignatureRulesPage />} />
         <Route path="serial-settings" element={<AdminSerialSettingsPage />} />
         <Route path="document-types" element={<AdminDocumentTypesPage />} />
-        <Route path="templates" element={<AdminTemplatesPage />} />
-        <Route path="audit-logs" element={<AdminAuditLogsPage />} />
-        <Route path="reports" element={<AdminReportsPage />} />
+        <Route path="document-settings" element={<AdminDocumentSettingsPage />} />
+        <Route path="templates" element={<AdminTemplatesPage />}>
+          <Route index element={<Navigate to="/admin/templates/library" replace />} />
+          <Route path="library" element={<AdminTemplateLibraryPage />} />
+          <Route path="builder/new" element={<AdminTemplateBuilderPage />} />
+          <Route path="builder/:templateId" element={<AdminTemplateBuilderPage />} />
+          <Route path="publish/:templateId" element={<AdminTemplatePublishPage />} />
+          <Route path="admin" element={<AdminTemplateAdminPage />} />
+        </Route>
+        <Route path="audit-logs" element={<Navigate to="/admin/organizations" replace />} />
+        <Route path="reports" element={<Navigate to="/admin/organizations" replace />} />
+        <Route path="settings" element={<Navigate to="/admin/organizations" replace />} />
         <Route path="search" element={<AdminSearchPage />} />
-        {adminNavItems
-          .filter((item) => !["/admin/dashboard", "/admin/organizations", "/admin/units", "/admin/users", "/admin/positions", "/admin/assignments", "/admin/workflow-rules", "/admin/signature-rules", "/admin/serial-settings", "/admin/document-types", "/admin/templates", "/admin/audit-logs", "/admin/reports"].includes(item.to))
-          .map((item) => (
-            <Route
-              element={<AdminPlaceholderPage title={t(item.labelKey)} />}
-              key={item.to}
-              path={item.to.replace("/admin/", "")}
-            />
-          ))}
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

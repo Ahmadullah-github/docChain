@@ -8,7 +8,6 @@ type PositionInspectorProps = {
   onAssignPosition: (row: PositionAdminRow) => void;
   onClonePosition: (row: PositionAdminRow) => void;
   onEditPosition: (row: PositionAdminRow) => void;
-  onViewRules: (row: PositionAdminRow) => void;
   selectedPosition: PositionAdminRow | null;
 };
 
@@ -34,7 +33,6 @@ export function PositionInspector({
   onAssignPosition,
   onClonePosition,
   onEditPosition,
-  onViewRules,
   selectedPosition
 }: PositionInspectorProps) {
   const { t } = useI18n();
@@ -88,67 +86,14 @@ export function PositionInspector({
             <InfoItem label={t("admin.positions.inspector.currentHolder")} value={currentHolder} />
           </dl>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             <Button className="justify-start px-3 text-start" icon="edit" onClick={() => onEditPosition(selectedPosition)}>{t("admin.positions.inspector.editPosition")}</Button>
             <Button className="justify-start px-3 text-start" icon="users" onClick={() => onAssignPosition(selectedPosition)}>{t("admin.positions.inspector.assignHolder")}</Button>
-            <Button className="justify-start px-3 text-start" icon="signature" onClick={() => onViewRules(selectedPosition)}>{t("admin.positions.inspector.viewRules")}</Button>
             <Button className="justify-start px-3 text-start" icon="document" onClick={() => onClonePosition(selectedPosition)}>{t("admin.positions.inspector.clonePosition")}</Button>
           </div>
         </div>
       </PanelCard>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(22rem,.85fr)_minmax(0,1.15fr)]">
-        <PanelCard title={t("admin.positions.rules.title")}>
-          <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 px-3 py-2">
-            <RuleRow label={t("admin.positions.rules.workflowRole")} value={authorityText(selectedPosition.authorityBand, t)} />
-            <RuleRow label={t("admin.positions.rules.signatureRequired")} value={<StatusBadge tone={selectedPosition.canSign ? "green" : "slate"}>{selectedPosition.canSign ? t("common.yes") : t("admin.positions.rules.notRequired")}</StatusBadge>} />
-            <RuleRow label={t("admin.positions.rules.finalizesDocument")} value={<StatusBadge tone={finalizesDocument ? "green" : "amber"}>{finalizesDocument ? t("common.yes") : t("admin.positions.rules.optional")}</StatusBadge>} />
-            <RuleRow label={t("admin.positions.rules.visibility")} value={t("admin.positions.rules.parentControlled")} />
-            <RuleRow label={t("admin.positions.rules.assignmentBasis")} value={t("admin.positions.rules.activeAssignment")} />
-            <RuleRow label={t("admin.positions.rules.auditTracking")} value={t("admin.positions.rules.allLogged")} />
-          </dl>
-        </PanelCard>
-
-        <PanelCard title={t("admin.positions.assignments.title")}>
-          <DataTable
-            columns={[
-              {
-                key: "holder",
-                header: t("admin.positions.assignments.columns.holder"),
-                cell: (row) => row.personDisplayName || "-"
-              },
-              {
-                key: "type",
-                header: t("admin.positions.assignments.columns.assignmentType"),
-                cell: (row) => (
-                  <StatusBadge tone={row.is_primary ? "blue" : "slate"}>
-                    {row.is_primary ? t("admin.positions.assignments.type.primary") : t("admin.positions.assignments.type.delegated")}
-                  </StatusBadge>
-                )
-              },
-              {
-                key: "canSign",
-                header: t("admin.positions.assignments.columns.canSign"),
-                cell: () => (
-                  <StatusBadge tone={selectedPosition.canSign ? "green" : "red"}>
-                    {selectedPosition.canSign ? t("common.yes") : t("common.no")}
-                  </StatusBadge>
-                )
-              },
-              {
-                key: "active",
-                header: t("admin.positions.assignments.columns.active"),
-                cell: (row) => <StatusBadge tone={row.status === "active" ? "green" : "slate"}>{row.status}</StatusBadge>
-              }
-            ]}
-            containerClassName="max-h-64 overflow-auto"
-            emptyLabel={t("admin.positions.assignments.empty")}
-            getRowKey={(row) => row.id}
-            rows={selectedPosition.activeAssignments}
-            tableClassName="min-w-[42rem]"
-          />
-        </PanelCard>
-      </div>
     </section>
   );
 }

@@ -36,9 +36,9 @@ assignmentRouter.get("/my", asyncHandler(async (_request, response) => {
       positions.code AS positionCode,
       positions.is_signing_authority AS isSigningAuthority
     FROM assignments
-    INNER JOIN units ON assignments.unit_id = units.id
-    INNER JOIN unit_types ON units.unit_type_id = unit_types.id
     INNER JOIN positions ON assignments.position_id = positions.id
+    INNER JOIN units ON positions.unit_id = units.id
+    INNER JOIN unit_types ON units.unit_type_id = unit_types.id
     WHERE assignments.person_id = ?
       AND assignments.deleted_at IS NULL
     ORDER BY assignments.is_primary DESC, assignments.id ASC`,

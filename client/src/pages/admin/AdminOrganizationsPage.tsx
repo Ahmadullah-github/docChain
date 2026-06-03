@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, RefObject } from "react";
-import { useNavigate } from "react-router-dom";
 import { adminApi, ApiError } from "../../api";
 import type { AdminAssignment, EntityId, Organization, Person, Position, StructureImportPreview, Unit, UnitType } from "../../api";
 import {
@@ -12,7 +11,6 @@ import {
   OrganizationHierarchyExplorer,
   OrganizationStats,
   SelectedUnitDetails,
-  StructureRulesReminder,
   UnitsDirectory
 } from "../../components/admin/organizations";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
@@ -150,7 +148,6 @@ function isStructureImportPreview(value: unknown): value is StructureImportPrevi
 
 export function AdminOrganizationsPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const detailsRef = useRef<HTMLDivElement>(null);
   const hierarchyRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<OrganizationsPageData>(emptyData);
@@ -199,6 +196,7 @@ export function AdminOrganizationsPage() {
   const selectedUnit = data.units.find((unit) => unit.id === selectedUnitId) || null;
   const actionsUnit = data.units.find((unit) => unit.id === actionsUnitId) || null;
   const activeAssignments = selectedUnit ? getActiveAssignmentsForUnit(selectedUnit.id, data.assignments) : [];
+  const selectedUnitPositions = selectedUnit ? data.positions.filter((position) => position.unit_id === selectedUnit.id && position.status !== "disabled") : [];
   const authorityRows = useMemo(() => buildAuthorityRows(activeAssignments, positionsById), [activeAssignments, positionsById]);
   const headAuthority = chooseHeadAuthority(authorityRows);
   const parentUnitName = selectedUnit?.parentUnitName || t("admin.organizations.details.noParent");
@@ -393,24 +391,16 @@ export function AdminOrganizationsPage() {
     const unitAssignments = getActiveAssignmentsForUnit(unit.id, data.assignments);
     const currentHead = chooseHeadAuthority(buildAuthorityRows(unitAssignments, positionsById));
     setSelectedUnitId(unit.id);
+    const firstUnitPosition = data.positions.find((position) => position.unit_id === unit.id && position.status !== "disabled");
     setAssignmentForm({
       ...assignmentInitialForm,
       assignment_id: String(currentHead?.assignment.id || unitAssignments[0]?.id || ""),
       mode: unitAssignments.length ? "existing" : "new",
       person_id: String(currentHead?.assignment.person_id || data.persons[0]?.id || ""),
-      position_id: String(currentHead?.assignment.position_id || data.positions[0]?.id || "")
+      position_id: String(currentHead?.assignment.position_id || firstUnitPosition?.id || "")
     });
     setFormError(null);
     setActiveModal("assignHead");
-  }
-
-  function openRulesForUnit(unitId: EntityId) {
-    const unit = data.units.find((item) => item.id === unitId);
-    if (!unit) {
-      return;
-    }
-
-    navigate(`/admin/workflow-rules?originUnitTypeId=${unit.unit_type_id}`);
   }
 
   function openImportModal() {
@@ -507,8 +497,7 @@ export function AdminOrganizationsPage() {
         await adminApi.assignments.update(selectedAssignmentId, {
           is_primary: true,
           reason: "Assigned as unit head.",
-          status: "active",
-          unit_id: selectedUnit.id
+          status: "active"
         });
       } else {
         await adminApi.assignments.create({
@@ -517,13 +506,32 @@ export function AdminOrganizationsPage() {
           person_id: Number(assignmentForm.person_id),
           position_id: Number(assignmentForm.position_id),
           starts_at: assignmentForm.starts_at || null,
-          status: assignmentForm.status,
-          unit_id: selectedUnit.id
+          status: assignmentForm.status
         });
       }
 
       await refreshOrganizations(selectedUnit.id);
       closeModal();
+    } catch (error) {
+      setFormError(formErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteUnit(unitId: EntityId) {
+    const unit = data.units.find((item) => item.id === unitId);
+    if (!unit || !window.confirm(`Delete ${unit.name}? Child units, positions, and assignments under it will be disabled.`)) {
+      return;
+    }
+
+    setBusy(true);
+    setFormError(null);
+    try {
+      await adminApi.units.remove(unitId);
+      await refreshOrganizations();
+      setActiveModal(null);
+      setActionsUnitId(null);
     } catch (error) {
       setFormError(formErrorMessage(error));
     } finally {
@@ -661,7 +669,6 @@ export function AdminOrganizationsPage() {
           <>
             <Button icon="plus" onClick={openOrganizationModal} variant="primary">{t("admin.organizations.actions.newOrganization")}</Button>
             <Button icon="plus" onClick={() => openCreateUnitModal()}>{t("admin.organizations.actions.newUnit")}</Button>
-            <Button icon="upload" onClick={openImportModal}>{t("admin.organizations.actions.importStructure")}</Button>
           </> 
         )}
         description={t("admin.organizations.description")}
@@ -697,7 +704,6 @@ export function AdminOrganizationsPage() {
             onAddChildUnit={() => selectedUnit && openAddChildUnitModal(selectedUnit.id)}
             onAssignHead={() => selectedUnit && openAssignHeadModal(selectedUnit.id)}
             onEditUnit={() => selectedUnit && openEditUnitModal(selectedUnit.id)}
-            onViewRules={() => selectedUnit && openRulesForUnit(selectedUnit.id)}
             parentUnitName={parentUnitName}
             selectedUnit={selectedUnit}
           />
@@ -714,9 +720,6 @@ export function AdminOrganizationsPage() {
           rows={directoryRows}
           unitTypes={data.unitTypes.map((unitType) => ({ code: unitType.code, id: unitType.id, name: unitType.name }))}
         />
-        <div className="grid min-w-0 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          <StructureRulesReminder />
-        </div>
       </section>
 
       <AdminModal
@@ -770,6 +773,7 @@ export function AdminOrganizationsPage() {
             <p className="force-ltr mt-1 text-xs font-semibold text-slate-500">{actionsUnit?.code || ""}</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
+            {formError ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 sm:col-span-2">{formError}</p> : null}
             <Button className="justify-start" icon="view" onClick={() => runActionsUnit((unitId) => {
               setActiveModal(null);
               selectUnit(unitId);
@@ -777,7 +781,7 @@ export function AdminOrganizationsPage() {
             <Button className="justify-start" icon="edit" onClick={() => runActionsUnit(openEditUnitModal)}>{t("admin.organizations.details.edit")}</Button>
             <Button className="justify-start" icon="users" onClick={() => runActionsUnit(openAssignHeadModal)}>{t("admin.organizations.details.assignHead")}</Button>
             <Button className="justify-start" icon="hierarchy" onClick={() => runActionsUnit(openAddChildUnitModal)}>{t("admin.organizations.details.addChildUnit")}</Button>
-            <Button className="justify-start sm:col-span-2" icon="shield" onClick={() => runActionsUnit(openRulesForUnit)}>{t("admin.organizations.details.viewRules")}</Button>
+            <Button className="justify-start sm:col-span-2" disabled={busy} icon="x" onClick={() => actionsUnit && void handleDeleteUnit(actionsUnit.id)} variant="danger">Delete Unit</Button>
           </div>
         </div>
       </AdminModal>
@@ -925,7 +929,7 @@ export function AdminOrganizationsPage() {
                   value={assignmentForm.position_id}
                 >
                   <option value="" disabled>{t("admin.organizations.assignHead.selectPosition")}</option>
-                  {data.positions.map((position) => (
+                  {selectedUnitPositions.map((position) => (
                     <option key={position.id} value={position.id}>{position.title}</option>
                   ))}
                 </select>

@@ -178,14 +178,20 @@ export type StructureImportPreview = {
 export type Position = {
   id: EntityId;
   uuid: string;
+  unit_id: EntityId;
   organization_id?: EntityId | null;
   code: string;
   title: string;
   title_local?: string | null;
   authority_level: number;
   is_signing_authority: boolean;
+  allows_multiple_active_assignments?: boolean;
   description?: string | null;
   status: Status;
+  unitCode?: string;
+  unitName?: string;
+  organizationId?: EntityId;
+  organizationName?: string;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -217,6 +223,38 @@ export type DocumentType = {
   status: Status;
 };
 
+export type DocumentWriteMode = "locked" | "free";
+
+export type DocumentWriteRule = {
+  id: EntityId;
+  uuid: string;
+  document_type_id: EntityId;
+  documentTypeCode?: string | null;
+  documentTypeName?: string | null;
+  unit_type_id?: EntityId | null;
+  unitTypeCode?: string | null;
+  unitTypeName?: string | null;
+  position_id?: EntityId | null;
+  positionCode?: string | null;
+  positionTitle?: string | null;
+  role_id?: EntityId | null;
+  roleName?: string | null;
+  roleDisplayName?: string | null;
+  mode: DocumentWriteMode;
+  status: Status;
+  notes?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type DocumentWritePermission = {
+  documentTypeId: EntityId;
+  documentTypeCode: string;
+  documentTypeName: string;
+  mode: DocumentWriteMode;
+  ruleId: EntityId;
+};
+
 export type ConfidentialityLevel = {
   id: EntityId;
   uuid: string;
@@ -235,6 +273,7 @@ export type PriorityLevel = {
   code: string;
   name: string;
   rank: number;
+  is_default: boolean;
   default_due_days?: number | null;
   color?: string | null;
   description?: string | null;
@@ -302,10 +341,101 @@ export type NotificationItem = {
   updated_at?: string | null;
 };
 
+export type WorkspaceSummary = {
+  myTasks: number;
+  unitQueue: number;
+  signatureQueue: number;
+  unreadNotifications: number;
+  drafts: number;
+};
+
+export type WorkspaceWorkItemType =
+  | "activity"
+  | "notification"
+  | "signature"
+  | "task"
+  | "unit_document";
+
+export type WorkspaceWorkItem = {
+  itemType: WorkspaceWorkItemType;
+  id: EntityId;
+  title: string;
+  subtitle?: string | null;
+  status?: string | null;
+  requiredAction?: DocumentRequestAction | null;
+  canEdit?: boolean | number;
+  canSign?: boolean | number;
+  canForward?: boolean | number;
+  canFinalize?: boolean | number;
+  canArchive?: boolean | number;
+  dueAt?: string | null;
+  createdAt: string;
+  documentId?: EntityId | null;
+  documentSubject?: string | null;
+  internalReference?: string | null;
+  officialSerial?: string | null;
+  documentTypeName?: string | null;
+  priorityName?: string | null;
+  holderUnitName?: string | null;
+  assignedPositionTitle?: string | null;
+};
+
+export type WorkspaceReference = {
+  documentTypes: DocumentType[];
+  confidentialityLevels: ConfidentialityLevel[];
+  documentWritePermissions: DocumentWritePermission[];
+  priorityLevels: PriorityLevel[];
+  templateFieldDefaults?: Record<string, string>;
+};
+
+export type WorkspaceTargetUnit = {
+  id: EntityId;
+  uuid: string;
+  code: string;
+  name: string;
+  unitTypeCode: string;
+  unitTypeName: string;
+};
+
+export type WorkspaceTargetAssignment = {
+  id: EntityId;
+  uuid: string;
+  personDisplayName: string;
+  unitId: EntityId;
+  unitName: string;
+  positionId: EntityId;
+  positionTitle: string;
+};
+
+export type WorkspaceTargets = {
+  action: string | null;
+  units: WorkspaceTargetUnit[];
+  assignments: WorkspaceTargetAssignment[];
+};
+
+export type WorkspaceTransmissionTargets = {
+  units: WorkspaceTargetUnit[];
+  assignments: WorkspaceTargetAssignment[];
+};
+
+export type DocumentScope = "accessible" | "created_by_me" | "current_holder" | "origin_unit" | "owner_unit" | "my_tasks" | "signature_queue";
+
+export type DocumentRegistryStats = {
+  total: number;
+  scopeCounts: Record<string, number>;
+  statusCounts: Array<{ status: string; count: number }>;
+  typeCounts: Array<{ id: EntityId; code: string; name: string; count: number }>;
+  priorityCounts: Array<{ id: EntityId; code: string; name: string; color?: string | null; count: number }>;
+  updatedAt: string;
+};
+
 export type DocumentListItem = {
   id: EntityId;
   uuid: string;
+  priorityLevelId?: EntityId;
   internalReference: string;
+  documentDate?: string | null;
+  document_date?: string | null;
   subject: string;
   status: Status;
   officialSerial?: string | null;
@@ -313,14 +443,69 @@ export type DocumentListItem = {
   updatedAt: string;
   documentTypeCode: string;
   documentTypeName: string;
+  priorityCode?: string | null;
+  priorityName?: string | null;
+  priorityColor?: string | null;
   currentHolderUnitName: string;
+};
+
+export type TipTapMark = {
+  type: string;
+  attrs?: JsonRecord | null;
+};
+
+export type TipTapNode = {
+  type: string;
+  attrs?: JsonRecord | null;
+  content?: TipTapNode[];
+  marks?: TipTapMark[];
+  text?: string;
+};
+
+export type DocumentFreeBlock = {
+  id: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  content: TipTapNode;
+  locked?: boolean;
+};
+
+export type DocumentContentMetadata = {
+  subject?: string;
+  topic?: string;
+  subTopic?: string;
+  summary?: string;
+  date?: string | null;
+  pageNumberMode?: "system" | "manual";
+  pageNumberStart?: number;
+  signatureVisibility?: Record<string, boolean>;
+};
+
+export type DocumentContentPagination = {
+  mode: "auto";
+  manualBreaks: true;
+};
+
+export type DocumentContent = {
+  version: 1;
+  body: TipTapNode;
+  templateFields: Record<string, string>;
+  freeBlocks: DocumentFreeBlock[];
+  pagination: DocumentContentPagination;
+  metadata: DocumentContentMetadata;
 };
 
 export type CreateDocumentInput = {
   document_type_id: EntityId;
   subject: string;
+  document_date?: string | null;
   summary?: string | null;
   body?: string;
+  document_content?: DocumentContent;
+  template_fields?: Record<string, string>;
   confidentiality_level_id: EntityId;
   priority_level_id: EntityId;
   origin_unit_id?: EntityId;
@@ -338,16 +523,28 @@ export type DocumentWorkflowEvent = {
   uuid: string;
   document_id: EntityId;
   actor_assignment_id: EntityId;
-  routing_rule_id?: EntityId | null;
   action: string;
+  required_action?: DocumentRequestAction | "multiple" | null;
   from_status?: string | null;
   to_status?: string | null;
   from_unit_id?: EntityId | null;
   to_unit_id?: EntityId | null;
+  to_position_id?: EntityId | null;
   note?: string | null;
   return_reason?: string | null;
+  permissions?: JsonRecord | string | null;
   payload?: JsonRecord | string | null;
   created_at: string;
+};
+
+export type DocumentRequestAction = "review" | "edit" | "sign" | "forward" | "information";
+
+export type DocumentRequestPermissions = {
+  can_edit: boolean;
+  can_sign: boolean;
+  can_forward: boolean;
+  can_finalize: boolean;
+  can_archive: boolean;
 };
 
 export type DocumentTask = {
@@ -360,53 +557,118 @@ export type DocumentTask = {
   assigned_position_id?: EntityId | null;
   assigned_assignment_id?: EntityId | null;
   task_type: string;
+  required_action?: DocumentRequestAction | null;
+  requires_comment?: boolean | number;
+  can_edit?: boolean | number;
+  can_sign?: boolean | number;
+  can_forward?: boolean | number;
+  can_finalize?: boolean | number;
+  can_archive?: boolean | number;
+  responded_by_assignment_id?: EntityId | null;
+  response_note?: string | null;
+  payload?: JsonRecord | string | null;
   status: Status;
   title: string;
   description?: string | null;
   due_at?: string | null;
+  completed_at?: string | null;
+  completed_by_assignment_id?: EntityId | null;
+  completion_note?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  assignedUnitName?: string | null;
+  assignedPositionTitle?: string | null;
+  assignedAssignmentName?: string | null;
+  creatorName?: string | null;
 };
 
 export type DocumentDetail = {
-  document: JsonRecord & { id: EntityId; subject: string; status: Status };
+  document: JsonRecord & { id: EntityId; subject: string; status: Status; document_date?: string | null; document_content?: DocumentContent | string | null };
   versions: JsonRecord[];
   attachments: JsonRecord[];
   relations: JsonRecord[];
   workflowEvents: DocumentWorkflowEvent[];
   tasks: DocumentTask[];
-  signatureSlots: SignatureSlot[];
   signatureEvents: JsonRecord[];
+  renders: DocumentRender[];
   serialAssignment: JsonRecord | null;
 };
 
-export type WorkflowAction = {
+export type DocumentRender = JsonRecord & {
   id: EntityId;
-  action: string;
-  allowed: string;
-  priority: number;
-  requiresTargetUnitTypeId: EntityId | null;
-  requiresTargetUnitTypeCode: string | null;
-  requiresTargetPositionId: EntityId | null;
-  requiresTargetPositionCode: string | null;
-  priorReviewRequired: boolean;
-  priorSignatureRequired: boolean;
-  isExternalTarget: boolean;
-  isMultiRecipient: boolean;
-  notes?: string | null;
+  document_id: EntityId;
+  file_asset_id?: EntityId | null;
+  render_type: string;
+  status: string;
+  created_at?: string;
+  originalFilename?: string | null;
+  mimeType?: string | null;
+  byteSize?: number | null;
 };
 
-export type ExecuteWorkflowActionInput = {
-  action: string;
-  to_unit_id?: EntityId | null;
-  to_assignment_id?: EntityId | null;
+export type DocumentSendAction = {
+  action: DocumentRequestAction;
+  label: string;
+  defaultPermissions: DocumentRequestPermissions;
+  disabledReason?: string | null;
+};
+
+export type DocumentSendPurpose = {
+  action: DocumentRequestAction | string;
+  label: string;
+  category: "correction" | "dispatch" | "edit" | "forward" | "information" | "review" | "signature" | string;
+  disabledReason?: string | null;
+};
+
+export type DocumentSendTarget = {
+  id: string;
+  type: "unit" | "unit_position";
+  unitId: EntityId;
+  unitName: string;
+  unitTypeId?: EntityId;
+  unitTypeName: string;
+  positionId?: EntityId;
+  positionTitle?: string;
+  hasActiveHolder: boolean;
+  holderSummary?: string | null;
+  allowedActions: string[];
+};
+
+export type DocumentSendOptions = {
+  documentState: {
+    status: string;
+    officialSerial?: string | null;
+    canArchive?: boolean;
+    canDispatch?: boolean;
+    canFinalize?: boolean;
+  };
+  actions?: DocumentSendAction[];
+  purposes: DocumentSendPurpose[];
+  targets: DocumentSendTarget[];
+};
+
+export type SendDocumentRecipientInput = {
+  to_unit_id: EntityId;
   to_position_id?: EntityId | null;
-  routing_rule_id?: EntityId | null;
-  to_status?: string | null;
+  required_action: DocumentRequestAction;
+  requires_comment?: boolean;
+  can_edit?: boolean;
+  can_sign?: boolean;
+  can_forward?: boolean;
+  can_finalize?: boolean;
+  can_archive?: boolean;
   note?: string | null;
-  return_reason?: string | null;
-  create_task?: boolean;
-  task_title?: string | null;
   due_at?: string | Date | null;
-  payload?: JsonRecord;
+};
+
+export type SendDocumentInput = {
+  recipients?: SendDocumentRecipientInput[];
+  note?: string | null;
+  action?: string;
+  to_unit_id?: EntityId;
+  to_position_id?: EntityId | null;
+  return_reason?: string | null;
+  due_at?: string | Date | null;
 };
 
 export type SignatureProfile = {
@@ -426,28 +688,11 @@ export type EnrollSignatureProfileInput = {
   mime_type?: string;
 };
 
-export type SignatureSlot = {
-  id: EntityId;
-  uuid: string;
-  document_id: EntityId;
-  signature_rule_id?: EntityId | null;
-  step_number: number;
-  required_position_id: EntityId;
-  target_unit_id?: EntityId | null;
-  required_unit_scope: string;
-  signature_mode: string;
-  is_required: boolean;
-  is_parallel: boolean;
-  can_finalize_document: boolean;
-  can_be_hidden_later: boolean;
-  status: Status;
-  requiredPositionTitle?: string;
-  requiredPositionCode?: string;
-  targetUnitName?: string | null;
-};
-
-export type SignSlotInput = {
+export type SignTaskInput = {
   pin: string;
+  expected_document_hash?: string;
+  expected_document_version_number?: number;
+  response_note?: string | null;
   render_page?: number | null;
   render_x?: number | null;
   render_y?: number | null;
@@ -455,32 +700,71 @@ export type SignSlotInput = {
   render_height?: number | null;
 };
 
-export type RoutingRule = JsonRecord & {
+export type SignatureUploadSession = {
   id: EntityId;
-  uuid: string;
-  action: string;
-  allowed: string;
-  priority: number;
-  status: Status;
+  token?: string;
+  upload_url?: string;
+  status: string;
+  expires_at?: string;
+  expired?: boolean;
+  preview_url?: string | null;
+  uploadedFileAssetId?: EntityId | null;
 };
 
-export type RoutingRuleDetail = {
-  rule: RoutingRule;
-  conditions: JsonRecord[];
+export type SignatureAssetPreview = {
+  data_url: string;
+  mime_type: string;
+};
+
+export type VerificationResult = {
+  status: "valid" | "mismatched" | "invalid" | "expired" | "revoked";
+  reason?: string;
+  documentSerial?: string | null;
+  subject?: string;
+  issuer?: {
+    position?: string | null;
+    unit?: string | null;
+  } | null;
+  finalizedAt?: string | null;
+  finalizedAtShamsi?: string | null;
+  signedBy?: Array<{
+    name?: string | null;
+    position?: string | null;
+    unit?: string | null;
+  }>;
+  documentHash?: {
+    matched: boolean;
+    value?: string | null;
+  };
 };
 
 export type TemplateVariant = "official" | "internal" | "archive" | "routing_sheet";
 export type TemplateLocale = "all" | "en" | "fa-AF" | "ps-AF";
 
 export type TemplateBlockStyle = {
+  fontFamily?: string;
   fontSize?: number;
   fontWeight?: string;
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
   textAlign?: "start" | "center" | "end" | "left" | "right";
+  letterSpacing?: number;
   color?: string;
   backgroundColor?: string;
   borderColor?: string;
   borderWidth?: number;
   borderStyle?: string;
+  cellPaddingMm?: number;
+  headerBackgroundColor?: string;
+  lineHeight?: number;
+};
+
+export type TemplateTableCell = string | {
+  colSpan?: number;
+  content?: string;
+  hidden?: boolean;
+  rowSpan?: number;
+  style?: TemplateBlockStyle;
 };
 
 export type TemplateBlock = {
@@ -492,14 +776,52 @@ export type TemplateBlock = {
   height: number;
   content?: string;
   field?: string;
+  headerRow?: boolean;
+  columnWidths?: number[];
+  rowHeights?: number[];
   src?: string;
-  rows?: string[][];
+  assetId?: EntityId;
+  assetName?: string;
+  rows?: TemplateTableCell[][];
   mode?: string;
   limit?: number;
+  maxLines?: number;
+  minFontSize?: number;
+  placeholder?: string;
+  pageScope?: "first" | "all" | "except_first" | "last";
+  reflowBelow?: boolean;
+  hidden?: boolean;
+  locked?: boolean;
   style?: TemplateBlockStyle;
 };
 
+export type WordTemplateZoneKind =
+  | "subject"
+  | "body"
+  | "recipient"
+  | "header_unit"
+  | "custom"
+  | "system_field"
+  | "signature"
+  | "date"
+  | "serial";
+
+export type WordTemplateZone = {
+  id: string;
+  key: string;
+  label: string;
+  kind: WordTemplateZoneKind;
+  required?: boolean;
+  maxLength?: number;
+  maxLines?: number;
+  multiline?: boolean;
+  richText?: boolean;
+  placeholder?: string;
+};
+
 export type TemplateLayout = {
+  mode?: "legacy" | "word_template";
+  schemaVersion?: number;
   page: {
     widthMm: 210;
     heightMm: 297;
@@ -511,6 +833,9 @@ export type TemplateLayout = {
     marginLeftMm?: number;
   };
   blocks: TemplateBlock[];
+  document?: TipTapNode;
+  zones?: WordTemplateZone[];
+  meta?: JsonRecord;
 };
 
 export type DocumentTemplate = {
@@ -563,6 +888,15 @@ export type DocumentTemplateBinding = {
   documentTypeName?: string | null;
   templateName?: string | null;
   templateVersionNumber?: number | null;
+  templateDescription?: string | null;
+  layout_definition?: TemplateLayout;
+  layoutDefinition?: TemplateLayout | string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ActiveDocumentTemplate = DocumentTemplateBinding & {
+  layout_definition: TemplateLayout;
 };
 
 export type DocumentLayoutDraft = {

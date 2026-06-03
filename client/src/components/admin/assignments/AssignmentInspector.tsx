@@ -119,16 +119,7 @@ export function AssignmentInspector({ onEditAssignment, onManageAccess, onTransf
         </div>
       </PanelCard>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(22rem,.85fr)_minmax(0,1.15fr)]">
-        <PanelCard title={t("admin.assignments.rules.title")}>
-          <dl className="divide-y divide-slate-100 rounded-lg border border-slate-200 px-3 py-2">
-            <RuleRow label={t("admin.assignments.rules.basis")} value={t("admin.assignments.rules.activePosition")} />
-            <RuleRow label={t("admin.assignments.rules.signEligibility")} value={<StatusBadge tone={signTone(selectedAssignment.signEligibility)}>{signText(selectedAssignment.signEligibility, t)}</StatusBadge>} />
-            <RuleRow label={t("admin.assignments.rules.forwardedVisibility")} value={t("admin.assignments.rules.parentControlled")} />
-            <RuleRow label={t("admin.assignments.rules.delegationAllowed")} value={<StatusBadge tone={selectedAssignment.status === "active" ? "green" : "slate"}>{selectedAssignment.status === "active" ? t("common.yes") : t("common.no")}</StatusBadge>} />
-            <RuleRow label={t("admin.assignments.rules.auditTracking")} value={t("admin.assignments.rules.allLogged")} />
-          </dl>
-        </PanelCard>
+      <div className="gap-3 xl:grid-cols-[minmax(22rem,.85fr)_minmax(0,1.15fr)]">
 
         <PanelCard title={t("admin.assignments.delegations.title")}>
           <DataTable
@@ -168,17 +159,6 @@ export function AssignmentInspector({ onEditAssignment, onManageAccess, onTransf
         </PanelCard>
       </div>
 
-      <PanelCard title={t("admin.assignments.events.title")}>
-        <div className="space-y-3">
-          <TimelineEvent date={selectedAssignment.lastUpdated} title={t("admin.assignments.events.updated")} />
-          {selectedAssignment.assignment.starts_at ? (
-            <TimelineEvent date={formatDateTime(selectedAssignment.assignment.starts_at)} title={t("admin.assignments.events.started")} />
-          ) : null}
-          {selectedAssignment.assignment.ends_at ? (
-            <TimelineEvent date={formatDateTime(selectedAssignment.assignment.ends_at)} title={t("admin.assignments.events.ends")} />
-          ) : null}
-        </div>
-      </PanelCard>
     </section>
   );
 }

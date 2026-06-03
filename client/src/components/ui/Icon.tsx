@@ -2,6 +2,9 @@ import type { ReactNode, SVGProps } from "react";
 
 export type IconName =
   | "activity"
+  | "alignCenter"
+  | "alignLeft"
+  | "alignRight"
   | "audit"
   | "bell"
   | "briefcase"
@@ -15,6 +18,8 @@ export type IconName =
   | "filter"
   | "fullscreen"
   | "hierarchy"
+  | "fitWidth"
+  | "image"
   | "key"
   | "leaf"
   | "lock"
@@ -30,7 +35,10 @@ export type IconName =
   | "settings"
   | "shield"
   | "signature"
+  | "save"
+  | "table"
   | "template"
+  | "text"
   | "upload"
   | "userCheck"
   | "userPlus"
@@ -49,6 +57,15 @@ type IconProps = SVGProps<SVGSVGElement> & {
 const paths: Record<IconName, ReactNode> = {
   activity: (
     <path d="M4 12h3l2-5 4 10 2-5h5" />
+  ),
+  alignCenter: (
+    <path d="M5 6h14M8 10h8M5 14h14M8 18h8" />
+  ),
+  alignLeft: (
+    <path d="M4 6h16M4 10h11M4 14h16M4 18h11" />
+  ),
+  alignRight: (
+    <path d="M4 6h16M9 10h11M4 14h16M9 18h11" />
   ),
   audit: (
     <>
@@ -123,6 +140,19 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="M12 4v5M6 20v-5h12v5M6 15V9h12v6" />
       <path d="M9 4h6v5H9zM3 20h6M15 20h6" />
+    </>
+  ),
+  fitWidth: (
+    <>
+      <path d="M4 7h16v10H4z" />
+      <path d="M8 12h8M8 12l3-3M8 12l3 3M16 12l-3-3M16 12l-3 3" />
+    </>
+  ),
+  image: (
+    <>
+      <path d="M4 5h16v14H4z" />
+      <circle cx="9" cy="10" r="2" />
+      <path d="m4 17 5-5 4 4 2-2 5 5" />
     </>
   ),
   key: (
@@ -201,6 +231,12 @@ const paths: Record<IconName, ReactNode> = {
   shield: (
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
   ),
+  save: (
+    <>
+      <path d="M5 3h12l2 2v16H5z" />
+      <path d="M8 3v6h8V3M8 21v-7h8v7" />
+    </>
+  ),
   signature: (
     <>
       <path d="M5 18c5-10 7-10 6-4-.6 3.7 4.5-1 5 1 .4 1.5-2 3 3 3" />
@@ -211,6 +247,16 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="M4 4h16v16H4z" />
       <path d="M8 8h8M8 12h8M8 16h4" />
+    </>
+  ),
+  table: (
+    <>
+      <path d="M4 5h16v14H4zM4 10h16M4 15h16M10 5v14M16 5v14" />
+    </>
+  ),
+  text: (
+    <>
+      <path d="M5 5h14M12 5v14M9 19h6" />
     </>
   ),
   upload: (

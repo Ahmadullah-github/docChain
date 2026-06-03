@@ -1,5 +1,5 @@
 import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../../api";
-import type { PositionAdminRow, PositionAuthorityBand, PositionReviewQueueRow } from "./types";
+import type { PositionAdminRow, PositionAuthorityBand } from "./types";
 
 type BuildPositionRowsInput = {
   assignments: AdminAssignment[];
@@ -60,9 +60,14 @@ function sortAssignments(left: AdminAssignment, right: AdminAssignment) {
   return left.id - right.id;
 }
 
-function uniqueUnits(assignments: AdminAssignment[], unitsById: Map<EntityId, Unit>) {
+function uniqueUnits(assignments: AdminAssignment[], unitsById: Map<EntityId, Unit>, fallbackUnit: Unit | null) {
   const seen = new Set<EntityId>();
   const units: Unit[] = [];
+
+  if (fallbackUnit) {
+    seen.add(fallbackUnit.id);
+    units.push(fallbackUnit);
+  }
 
   for (const assignment of assignments) {
     const unit = unitsById.get(assignment.unit_id);
@@ -137,8 +142,9 @@ export function buildPositionRows({ assignments, persons, positions, units }: Bu
       const positionAssignments = (assignmentsByPositionId.get(position.id) || []).slice().sort(sortAssignments);
       const activeAssignments = positionAssignments.filter((assignment) => assignment.status === "active");
       const primaryAssignment = (activeAssignments.length ? activeAssignments : positionAssignments)[0] || null;
-      const scopedUnits = uniqueUnits(activeAssignments.length ? activeAssignments : positionAssignments, unitsById);
-      const primaryUnit = primaryAssignment ? unitsById.get(primaryAssignment.unit_id) || null : null;
+      const positionUnit = unitsById.get(position.unit_id) || null;
+      const scopedUnits = uniqueUnits(activeAssignments.length ? activeAssignments : positionAssignments, unitsById, positionUnit);
+      const primaryUnit = positionUnit || (primaryAssignment ? unitsById.get(primaryAssignment.unit_id) || null : null);
       const unitType = inferUnitType(scopedUnits);
       const holderNames = activeAssignments.map((assignment) => holderName(assignment, personsById));
       const baseStatus = position.status === "active" && !activeAssignments.length ? "vacant" : statusLabel(position.status);
@@ -184,6 +190,8 @@ export function rowMatchesSearch(row: PositionAdminRow, search: string) {
     row.position.title_local,
     row.position.code,
     row.unitScope,
+    row.position.unitName,
+    row.position.unitCode,
     row.levelLabel,
     row.currentHolder,
     row.primaryAssignment?.personDisplayName,
@@ -193,37 +201,4 @@ export function rowMatchesSearch(row: PositionAdminRow, search: string) {
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(search));
-}
-
-export function buildReviewQueue(rows: PositionAdminRow[]) {
-  const queue: PositionReviewQueueRow[] = [];
-
-  for (const row of rows) {
-    if (row.status === "vacant") {
-      queue.push({
-        date: row.lastUpdated,
-        id: `${row.id}-vacant`,
-        issue: "position_vacant",
-        positionId: row.id,
-        positionTitle: row.position.title,
-        requestedBy: row.primaryUnit?.name || "System Admin",
-        status: "pending_review"
-      });
-      continue;
-    }
-
-    if (["draft", "pending", "pending_review"].includes(row.position.status)) {
-      queue.push({
-        date: row.lastUpdated,
-        id: `${row.id}-draft`,
-        issue: row.position.status === "draft" ? "new_position_request" : "role_update",
-        positionId: row.id,
-        positionTitle: row.position.title,
-        requestedBy: "Governance Office",
-        status: row.position.status === "draft" ? "draft" : "awaiting_approval"
-      });
-    }
-  }
-
-  return queue.slice(0, 8);
 }

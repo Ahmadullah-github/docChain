@@ -1,7 +1,6 @@
 import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../../api";
 import type {
   AssignmentAdminRow,
-  AssignmentReviewQueueRow,
   AssignmentSignEligibility,
   AssignmentType
 } from "./types";
@@ -181,7 +180,7 @@ export function buildAssignmentRows({ assignments, persons, positions, units }: 
     .map<AssignmentAdminRow>((assignment) => {
       const person = personsById.get(assignment.person_id) || null;
       const position = positionsById.get(assignment.position_id) || null;
-      const unit = unitsById.get(assignment.unit_id) || null;
+      const unit = unitsById.get(assignment.unit_id) || (position ? unitsById.get(position.unit_id) || null : null);
       const assignmentType = assignmentTypeFor(assignment);
       const signEligibility = signEligibilityFor(assignment, position);
 
@@ -235,48 +234,4 @@ export function rowMatchesSearch(row: AssignmentAdminRow, search: string) {
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(search));
-}
-
-export function buildReviewQueue(rows: AssignmentAdminRow[]) {
-  const queue: AssignmentReviewQueueRow[] = [];
-
-  for (const row of rows) {
-    if (["pending", "pending_approval", "draft"].includes(row.status)) {
-      queue.push({
-        assignmentId: row.id,
-        date: formatDate(row.assignment.updated_at || row.assignment.created_at),
-        id: `${row.id}-pending`,
-        issue: "pending_assignment",
-        positionTitle: row.position?.title || row.assignment.positionTitle || "-",
-        requestedBy: row.displayName,
-        status: row.status === "draft" ? "draft" : "awaiting_approval"
-      });
-    }
-
-    if (row.assignmentType === "delegated") {
-      queue.push({
-        assignmentId: row.id,
-        date: formatDate(row.assignment.updated_at || row.assignment.created_at),
-        id: `${row.id}-delegated`,
-        issue: "delegation_update",
-        positionTitle: row.position?.title || row.assignment.positionTitle || "-",
-        requestedBy: row.displayName,
-        status: "awaiting_approval"
-      });
-    }
-
-    if (row.endingSoon || (row.assignment.ends_at && row.status === "active")) {
-      queue.push({
-        assignmentId: row.id,
-        date: formatDate(row.assignment.ends_at),
-        id: `${row.id}-temporary`,
-        issue: "temporary_renewal",
-        positionTitle: row.position?.title || row.assignment.positionTitle || "-",
-        requestedBy: row.unit?.name || "HR Department",
-        status: row.endingSoon ? "pending_review" : "draft"
-      });
-    }
-  }
-
-  return queue.slice(0, 8);
 }

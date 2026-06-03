@@ -15,6 +15,12 @@ export const authApi = {
     return result;
   },
 
+  async changePassword(input: { current_password: string; new_password: string }) {
+    const session = await postJson<AuthSession>("/api/auth/change-password", input);
+    setCsrfToken(session.csrfToken);
+    return session;
+  },
+
   async me() {
     const session = await getJson<AuthSession>("/api/auth/me");
     setCsrfToken(session.csrfToken);

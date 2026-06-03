@@ -23,13 +23,13 @@ import { notificationRouter } from "./modules/notifications/notification.routes"
 import { documentOcrRouter } from "./modules/ocr/document-ocr.routes";
 import { adminPolicyRouter } from "./modules/policies/policy.routes";
 import { adminStructureRouter } from "./modules/admin/structure.routes";
-import { routingRuleRouter } from "./modules/routing-rules/routing-rule.routes";
 import { globalSearchRouter } from "./modules/search/global-search.routes";
 import { savedSearchRouter } from "./modules/search/saved-search.routes";
-import { adminSignatureRouter, signatureRouter } from "./modules/signatures/signature.routes";
+import { adminSignatureRouter, publicSignatureUploadRouter, signatureRouter } from "./modules/signatures/signature.routes";
 import { adminTemplateRouter, templateRouter } from "./modules/templates/template.routes";
 import { transmissionRouter } from "./modules/transmissions/transmission.routes";
-import { documentVerificationRouter } from "./modules/verification/document-verification.routes";
+import { documentVerificationRouter, publicDocumentVerificationRouter } from "./modules/verification/document-verification.routes";
+import { workspaceRouter } from "./modules/workspace/workspace.routes";
 
 const MySQLStore = createMySQLSession(session);
 
@@ -67,7 +67,7 @@ export function createApp() {
     origin: env.APP_ORIGIN,
     credentials: true
   }));
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({ limit: "4mb" }));
   app.use(express.urlencoded({ extended: false }));
   app.use(session({
     name: env.SESSION_COOKIE_NAME,
@@ -92,8 +92,11 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/assignments", assignmentRouter);
   app.use("/api/documents", documentRouter);
+  app.use("/api/workspace", workspaceRouter);
   app.use("/api/signatures", signatureRouter);
+  app.use("/api", publicSignatureUploadRouter);
   app.use("/api/templates", templateRouter);
+  app.use("/api", publicDocumentVerificationRouter);
   app.use("/api", transmissionRouter);
   app.use("/api", commentRouter);
   app.use("/api", notificationRouter);
@@ -102,7 +105,6 @@ export function createApp() {
   app.use("/api", documentOcrRouter);
   app.use("/api/admin/structure", adminStructureRouter);
   app.use("/api/admin", adminRouter);
-  app.use("/api/admin/routing-rules", routingRuleRouter);
   app.use("/api/admin/search", globalSearchRouter);
   app.use("/api/admin", adminSignatureRouter);
   app.use("/api/admin/templates", adminTemplateRouter);

@@ -19,6 +19,6 @@ DocChain is a modular monolith for a closed university correspondence and admini
 5. Run `npm run db:seed`.
 6. Run `npm run dev`.
 
-The default seeded admin is configured by `SEED_ADMIN_EMAIL`, `SEED_ADMIN_USERNAME`, and `SEED_ADMIN_PASSWORD`.
+The seed creates the super admin account, the minimal organization/unit/assignment foundation needed to log in, and baseline confidentiality/priority reference values needed for draft creation. The default admin is configured by `SEED_ADMIN_EMAIL`, `SEED_ADMIN_USERNAME`, and `SEED_ADMIN_PASSWORD`.
 
 The default database name is `docchain_express` to avoid colliding with any older `docChain` schema.

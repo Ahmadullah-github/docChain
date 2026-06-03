@@ -12,21 +12,35 @@ export type AdminNavItem = {
   to: string;
 };
 
-export const adminNavItems: AdminNavItem[] = [
-  { icon: "dashboard", labelKey: "admin.nav.dashboard", to: "/admin/dashboard" },
-  { icon: "building", labelKey: "admin.nav.organizations", to: "/admin/organizations" },
-  { icon: "hierarchy", labelKey: "admin.nav.units", to: "/admin/units" },
-  { icon: "users", labelKey: "admin.nav.users", to: "/admin/users" },
-  { icon: "briefcase", labelKey: "admin.nav.positions", to: "/admin/positions" },
-  { icon: "audit", labelKey: "admin.nav.assignments", to: "/admin/assignments" },
-  { icon: "workflow", labelKey: "admin.nav.workflowRules", to: "/admin/workflow-rules" },
-  { icon: "signature", labelKey: "admin.nav.signatureRules", to: "/admin/signature-rules" },
-  { icon: "serial", labelKey: "admin.nav.serialSettings", to: "/admin/serial-settings" },
-  { icon: "document", labelKey: "admin.nav.documentTypes", to: "/admin/document-types" },
-  { icon: "template", labelKey: "admin.nav.templates", to: "/admin/templates" },
-  { icon: "shield", labelKey: "admin.nav.auditLogs", to: "/admin/audit-logs" },
-  { icon: "reports", labelKey: "admin.nav.reports", to: "/admin/reports" },
-  { icon: "settings", labelKey: "admin.nav.settings", to: "/admin/settings" }
+export type AdminNavGroup = {
+  labelKey: TranslationKey;
+  items: AdminNavItem[];
+};
+
+export const adminNavGroups: AdminNavGroup[] = [
+  {
+    labelKey: "admin.navGroup.structure",
+    items: [
+      { icon: "building", labelKey: "admin.nav.organizations", to: "/admin/organizations" }
+    ]
+  },
+  {
+    labelKey: "admin.navGroup.people",
+    items: [
+      { icon: "users", labelKey: "admin.nav.users", to: "/admin/users" },
+      { icon: "briefcase", labelKey: "admin.nav.positions", to: "/admin/positions" },
+      { icon: "audit", labelKey: "admin.nav.assignments", to: "/admin/assignments" }
+    ]
+  },
+  {
+    labelKey: "admin.navGroup.documents",
+    items: [
+      { icon: "document", labelKey: "admin.nav.documentTypes", to: "/admin/document-types" },
+      { icon: "settings", labelKey: "admin.nav.documentSettings", to: "/admin/document-settings" },
+      { icon: "template", labelKey: "admin.nav.templates", to: "/admin/templates" },
+      { icon: "serial", labelKey: "admin.nav.serialSettings", to: "/admin/serial-settings" }
+    ]
+  }
 ];
 
 type SidebarNavItemProps = {
@@ -37,12 +51,12 @@ type SidebarNavItemProps = {
 export function SidebarNavItem({ item, onNavigate }: SidebarNavItemProps) {
   const location = useLocation();
   const { t } = useI18n();
-  const active = location.pathname === item.to || (item.to !== "/admin/dashboard" && location.pathname.startsWith(item.to));
+  const active = location.pathname === item.to || location.pathname.startsWith(item.to);
 
   return (
     <Link
       className={cx(
-        "flex items-center gap-3 border-s-4 px-5 py-3 text-sm font-semibold transition",
+        "flex items-center gap-3 border-s-4 px-5 py-2.5 text-sm font-semibold transition",
         active
           ? "border-blue-400 bg-blue-900/60 text-white"
           : "border-transparent text-blue-50/90 hover:bg-white/10 hover:text-white"
@@ -73,18 +87,17 @@ export function AdminSidebar({ onNavigate }: AdminSidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4">
-        {adminNavItems.map((item) => (
-          <SidebarNavItem item={item} key={item.to} onNavigate={onNavigate} />
+        {adminNavGroups.map((group) => (
+          <div className="mb-4" key={group.labelKey}>
+            <p className="px-5 pb-1 text-[11px] font-bold uppercase tracking-wide text-blue-100/60">{t(group.labelKey)}</p>
+            <div>
+              {group.items.map((item) => (
+                <SidebarNavItem item={item} key={item.to} onNavigate={onNavigate} />
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
-
-      <div className="border-t border-white/10 px-5 py-5 text-xs text-blue-100">
-        <div className="mb-5 flex items-center gap-2 font-semibold text-white">
-          <Icon className="h-5 w-5" name="shield" />
-          {t("admin.sidebar.security")}
-        </div>
-        <p>{t("admin.sidebar.version")}</p>
-      </div>
     </aside>
   );
 }

@@ -18,7 +18,7 @@ function formatTime(value?: string | null) {
   return String(value).replace("T", " ").slice(0, 16);
 }
 
-function routeFor(item: NotificationItem) {
+function defaultRouteFor(item: NotificationItem) {
   if (item.document_id) {
     return `/admin/search?type=document&id=${item.document_id}`;
   }
@@ -26,7 +26,11 @@ function routeFor(item: NotificationItem) {
   return "/admin/dashboard";
 }
 
-export function NotificationMenu() {
+type NotificationMenuProps = {
+  routeForItem?: (item: NotificationItem) => string;
+};
+
+export function NotificationMenu({ routeForItem = defaultRouteFor }: NotificationMenuProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"unread" | "all">("unread");
@@ -149,7 +153,7 @@ export function NotificationMenu() {
                         <Icon className="h-4 w-4" name="bell" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <Link className="block truncate text-sm font-bold text-slate-950 hover:underline" onClick={() => setOpen(false)} to={routeFor(item)}>
+                        <Link className="block truncate text-sm font-bold text-slate-950 hover:underline" onClick={() => setOpen(false)} to={routeForItem(item)}>
                           {item.title}
                         </Link>
                         {item.body ? <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{item.body}</p> : null}

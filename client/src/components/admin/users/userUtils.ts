@@ -1,5 +1,5 @@
 import type { AdminAssignment, EntityId, Person, Position, Unit, UserListItem } from "../../../api";
-import type { UserAdminRow, UserReviewQueueRow, UserSetupStatus } from "./types";
+import type { UserAdminRow, UserSetupStatus } from "./types";
 
 export function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
@@ -97,7 +97,7 @@ export function buildUserRows({
     const activeAssignments = userAssignments.filter((assignment) => assignment.status === "active");
     const primaryAssignment = choosePrimaryAssignment(activeAssignments.length ? activeAssignments : userAssignments);
     const position = primaryAssignment ? positionsById.get(primaryAssignment.position_id) || null : null;
-    const primaryUnit = primaryAssignment ? unitsById.get(primaryAssignment.unit_id) || null : null;
+    const primaryUnit = primaryAssignment ? unitsById.get(primaryAssignment.unit_id) || (position ? unitsById.get(position.unit_id) || null : null) : null;
     const canSign = activeAssignments.some((assignment) => Boolean(positionsById.get(assignment.position_id)?.is_signing_authority));
 
     return {
@@ -135,60 +135,4 @@ export function rowMatchesSearch(row: UserAdminRow, search: string) {
   ]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(search));
-}
-
-export function buildReviewQueue(rows: UserAdminRow[]) {
-  const queue: UserReviewQueueRow[] = [];
-
-  for (const row of rows) {
-    if (row.user.status === "pending_activation") {
-      queue.push({
-        date: formatDate(row.user.createdAt),
-        id: `${row.id}-activation`,
-        issue: "First-time activation pending",
-        requestedBy: "System Admin",
-        status: "awaiting_setup",
-        userId: row.id,
-        userName: row.user.personDisplayName
-      });
-    }
-
-    if (row.user.mustChangePassword) {
-      queue.push({
-        date: formatDate(row.user.createdAt),
-        id: `${row.id}-password`,
-        issue: "Password change required",
-        requestedBy: row.primaryAssignment?.unitName || "System",
-        status: "incomplete_setup",
-        userId: row.id,
-        userName: row.user.personDisplayName
-      });
-    }
-
-    if (row.user.status === "suspended") {
-      queue.push({
-        date: formatDate(row.user.lastLoginAt || row.user.createdAt),
-        id: `${row.id}-suspended`,
-        issue: "Account suspended for policy review",
-        requestedBy: "Security Review",
-        status: "under_review",
-        userId: row.id,
-        userName: row.user.personDisplayName
-      });
-    }
-
-    if (!row.assignments.length) {
-      queue.push({
-        date: formatDate(row.user.createdAt),
-        id: `${row.id}-assignment`,
-        issue: "No position assignment configured",
-        requestedBy: "Registry Office",
-        status: "incomplete_setup",
-        userId: row.id,
-        userName: row.user.personDisplayName
-      });
-    }
-  }
-
-  return queue.slice(0, 8);
 }

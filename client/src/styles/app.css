@@ -1,5 +1,85 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Besmellah";
+  src: url("/fonts/persian/Besmellah.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "ShapedBesmellah";
+  src: url("/fonts/persian/ShapedBesmellah.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "IranNastaliq";
+  src: url("/fonts/persian/IranNastaliq.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Lotus";
+  src: url("/fonts/persian/Lotus.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Morvarid";
+  src: url("/fonts/persian/Morvarid.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Nazanin";
+  src: url("/fonts/persian/Nazanin.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Titr";
+  src: url("/fonts/persian/Titr.bold.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Traffic";
+  src: url("/fonts/persian/Traffic.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Yekan";
+  src: url("/fonts/persian/Yekan.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Zar";
+  src: url("/fonts/persian/Zar.regular.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
 :root {
   color-scheme: light;
   font-family:
@@ -41,4 +121,330 @@ textarea {
 .force-ltr {
   direction: ltr;
   unicode-bidi: plaintext;
+}
+
+.structured-document-editor .ProseMirror {
+  min-height: 20rem;
+}
+
+.structured-document-editor .ProseMirror p {
+  margin: 0 0 .7rem;
+}
+
+.structured-document-editor .ProseMirror ul,
+.structured-document-editor .ProseMirror ol {
+  margin: 0 0 .8rem;
+  padding-inline-start: 1.5rem;
+}
+
+.structured-document-editor .ProseMirror ul {
+  list-style: disc;
+}
+
+.structured-document-editor .ProseMirror ol {
+  list-style: decimal;
+}
+
+.structured-document-editor .ProseMirror li {
+  padding-inline-start: .2rem;
+}
+
+.structured-document-editor .ProseMirror li p {
+  margin: .15rem 0;
+}
+
+.structured-document-editor .ProseMirror h1,
+.structured-document-editor .ProseMirror h2,
+.structured-document-editor .ProseMirror h3 {
+  margin: .5rem 0 .75rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.structured-document-editor .ProseMirror h1 {
+  font-size: 1.35rem;
+}
+
+.structured-document-editor .ProseMirror h2 {
+  font-size: 1.15rem;
+}
+
+.structured-document-editor .ProseMirror table {
+  width: 100%;
+  margin: .75rem 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.structured-document-editor .ProseMirror th,
+.structured-document-editor .ProseMirror td {
+  min-width: 2rem;
+  border: 1px solid #cbd5e1;
+  padding: .35rem .5rem;
+  vertical-align: top;
+}
+
+.structured-document-editor .ProseMirror th {
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+.structured-document-editor .ProseMirror hr {
+  position: relative;
+  height: 1.75rem;
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px dashed #94a3b8;
+}
+
+.structured-document-editor .ProseMirror hr::after {
+  content: "Page break";
+  position: absolute;
+  top: -.65rem;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  color: #64748b;
+  font-size: .7rem;
+  font-weight: 800;
+  padding: 0 .5rem;
+  text-transform: uppercase;
+}
+
+.structured-document-editor .ProseMirror p.is-editor-empty:first-child::before {
+  float: inline-start;
+  height: 0;
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.structured-document-editor .ProseMirror:focus {
+  outline: none;
+}
+
+.word-template-prose {
+  direction: inherit;
+  font-family: "Noto Naskh Arabic", "Vazirmatn", Tahoma, "Segoe UI", sans-serif;
+}
+
+.word-template-prose p {
+  margin: 0 0 .75rem;
+}
+
+.word-template-prose h1,
+.word-template-prose h2,
+.word-template-prose h3 {
+  margin: 0 0 .85rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.word-template-prose h1 {
+  font-size: 1.6rem;
+}
+
+.word-template-prose h2 {
+  font-size: 1.35rem;
+}
+
+.word-template-prose h3 {
+  font-size: 1.15rem;
+}
+
+.word-template-prose ul,
+.word-template-prose ol {
+  margin: 0 0 .9rem;
+  padding-inline-start: 1.5rem;
+}
+
+.word-template-prose table {
+  width: 100%;
+  margin: .9rem 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.word-template-prose th,
+.word-template-prose td {
+  min-width: 2rem;
+  border: 1px solid #94a3b8;
+  padding: .45rem .55rem;
+  vertical-align: top;
+}
+
+.word-template-prose th {
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+.word-template-prose img {
+  max-width: 100%;
+  height: auto;
+}
+
+.word-template-prose [data-resize-container] {
+  max-width: 100%;
+  margin-block: .5rem;
+}
+
+.word-template-prose [data-resize-wrapper] {
+  max-width: 100%;
+}
+
+.word-template-prose [data-resize-container][data-node="image"] img {
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.word-template-prose [data-resize-handle] {
+  width: .7rem;
+  height: .7rem;
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, .28);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.word-template-prose [data-resize-handle*="left"] {
+  transform: translate(-50%, -50%);
+}
+
+.word-template-prose [data-resize-handle*="right"] {
+  transform: translate(50%, -50%);
+}
+
+.word-template-prose [data-resize-handle*="bottom"] {
+  transform: translate(50%, 50%);
+}
+
+.word-template-prose [data-resize-handle="bottom-left"] {
+  transform: translate(-50%, 50%);
+}
+
+.word-template-prose [data-resize-handle="top-right"] {
+  transform: translate(50%, -50%);
+}
+
+.word-template-prose [data-resize-handle="bottom-right"] {
+  transform: translate(50%, 50%);
+}
+
+.word-template-prose [data-resize-handle="top-left"] {
+  transform: translate(-50%, -50%);
+}
+
+.word-template-prose hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid #0f172a;
+}
+
+.word-template-prose .selectedCell::after {
+  background: rgba(6, 29, 73, .08);
+}
+
+.word-template-prose .column-resize-handle {
+  bottom: -2px;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+  background-color: #2563eb;
+  pointer-events: none;
+}
+
+.word-template-prose .tableWrapper {
+  overflow-x: auto;
+}
+
+.word-template-prose p.is-editor-empty:first-child::before {
+  float: inline-start;
+  height: 0;
+  color: #94a3b8;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.signature-editor {
+  min-width: 0;
+  border: 1px solid #dbe3ee;
+  border-radius: .75rem;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.signature-editor__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1rem;
+}
+
+.signature-editor__previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: .75rem;
+  min-width: 0;
+}
+
+.signature-editor__preview-frame {
+  display: flex;
+  min-height: 11rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #dbe3ee;
+  border-radius: .75rem;
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #f8fafc 25%, transparent 25%),
+    linear-gradient(-45deg, #f8fafc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f8fafc 75%),
+    linear-gradient(-45deg, transparent 75%, #f8fafc 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  padding: .75rem;
+}
+
+.signature-editor__preview-image {
+  max-width: 100%;
+  max-height: 10rem;
+  object-fit: contain;
+}
+
+.signature-editor__controls {
+  display: grid;
+  gap: .75rem;
+  min-width: 0;
+}
+
+.signature-editor__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: .5rem;
+}
+
+.signature-editor__crop-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: .75rem;
+}
+
+@media (max-width: 480px) {
+  .signature-editor {
+    padding: .75rem;
+  }
+
+  .signature-editor__preview-frame {
+    min-height: 9rem;
+  }
+
+  .signature-editor__preview-image {
+    max-height: 8rem;
+  }
 }

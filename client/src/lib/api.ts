@@ -26,6 +26,7 @@ export class ApiError extends Error {
 
 let csrfToken: string | null = null;
 let apiLocale = "en";
+let csrfRefreshPromise: Promise<string | null> | null = null;
 
 export function setCsrfToken(token: string | null) {
   csrfToken = token;
@@ -44,28 +45,88 @@ function filenameFromContentDisposition(value: string | null) {
   return match ? decodeURIComponent(match[1].replace(/"$/, "")) : undefined;
 }
 
+function requestPathname(path: string) {
+  if (/^https?:\/\//i.test(path)) {
+    return new URL(path).pathname;
+  }
+  return path.split("?")[0] || path;
+}
+
+function isCsrfExemptPath(path: string) {
+  const pathname = requestPathname(path);
+  return pathname === "/api/auth/login" || pathname.startsWith("/api/signature-upload/");
+}
+
+async function refreshCsrfTokenFromSession() {
+  if (csrfRefreshPromise) {
+    return csrfRefreshPromise;
+  }
+
+  csrfRefreshPromise = fetch("/api/auth/me", {
+    credentials: "include",
+    headers: {
+      "accept-language": apiLocale
+    }
+  })
+    .then(async (response) => {
+      const payload = await response.json().catch(() => null) as ApiResult<{ csrfToken?: string | null }> | null;
+      const token = response.ok ? payload?.data?.csrfToken || null : null;
+      csrfToken = token;
+      return token;
+    })
+    .catch(() => null)
+    .finally(() => {
+      csrfRefreshPromise = null;
+    });
+
+  return csrfRefreshPromise;
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method || "GET").toUpperCase();
-  const headers = new Headers(options.headers);
+  const unsafeRequest = !["GET", "HEAD", "OPTIONS"].includes(method);
+  const csrfExempt = isCsrfExemptPath(path);
 
-  if (!headers.has("content-type") && options.body && !isFormDataBody(options.body)) {
-    headers.set("content-type", "application/json");
+  if (unsafeRequest && !csrfExempt && !csrfToken) {
+    await refreshCsrfTokenFromSession();
   }
 
-  headers.set("accept-language", apiLocale);
+  const request = async () => {
+    const headers = new Headers(options.headers);
 
-  if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) {
-    headers.set("x-csrf-token", csrfToken);
+    if (!headers.has("content-type") && options.body && !isFormDataBody(options.body)) {
+      headers.set("content-type", "application/json");
+    }
+
+    headers.set("accept-language", apiLocale);
+
+    if (unsafeRequest && csrfToken) {
+      headers.set("x-csrf-token", csrfToken);
+    }
+
+    const response = await fetch(path, {
+      ...options,
+      method,
+      headers,
+      credentials: "include"
+    });
+
+    const payload = await response.json().catch(() => null);
+    return { payload, response };
+  };
+
+  let { payload, response } = await request();
+
+  if (!response.ok && unsafeRequest && !csrfExempt) {
+    const errorPayload = payload as ApiErrorPayload | null;
+    if (response.status === 403 && errorPayload?.error?.code === "csrf_failed") {
+      await refreshCsrfTokenFromSession();
+      if (csrfToken) {
+        ({ payload, response } = await request());
+      }
+    }
   }
 
-  const response = await fetch(path, {
-    ...options,
-    method,
-    headers,
-    credentials: "include"
-  });
-
-  const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const errorPayload = payload as ApiErrorPayload | null;
     throw new ApiError(

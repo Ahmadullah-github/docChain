@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Router } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
@@ -6,7 +8,7 @@ import { requireAuth } from "../../middleware/auth";
 import { assertDocumentAccess, getActiveAssignment } from "../../shared/document-access";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
-import { notFound } from "../../shared/errors";
+import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { fetchById, optionalNullableString } from "../../shared/route-utils";
 import { uuid } from "../../shared/ids";
@@ -72,13 +74,23 @@ transmissionRouter.post("/documents/:documentId/transmissions", asyncHandler(asy
   const input = z.object({
     transmission_type: z.string().trim().min(1).max(80),
     visibility_policy: z.string().trim().min(1).max(80).default("show_all"),
-    visibility_rule_id: z.coerce.number().int().positive().nullable().optional(),
     subject_override: optionalNullableString,
     message: optionalNullableString,
     recipients: z.array(recipientSchema).min(1),
     metadata: z.record(z.string(), z.unknown()).optional()
   }).parse(request.body);
   const { document, assignment } = await assertDocumentAccess(documentId, request, response);
+
+  if (input.transmission_type === "dispatch") {
+    if (["archived", "closed"].includes(String(document.status))) {
+      throw new AppError(409, "document_not_dispatchable", "Closed or archived documents cannot be dispatched.");
+    }
+
+    if (!document.official_serial) {
+      throw new AppError(409, "official_serial_required", "Dispatch requires an official serial.");
+    }
+  }
+
   let transmissionId = 0;
 
   const connection = await pool.getConnection();
@@ -87,9 +99,9 @@ transmissionRouter.post("/documents/:documentId/transmissions", asyncHandler(asy
     const [transmissionResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO transmissions (
         uuid, document_id, from_unit_id, from_assignment_id, transmission_type,
-        visibility_policy, visibility_rule_id, status, subject_override,
+        visibility_policy, status, subject_override,
         message, sent_at, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
       [
         uuid(),
         documentId,
@@ -97,7 +109,6 @@ transmissionRouter.post("/documents/:documentId/transmissions", asyncHandler(asy
         assignment.id,
         input.transmission_type,
         input.visibility_policy,
-        input.visibility_rule_id || null,
         "sent",
         input.subject_override || null,
         input.message || null,
@@ -260,6 +271,48 @@ transmissionRouter.patch("/transmission-recipients/:recipientId/status", asyncHa
   ok(response, await fetchById("transmission_recipients", recipientId));
 }));
 
+transmissionRouter.get("/document-renders/:renderId/file", asyncHandler(async (request, response) => {
+  const { renderId } = z.object({ renderId: z.coerce.number().int().positive() }).parse(request.params);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_renders.id,
+      document_renders.document_id,
+      document_renders.render_type,
+      file_assets.storage_path AS storagePath,
+      file_assets.original_filename AS originalFilename,
+      file_assets.mime_type AS mimeType
+     FROM document_renders
+     INNER JOIN file_assets ON document_renders.file_asset_id = file_assets.id
+     WHERE document_renders.id = ?
+       AND document_renders.status = 'generated'
+       AND file_assets.status = 'active'
+       AND file_assets.deleted_at IS NULL
+     LIMIT 1`,
+    [renderId]
+  );
+  const render = rows[0];
+  if (!render) {
+    throw notFound("Document render");
+  }
+
+  await assertDocumentAccess(Number(render.document_id), request, response);
+  const storageRoot = path.resolve(process.cwd(), "storage");
+  const absolutePath = path.resolve(process.cwd(), String(render.storagePath));
+  if (!absolutePath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new AppError(403, "invalid_render_storage_path", "Render storage path is not allowed.");
+  }
+
+  await fs.access(absolutePath).catch(() => {
+    throw notFound("Render file");
+  });
+  const download = request.query.download === "1" || request.query.download === "true";
+  const disposition = download ? "attachment" : "inline";
+  response.setHeader("content-type", String(render.mimeType || "application/pdf"));
+  response.setHeader("content-disposition", `${disposition}; filename="${String(render.originalFilename || `document-render-${renderId}.pdf`).replaceAll("\"", "")}"`);
+  response.setHeader("cache-control", "private, max-age=60");
+  response.sendFile(absolutePath);
+}));
+
 transmissionRouter.post("/documents/:documentId/renders", asyncHandler(async (request, response) => {
   const { documentId } = z.object({ documentId: z.coerce.number().int().positive() }).parse(request.params);
   const input = z.object({
@@ -271,7 +324,6 @@ transmissionRouter.post("/documents/:documentId/renders", asyncHandler(async (re
     render_definition: z.record(z.string(), z.unknown()).default({}),
     signature_visibility: z.array(z.object({
       signature_event_id: z.coerce.number().int().positive().nullable().optional(),
-      signature_slot_id: z.coerce.number().int().positive().nullable().optional(),
       is_visible: z.boolean(),
       visibility_reason: optionalNullableString
     })).default([])
@@ -309,14 +361,13 @@ transmissionRouter.post("/documents/:documentId/renders", asyncHandler(async (re
     for (const item of input.signature_visibility) {
       await connection.execute<ResultSetHeader>(
         `INSERT INTO render_signature_visibility (
-          uuid, document_render_id, signature_event_id, signature_slot_id,
+          uuid, document_render_id, signature_event_id,
           is_visible, visibility_reason, visibility_policy
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
         [
           uuid(),
           id,
           item.signature_event_id || null,
-          item.signature_slot_id || null,
           item.is_visible,
           item.visibility_reason || null,
           input.visibility_policy

@@ -14,7 +14,11 @@ export function ensureCsrfToken(request: Request) {
 }
 
 export function csrfGuard(request: Request, _response: Response, next: NextFunction) {
-  if (!unsafeMethods.has(request.method) || csrfExemptPaths.has(request.path)) {
+  if (
+    !unsafeMethods.has(request.method)
+    || csrfExemptPaths.has(request.path)
+    || request.path.startsWith("/api/signature-upload/")
+  ) {
     next();
     return;
   }
@@ -29,4 +33,3 @@ export function csrfGuard(request: Request, _response: Response, next: NextFunct
 
   next();
 }
-

@@ -12,7 +12,6 @@ type SelectedUnitDetailsProps = {
   onAddChildUnit: () => void;
   onAssignHead: () => void;
   onEditUnit: () => void;
-  onViewRules: () => void;
   parentUnitName: string;
   selectedUnit: Unit | null;
 };
@@ -33,7 +32,6 @@ export function SelectedUnitDetails({
   onAddChildUnit,
   onAssignHead,
   onEditUnit,
-  onViewRules,
   parentUnitName,
   selectedUnit
 }: SelectedUnitDetailsProps) {
@@ -94,7 +92,6 @@ export function SelectedUnitDetails({
             <Button className="justify-start" icon="edit" onClick={onEditUnit}>{t("admin.organizations.details.edit")}</Button>
             <Button className="justify-start" icon="users" onClick={onAssignHead}>{t("admin.organizations.details.assignHead")}</Button>
             <Button className="justify-start" icon="hierarchy" onClick={onAddChildUnit}>{t("admin.organizations.details.addChildUnit")}</Button>
-            <Button className="justify-start" icon="shield" onClick={onViewRules}>{t("admin.organizations.details.viewRules")}</Button>
           </div>
         </div>
 
