@@ -139,8 +139,7 @@ export function UnitsDirectory({
               key: "actions",
               header: t("admin.organizations.directory.columns.actions"),
               cell: (row) => (
-                <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.organizations.directory.view")} onClick={() => onSelectUnit(row.id)} />
+                <div className="flex items-center justify-start gap-1">
                   <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.organizations.directory.edit")} onClick={() => onEditUnit(row.id)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="hierarchy" label={t("admin.organizations.directory.hierarchy")} onClick={() => onViewHierarchy(row.id)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.organizations.directory.more")} onClick={() => onOpenActions(row.id)} />

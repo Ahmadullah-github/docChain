@@ -75,21 +75,51 @@ async function main() {
     }
 
     const [documents] = await connection.execute(
-      `SELECT documents.*, document_types.name AS documentTypeName, origin_units.name AS originUnitName, owner_units.name AS ownerUnitName, holder_units.name AS currentHolderUnitName
+      `SELECT
+         documents.*,
+         document_types.name AS documentTypeName,
+         origin_units.name AS originUnitName,
+         owner_units.name AS ownerUnitName,
+         holder_units.name AS currentHolderUnitName,
+         walk_in_requests.id AS walkInRequestId,
+         requester_persons.first_name AS requesterFirstName,
+         requester_persons.last_name AS requesterLastName,
+         requester_persons.father_name AS requesterFatherName,
+         requester_persons.phone_number AS requesterPhoneNumber,
+         requester_persons.tazkira_number AS requesterTazkiraNumber,
+         subject_persons.first_name AS subjectFirstName,
+         subject_persons.last_name AS subjectLastName,
+         subject_persons.father_name AS subjectFatherName,
+         subject_persons.phone_number AS subjectPhoneNumber,
+         subject_persons.tazkira_number AS subjectTazkiraNumber,
+         taker_persons.first_name AS takerFirstName,
+         taker_persons.last_name AS takerLastName,
+         taker_persons.father_name AS takerFatherName,
+         taker_persons.phone_number AS takerPhoneNumber,
+         taker_persons.tazkira_number AS takerTazkiraNumber
        FROM documents
        INNER JOIN document_types ON documents.document_type_id = document_types.id
        INNER JOIN units AS origin_units ON documents.origin_unit_id = origin_units.id
        INNER JOIN units AS owner_units ON documents.owner_unit_id = owner_units.id
        INNER JOIN units AS holder_units ON documents.current_holder_unit_id = holder_units.id
+       LEFT JOIN document_issuance_requests AS walk_in_requests ON walk_in_requests.document_id = documents.id
+       LEFT JOIN external_persons AS requester_persons ON walk_in_requests.requester_person_id = requester_persons.id
+       LEFT JOIN external_persons AS subject_persons ON walk_in_requests.subject_person_id = subject_persons.id
+       LEFT JOIN external_persons AS taker_persons ON walk_in_requests.taker_person_id = taker_persons.id
        WHERE documents.deleted_at IS NULL`
     );
     for (const row of documents) {
+      const walkInIdentityText = [
+        row.requesterFirstName, row.requesterLastName, row.requesterFatherName, row.requesterPhoneNumber, row.requesterTazkiraNumber,
+        row.subjectFirstName, row.subjectLastName, row.subjectFatherName, row.subjectPhoneNumber, row.subjectTazkiraNumber,
+        row.takerFirstName, row.takerLastName, row.takerFatherName, row.takerPhoneNumber, row.takerTazkiraNumber
+      ].map(text).join(" ");
       await upsert(connection, {
-        body: [row.summary, row.body, row.originUnitName, row.ownerUnitName, row.currentHolderUnitName].map(text).join(" "),
+        body: [row.summary, row.body, row.originUnitName, row.ownerUnitName, row.currentHolderUnitName, walkInIdentityText].map(text).join(" "),
         entityId: row.id,
         entityType: "document",
-        keywords: [row.internal_reference, row.official_serial, row.documentTypeName, row.status].map(text).join(" "),
-        metadata: { documentTypeName: row.documentTypeName, internalReference: row.internal_reference, officialSerial: row.official_serial || null },
+        keywords: [row.internal_reference, row.official_serial, row.documentTypeName, row.status, walkInIdentityText].map(text).join(" "),
+        metadata: { documentTypeName: row.documentTypeName, internalReference: row.internal_reference, officialSerial: row.official_serial || null, walkInRequestId: row.walkInRequestId || null },
         routePath: `/admin/search?type=document&id=${row.id}`,
         sourceCreatedAt: row.created_at,
         sourceUpdatedAt: row.updated_at,

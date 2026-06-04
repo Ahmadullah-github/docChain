@@ -12,7 +12,7 @@ import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
 import { assertDocumentAccess, getActiveAssignment, isAdmin } from "../../shared/document-access";
 import { calculateDocumentContentHash } from "../../shared/document-hash";
-import { assertDocumentWritePermission, type DocumentWritePermission } from "../../shared/document-write-rules";
+import { assertDocumentWritePermission, listDocumentWritePermissions, type DocumentWritePermission } from "../../shared/document-write-rules";
 import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
@@ -20,6 +20,7 @@ import { refreshSearchIndexForEntitySafe } from "../search/global-search.service
 import { assignOfficialSerial } from "../signatures/serial-assignment-service";
 import { createFinalDocumentRender } from "../templates/final-render-service";
 import { ensureOfficialDocumentPdfRender } from "../templates/template.routes";
+import { assertWalkInArchiveAllowedForDocument, markWalkInRequestArchivedForDocument, markWalkInRequestFinalizedForDocument } from "../walk-in-issuance/walk-in-issuance.service";
 import { documentContentToPlainText, normalizeDocumentContent, normalizeTemplateFieldRecord } from "./document-content";
 
 export const documentRouter = Router();
@@ -967,10 +968,16 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
   const context = await getDocumentRegistryContext(request);
   const query = documentListQuerySchema.parse(request.query);
   const { where, params } = buildDocumentWhere(context, response, query);
+  const admin = isAdmin(response);
+  const writePermissions = admin
+    ? []
+    : await listDocumentWritePermissions(context.assignment, response.locals.authUser?.roles || []);
+  const writableDocumentTypeIds = new Set(writePermissions.map((permission) => permission.documentTypeId));
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       documents.id,
       documents.uuid,
+      documents.document_type_id AS documentTypeId,
       documents.priority_level_id AS priorityLevelId,
       documents.internal_reference AS internalReference,
       documents.document_date AS documentDate,
@@ -978,6 +985,7 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
       documents.subject,
       documents.status,
       documents.official_serial AS officialSerial,
+      documents.creator_assignment_id AS creatorAssignmentId,
       documents.created_at AS createdAt,
       documents.updated_at AS updatedAt,
       document_types.code AS documentTypeCode,
@@ -996,7 +1004,21 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
     [...params, query.limit, query.offset]
   );
 
-  ok(response, rows);
+  ok(response, rows.map((row) => {
+    const status = String(row.status || "draft");
+    const draft = status === "draft";
+    const finalized = status === "finalized";
+    const creator = Number(row.creatorAssignmentId) === context.assignment.id;
+    const creatorCanWrite = creator && writableDocumentTypeIds.has(Number(row.documentTypeId));
+
+    return {
+      ...row,
+      canDelete: draft && (admin || creator),
+      canDownloadPdf: finalized,
+      canEdit: draft && (admin || creatorCanWrite),
+      canOpenPdf: finalized
+    };
+  }));
 }));
 
 documentRouter.get("/stats", asyncHandler(async (request, response) => {
@@ -1428,6 +1450,7 @@ documentRouter.post("/:documentId/finalize", asyncHandler(async (request, respon
       documentId,
       status: "finalized"
     });
+    await markWalkInRequestFinalizedForDocument(connection, documentId);
 
     await connection.execute<ResultSetHeader>(
       `INSERT INTO document_workflow_events (
@@ -1520,6 +1543,7 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
     if (String(lockedDocument.status) === "closed") {
       throw new AppError(409, "document_closed", "Closed documents cannot be archived.");
     }
+    await assertWalkInArchiveAllowedForDocument(connection, documentId);
     documentHash = calculateDocumentContentHash(lockedDocument);
     serialAssignment = await assignOfficialSerial(connection, {
       assignmentId: assignment.id,
@@ -1536,6 +1560,7 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
        WHERE id = ?`,
       [assignment.id, input.reason || input.note || "Archived.", documentId]
     );
+    await markWalkInRequestArchivedForDocument(connection, documentId);
     await connection.execute<ResultSetHeader>(
       `INSERT INTO document_workflow_events (
         uuid, document_id, actor_assignment_id, action, from_status,
@@ -1599,6 +1624,86 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
     finalRender,
     serialAssignment
   });
+}));
+
+documentRouter.delete("/:documentId", asyncHandler(async (request, response) => {
+  const { documentId } = documentIdSchema.parse(request.params);
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  const admin = isAdmin(response);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [lockedRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE",
+      [documentId]
+    );
+    const lockedDocument = lockedRows[0];
+    if (!lockedDocument) {
+      throw notFound("Document");
+    }
+    if (String(lockedDocument.status || "draft") !== "draft") {
+      throw new AppError(409, "document_delete_draft_only", "Only draft documents can be deleted.");
+    }
+    if (!admin && Number(lockedDocument.creator_assignment_id) !== assignment.id) {
+      throw new AppError(403, "document_delete_not_allowed", "Only the draft creator can delete this document.");
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_workflow_events (
+        uuid, document_id, actor_assignment_id, action, from_status,
+        to_status, from_unit_id, to_unit_id, note, payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        documentId,
+        assignment.id,
+        "delete",
+        lockedDocument.status,
+        "deleted",
+        lockedDocument.current_holder_unit_id,
+        lockedDocument.current_holder_unit_id,
+        "Draft deleted.",
+        JSON.stringify({ deletedByAssignmentId: assignment.id })
+      ]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_tasks
+       SET status = 'canceled',
+           completed_at = CURRENT_TIMESTAMP,
+           completed_by_assignment_id = ?,
+           completion_note = COALESCE(completion_note, 'Canceled by draft deletion.'),
+           deleted_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE document_id = ?
+         AND status = 'open'
+         AND deleted_at IS NULL`,
+      [assignment.id, documentId]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_layout_drafts
+       SET status = 'deleted',
+           deleted_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE document_id = ?
+         AND deleted_at IS NULL`,
+      [documentId]
+    );
+    await connection.execute<ResultSetHeader>(
+      "UPDATE documents SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [documentId]
+    );
+    await writeAuditLog(request, { action: "document.delete", entityType: "document", entityId: documentId }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await refreshSearchIndexForEntitySafe("document", documentId);
+  ok(response, { deleted: true, id: documentId, status: "deleted" });
 }));
 
 documentRouter.patch("/:documentId", asyncHandler(async (request, response) => {

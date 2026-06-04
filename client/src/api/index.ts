@@ -10,6 +10,7 @@ export { signatureApi } from "./signatures";
 export { templateApi } from "./templates";
 export { transmissionApi } from "./transmissions";
 export { verificationApi } from "./verification";
+export { walkInIssuanceApi } from "./walkInIssuance";
 export { workspaceApi } from "./workspace";
 export type { ApiErrorPayload } from "../lib/api";
 export type { WorkItemTypeFilter, WorkspaceTargetsQuery, WorkspaceTransmissionTargetsQuery } from "./workspace";

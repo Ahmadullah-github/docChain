@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { EntityId } from "../../../api";
+import type { EntityId, Unit } from "../../../api";
 import { useI18n } from "../../../i18n";
 import { Button, DataTable, IconButton, SearchInput, SelectFilter, StatusBadge, Toolbar } from "../../ui";
 import { normalizeSearch, rowMatchesSearch } from "./positionUtils";
@@ -8,11 +8,12 @@ import type { PositionAdminRow, PositionAuthorityBand } from "./types";
 type PositionDirectoryProps = {
   onAssignPosition: (row: PositionAdminRow) => void;
   onEditPosition: (row: PositionAdminRow) => void;
+  onExportPositions?: () => void;
   onOpenPositionActions: (row: PositionAdminRow) => void;
   onSelectPosition: (positionId: EntityId) => void;
-  onViewPosition: (row: PositionAdminRow) => void;
   rows: PositionAdminRow[];
   selectedPositionId: EntityId | null;
+  units?: Unit[];
 };
 
 function statusTone(status: string) {
@@ -84,16 +85,18 @@ function unitTypeText(row: PositionAdminRow, t: ReturnType<typeof useI18n>["t"])
 export function PositionDirectory({
   onAssignPosition,
   onEditPosition,
+  onExportPositions,
   onOpenPositionActions,
   onSelectPosition,
-  onViewPosition,
   rows,
-  selectedPositionId
+  selectedPositionId,
+  units = []
 }: PositionDirectoryProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [unitTypeFilter, setUnitTypeFilter] = useState("all");
+  const [unitFilter, setUnitFilter] = useState("all");
   const [authorityFilter, setAuthorityFilter] = useState("all");
   const [canSignFilter, setCanSignFilter] = useState("all");
 
@@ -112,11 +115,12 @@ export function PositionDirectory({
       const matchesSearch = rowMatchesSearch(row, normalized);
       const matchesStatus = statusFilter === "all" || row.status === statusFilter;
       const matchesUnitType = unitTypeFilter === "all" || row.unitTypeCode === unitTypeFilter;
+      const matchesUnit = unitFilter === "all" || row.units.some((unit) => String(unit.id) === unitFilter);
       const matchesAuthority = authorityFilter === "all" || row.authorityBand === authorityFilter;
       const matchesCanSign = canSignFilter === "all" || (canSignFilter === "yes" ? row.canSign : !row.canSign);
-      return matchesSearch && matchesStatus && matchesUnitType && matchesAuthority && matchesCanSign;
+      return matchesSearch && matchesStatus && matchesUnitType && matchesUnit && matchesAuthority && matchesCanSign;
     });
-  }, [authorityFilter, canSignFilter, rows, search, statusFilter, unitTypeFilter]);
+  }, [authorityFilter, canSignFilter, rows, search, statusFilter, unitFilter, unitTypeFilter]);
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -144,6 +148,14 @@ export function PositionDirectory({
               <option key={code} value={code}>{label}</option>
             ))}
           </SelectFilter>
+          {units.length ? (
+            <SelectFilter aria-label={t("admin.positions.registry.unitFilter")} className="w-44" onChange={(event) => setUnitFilter(event.target.value)} value={unitFilter}>
+              <option value="all">{t("admin.positions.registry.unitAll")}</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>{unit.name}</option>
+              ))}
+            </SelectFilter>
+          ) : null}
           <SelectFilter aria-label={t("admin.positions.directory.authorityFilter")} className="w-44" onChange={(event) => setAuthorityFilter(event.target.value)} value={authorityFilter}>
             <option value="all">{t("admin.positions.directory.authorityAll")}</option>
             <option value="executive">{t("admin.positions.authority.executive")}</option>
@@ -158,9 +170,10 @@ export function PositionDirectory({
             <option value="yes">{t("common.yes")}</option>
             <option value="no">{t("common.no")}</option>
           </SelectFilter>
-          <Button icon="reset" onClick={() => { setSearch(""); setStatusFilter("all"); setUnitTypeFilter("all"); setAuthorityFilter("all"); setCanSignFilter("all"); }}>
+          <Button icon="reset" onClick={() => { setSearch(""); setStatusFilter("all"); setUnitTypeFilter("all"); setUnitFilter("all"); setAuthorityFilter("all"); setCanSignFilter("all"); }}>
             {t("admin.positions.directory.reset")}
           </Button>
+          {onExportPositions ? <Button icon="export" onClick={onExportPositions}>{t("admin.positions.registry.export")}</Button> : null}
         </Toolbar>
 
         <DataTable
@@ -238,11 +251,17 @@ export function PositionDirectory({
               className: "w-28"
             },
             {
+              key: "updated",
+              header: t("admin.positions.registry.columns.lastUpdated"),
+              cell: (row) => <span className="force-ltr block whitespace-nowrap text-start">{row.lastUpdated}</span>,
+              hideOnMobile: true,
+              className: "w-36"
+            },
+            {
               key: "actions",
               header: t("admin.positions.directory.columns.actions"),
               cell: (row) => (
                 <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.positions.directory.view")} onClick={() => onViewPosition(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.positions.directory.edit")} onClick={() => onEditPosition(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="users" label={t("admin.positions.directory.assign")} onClick={() => onAssignPosition(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.positions.directory.more")} onClick={() => onOpenPositionActions(row)} />

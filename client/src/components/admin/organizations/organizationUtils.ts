@@ -100,14 +100,6 @@ export function formatStatus(value?: string | null) {
   return value || "unknown";
 }
 
-export function formatDate(value?: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return String(value).replace("T", " ").slice(0, 16);
-}
-
 export function getActiveAssignmentsForUnit(unitId: EntityId, assignments: AdminAssignment[]) {
   return assignments.filter((assignment) => assignment.unit_id === unitId && assignment.status === "active");
 }

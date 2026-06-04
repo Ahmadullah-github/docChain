@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, RefObject } from "react";
+import type { FormEvent } from "react";
 import { adminApi, ApiError } from "../../api";
 import type { AdminAssignment, EntityId, Organization, Person, Position, StructureImportPreview, Unit, UnitType } from "../../api";
 import {
   buildAuthorityRows,
   buildDirectoryRows,
   chooseHeadAuthority,
-  formatDate,
   getActiveAssignmentsForUnit,
   OrganizationHierarchyExplorer,
   OrganizationStats,
-  SelectedUnitDetails,
   UnitsDirectory
 } from "../../components/admin/organizations";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
@@ -148,7 +146,6 @@ function isStructureImportPreview(value: unknown): value is StructureImportPrevi
 
 export function AdminOrganizationsPage() {
   const { t } = useI18n();
-  const detailsRef = useRef<HTMLDivElement>(null);
   const hierarchyRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<OrganizationsPageData>(emptyData);
   const [loading, setLoading] = useState(true);
@@ -197,10 +194,6 @@ export function AdminOrganizationsPage() {
   const actionsUnit = data.units.find((unit) => unit.id === actionsUnitId) || null;
   const activeAssignments = selectedUnit ? getActiveAssignmentsForUnit(selectedUnit.id, data.assignments) : [];
   const selectedUnitPositions = selectedUnit ? data.positions.filter((position) => position.unit_id === selectedUnit.id && position.status !== "disabled") : [];
-  const authorityRows = useMemo(() => buildAuthorityRows(activeAssignments, positionsById), [activeAssignments, positionsById]);
-  const headAuthority = chooseHeadAuthority(authorityRows);
-  const parentUnitName = selectedUnit?.parentUnitName || t("admin.organizations.details.noParent");
-  const headPosition = headAuthority?.positionTitle || t("admin.organizations.details.noHead");
 
   const directoryRows = useMemo(
     () => buildDirectoryRows(
@@ -284,15 +277,17 @@ export function AdminOrganizationsPage() {
     setActiveModal("organization");
   }
 
-  function scrollToRef(ref: RefObject<HTMLDivElement | null>) {
+  function scrollToHierarchy() {
     window.requestAnimationFrame(() => {
-      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      hierarchyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }
 
-  function selectUnit(unitId: EntityId, target: "details" | "hierarchy" = "details") {
+  function selectUnit(unitId: EntityId, target?: "hierarchy") {
     setSelectedUnitId(unitId);
-    scrollToRef(target === "hierarchy" ? hierarchyRef : detailsRef);
+    if (target === "hierarchy") {
+      scrollToHierarchy();
+    }
   }
 
   function chooseChildUnitTypeId(parentUnit: Unit | null) {
@@ -688,29 +683,7 @@ export function AdminOrganizationsPage() {
         stats={stats}
       />
 
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,.85fr)_minmax(0,1.35fr)]">
-        <div className="min-w-0" ref={hierarchyRef}>
-          <OrganizationHierarchyExplorer
-            onSelectUnit={(unitId) => selectUnit(unitId)}
-            selectedUnitId={selectedUnitId}
-            units={data.units}
-          />
-        </div>
-        <div className="min-w-0" ref={detailsRef}>
-          <SelectedUnitDetails
-            authorityRows={authorityRows}
-            createdLabel={formatDate(selectedUnit?.created_at)}
-            headPosition={headPosition}
-            onAddChildUnit={() => selectedUnit && openAddChildUnitModal(selectedUnit.id)}
-            onAssignHead={() => selectedUnit && openAssignHeadModal(selectedUnit.id)}
-            onEditUnit={() => selectedUnit && openEditUnitModal(selectedUnit.id)}
-            parentUnitName={parentUnitName}
-            selectedUnit={selectedUnit}
-          />
-        </div>
-      </section>
-
-      <section className="min-w-0 space-y-4">
+        <section className="min-w-0 space-y-4">
         <UnitsDirectory
           onEditUnit={openEditUnitModal}
           onExportRows={(rows) => void exportFilteredUnits(rows)}
@@ -721,6 +694,17 @@ export function AdminOrganizationsPage() {
           unitTypes={data.unitTypes.map((unitType) => ({ code: unitType.code, id: unitType.id, name: unitType.name }))}
         />
       </section>
+      <section className="min-w-0">
+        <div className="min-w-0" ref={hierarchyRef}>
+          <OrganizationHierarchyExplorer
+            onSelectUnit={(unitId) => selectUnit(unitId)}
+            selectedUnitId={selectedUnitId}
+            units={data.units}
+          />
+        </div>
+      </section>
+
+
 
       <AdminModal
         footer={(

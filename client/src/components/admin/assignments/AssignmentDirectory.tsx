@@ -7,6 +7,7 @@ import type { AssignmentAdminRow, AssignmentSignEligibility, AssignmentType } fr
 
 type AssignmentDirectoryProps = {
   onEditAssignment?: (row: AssignmentAdminRow) => void;
+  onExportRows?: (rows: AssignmentAdminRow[]) => void;
   onOpenAssignmentActions?: (row: AssignmentAdminRow) => void;
   onSelectAssignment: (assignmentId: EntityId) => void;
   onViewAssignment?: (assignmentId: EntityId) => void;
@@ -98,7 +99,7 @@ function statusText(status: string, t: ReturnType<typeof useI18n>["t"]) {
   }
 }
 
-export function AssignmentDirectory({ onEditAssignment, onOpenAssignmentActions, onSelectAssignment, onViewAssignment, rows, selectedAssignmentId, units }: AssignmentDirectoryProps) {
+export function AssignmentDirectory({ onEditAssignment, onExportRows, onOpenAssignmentActions, onSelectAssignment, rows, selectedAssignmentId, units }: AssignmentDirectoryProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -162,6 +163,7 @@ export function AssignmentDirectory({ onEditAssignment, onOpenAssignmentActions,
           <Button icon="reset" onClick={() => { setSearch(""); setStatusFilter("all"); setTypeFilter("all"); setUnitFilter("all"); setCanSignFilter("all"); }}>
             {t("admin.assignments.directory.reset")}
           </Button>
+          {onExportRows ? <Button disabled={!filteredRows.length} icon="export" onClick={() => onExportRows(filteredRows)}>{t("admin.assignments.registry.export")}</Button> : null}
         </Toolbar>
 
         <DataTable
@@ -185,6 +187,13 @@ export function AssignmentDirectory({ onEditAssignment, onOpenAssignmentActions,
               key: "code",
               header: t("admin.assignments.registry.columns.assignmentCode"),
               cell: (row) => <span className="force-ltr block max-w-40 truncate text-start" title={row.assignmentCode}>{row.assignmentCode}</span>,
+              hideOnMobile: true,
+              className: "w-44"
+            },
+            {
+              key: "localName",
+              header: t("admin.assignments.registry.columns.localName"),
+              cell: (row) => <span className="block max-w-40 truncate" title={row.localName}>{row.localName}</span>,
               hideOnMobile: true,
               className: "w-44"
             },
@@ -246,11 +255,17 @@ export function AssignmentDirectory({ onEditAssignment, onOpenAssignmentActions,
               className: "w-32"
             },
             {
+              key: "updated",
+              header: t("admin.assignments.registry.columns.lastUpdated"),
+              cell: (row) => <span className="force-ltr block whitespace-nowrap text-start">{row.lastUpdated}</span>,
+              hideOnMobile: true,
+              className: "w-36"
+            },
+            {
               key: "actions",
               header: t("admin.assignments.directory.columns.actions"),
               cell: (row) => (
-                <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.assignments.directory.view")} onClick={() => (onViewAssignment || onSelectAssignment)(row.id)} />
+                <div className="flex items-center justify-center gap-1">
                   <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.assignments.directory.edit")} onClick={() => onEditAssignment?.(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.assignments.directory.more")} onClick={() => onOpenAssignmentActions?.(row)} />
                 </div>
@@ -265,7 +280,7 @@ export function AssignmentDirectory({ onEditAssignment, onOpenAssignmentActions,
           getRowKey={(row) => row.id}
           onRowClick={(row) => onSelectAssignment(row.id)}
           rows={filteredRows}
-          tableClassName="min-w-[96rem]"
+          tableClassName="min-w-[108rem]"
         />
       </div>
     </section>

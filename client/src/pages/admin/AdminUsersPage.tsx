@@ -1,11 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi } from "../../api";
 import type { AdminAssignment, EntityId, Person, Position, Role, Unit, UserListItem } from "../../api";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   buildUserRows,
   UserDirectory,
-  UserInspector,
   UserStats
 } from "../../components/admin/users";
 import type { UserAdminRow } from "../../components/admin/users/types";
@@ -196,7 +195,6 @@ export function AdminUsersPage() {
   const [assignmentForm, setAssignmentForm] = useState<AssignmentForm>({ is_primary: false, position_id: "", status: "active" });
   const [accessForm, setAccessForm] = useState<AccessForm>({ must_change_password: true, role_names: [], status: "pending_activation" });
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordForm>(resetPasswordDefaults);
-  const inspectorRef = useRef<HTMLDivElement | null>(null);
 
   const refreshUsers = useCallback(async (nextSelectedUserId?: EntityId | null) => {
     setLoading(true);
@@ -228,7 +226,6 @@ export function AdminUsersPage() {
   }, [data.users, selectedUserId]);
 
   const rows = useMemo(() => buildUserRows(data), [data]);
-  const selectedUser = rows.find((row) => row.id === selectedUserId) || null;
   const modalUser = modalUserId ? rows.find((row) => row.id === modalUserId) || null : null;
   const activePositions = data.positions.filter((position) => position.status === "active");
   const unitsById = useMemo(() => new Map<EntityId, Unit>(data.units.map((unit) => [unit.id, unit])), [data.units]);
@@ -254,16 +251,9 @@ export function AdminUsersPage() {
     setBusy(false);
   }
 
-  function scrollToInspector() {
-    window.requestAnimationFrame(() => {
-      inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      inspectorRef.current?.focus({ preventScroll: true });
-    });
-  }
-
   function viewUser(row: UserAdminRow) {
     setSelectedUserId(row.id);
-    scrollToInspector();
+    openActionsModal(row);
   }
 
   function openCreateUserModal() {
@@ -541,18 +531,6 @@ export function AdminUsersPage() {
         />
       </section>
 
-      <section className="min-w-0">
-        <div ref={inspectorRef} tabIndex={-1}>
-          <UserInspector
-            onAssignUser={openAssignUserModal}
-            onEditUser={openEditUserModal}
-            onManageAccess={openAccessModal}
-            onResetPassword={openResetPasswordModal}
-            selectedUser={selectedUser}
-          />
-        </div>
-      </section>
-
       <AdminModal
         footer={(
           <>
@@ -811,7 +789,6 @@ export function AdminUsersPage() {
               <p className="force-ltr mt-1 text-xs font-semibold text-slate-500">{modalUser.user.username}</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button className="justify-start" icon="view" onClick={() => { closeModal(); viewUser(modalUser); }}>{t("admin.users.directory.view")}</Button>
               <Button className="justify-start" icon="edit" onClick={() => openEditUserModal(modalUser)}>{t("admin.users.directory.edit")}</Button>
               <Button className="justify-start" icon="users" onClick={() => openAssignUserModal(modalUser)}>{t("admin.users.directory.assign")}</Button>
               <Button className="justify-start" icon="lock" onClick={() => openResetPasswordModal(modalUser)}>{t("admin.users.inspector.resetPassword")}</Button>

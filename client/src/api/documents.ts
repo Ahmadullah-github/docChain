@@ -1,4 +1,4 @@
-import { getJson, patchJson, postForm, postJson } from "./http";
+import { deleteJson, getJson, patchJson, postForm, postJson } from "./http";
 import type {
   CreateDocumentInput,
   DocumentDetail,
@@ -80,6 +80,10 @@ export const documentApi = {
 
   update(documentId: EntityId, input: UpdateDocumentInput) {
     return patchJson<DocumentDetail>(`/api/documents/${documentId}`, input);
+  },
+
+  delete(documentId: EntityId) {
+    return deleteJson<{ deleted: boolean; id: EntityId; status: string }>(`/api/documents/${documentId}`);
   },
 
   sendOptions(documentId: EntityId, query?: { q?: string; limit?: number }) {

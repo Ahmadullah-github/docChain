@@ -29,6 +29,7 @@ import { adminSignatureRouter, publicSignatureUploadRouter, signatureRouter } fr
 import { adminTemplateRouter, templateRouter } from "./modules/templates/template.routes";
 import { transmissionRouter } from "./modules/transmissions/transmission.routes";
 import { documentVerificationRouter, publicDocumentVerificationRouter } from "./modules/verification/document-verification.routes";
+import { walkInIssuanceRouter } from "./modules/walk-in-issuance/walk-in-issuance.routes";
 import { workspaceRouter } from "./modules/workspace/workspace.routes";
 
 const MySQLStore = createMySQLSession(session);
@@ -92,6 +93,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/assignments", assignmentRouter);
   app.use("/api/documents", documentRouter);
+  app.use("/api/walk-in-issuance", walkInIssuanceRouter);
   app.use("/api/workspace", workspaceRouter);
   app.use("/api/signatures", signatureRouter);
   app.use("/api", publicSignatureUploadRouter);

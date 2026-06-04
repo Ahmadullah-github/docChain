@@ -25,6 +25,7 @@ import { DocumentDetailPage } from "../pages/app/DocumentDetailPage";
 import { DocumentEditPage } from "../pages/app/DocumentEditPage";
 import { DocumentsPage } from "../pages/app/DocumentsPage";
 import { SignatureProfilePage } from "../pages/app/SignatureProfilePage";
+import { WalkInIssuancePage } from "../pages/app/WalkInIssuancePage";
 import { WorkPage } from "../pages/app/WorkPage";
 import { LoginPage } from "../pages/LoginPage";
 import { SignatureUploadPage } from "../pages/SignatureUploadPage";
@@ -159,6 +160,8 @@ function AppRoutes() {
         <Route path="documents/new" element={<DocumentCreatePage />} />
         <Route path="documents/:documentId/edit" element={<DocumentEditPage />} />
         <Route path="documents/:documentId" element={<DocumentDetailPage />} />
+        <Route path="walk-in-issuance" element={<WalkInIssuancePage />} />
+        <Route path="walk-in-issuance/:requestId" element={<WalkInIssuancePage />} />
         <Route path="signature-profile" element={<SignatureProfilePage />} />
       </Route>
       <Route

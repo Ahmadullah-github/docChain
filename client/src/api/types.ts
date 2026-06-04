@@ -432,6 +432,7 @@ export type DocumentRegistryStats = {
 export type DocumentListItem = {
   id: EntityId;
   uuid: string;
+  documentTypeId?: EntityId;
   priorityLevelId?: EntityId;
   internalReference: string;
   documentDate?: string | null;
@@ -439,6 +440,7 @@ export type DocumentListItem = {
   subject: string;
   status: Status;
   officialSerial?: string | null;
+  creatorAssignmentId?: EntityId;
   createdAt: string;
   updatedAt: string;
   documentTypeCode: string;
@@ -447,6 +449,10 @@ export type DocumentListItem = {
   priorityName?: string | null;
   priorityColor?: string | null;
   currentHolderUnitName: string;
+  canDelete?: boolean | number;
+  canDownloadPdf?: boolean | number;
+  canEdit?: boolean | number;
+  canOpenPdf?: boolean | number;
 };
 
 export type TipTapMark = {
@@ -907,4 +913,156 @@ export type DocumentLayoutDraft = {
   base_template_version_id?: EntityId | null;
   status: string;
   layout_definition: TemplateLayout;
+};
+
+export type WalkInPrintType = "original" | "copy" | "reprint";
+export type WalkInHandoverMethod = "physical_original" | "physical_copy" | "reprint";
+
+export type WalkInExternalPersonInput = {
+  first_name: string;
+  last_name: string;
+  father_name: string;
+  phone_number: string;
+  tazkira_number: string;
+  relationship_to_subject?: string;
+  address?: string | null;
+  notes?: string | null;
+};
+
+export type WalkInExternalPerson = JsonRecord & WalkInExternalPersonInput & {
+  id: EntityId;
+  uuid: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type WalkInStudentProfile = JsonRecord & {
+  id: EntityId;
+  uuid: string;
+  external_person_id: EntityId;
+  faculty_id: EntityId;
+  department_id: EntityId;
+  semester: string;
+  academic_year?: string | null;
+  student_registration_number?: string | null;
+  student_status?: string | null;
+  notes?: string | null;
+  facultyName?: string | null;
+  departmentName?: string | null;
+};
+
+export type WalkInIssuanceRequest = JsonRecord & {
+  id: EntityId;
+  uuid: string;
+  document_type_id: EntityId;
+  requester_person_id: EntityId;
+  subject_person_id: EntityId;
+  taker_person_id: EntityId;
+  taker_relationship_to_subject: string;
+  handled_by_assignment_id: EntityId;
+  handled_by_unit_id?: EntityId | null;
+  document_id?: EntityId | null;
+  purpose?: string | null;
+  destination_organization?: string | null;
+  is_student: boolean | number | string;
+  status: Status;
+  documentTypeCode?: string | null;
+  documentTypeName?: string | null;
+  documentStatus?: string | null;
+  officialSerial?: string | null;
+  finalized_at?: string | null;
+  handed_over_at?: string | null;
+  archived_at?: string | null;
+  canceled_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+export type WalkInDocumentRecord = JsonRecord & {
+  id: EntityId;
+  document_type_id: EntityId;
+  subject: string;
+  status: Status;
+  official_serial?: string | null;
+  document_date?: string | null;
+  summary?: string | null;
+  body?: string | null;
+  template_fields?: Record<string, string> | string | null;
+  document_content?: DocumentContent | string | null;
+};
+
+export type WalkInPrintEvent = JsonRecord & {
+  id: EntityId;
+  document_id: EntityId;
+  issuance_request_id: EntityId;
+  printed_by_assignment_id: EntityId;
+  print_type: WalkInPrintType;
+  print_reason?: string | null;
+  copy_number: number;
+  printed_at?: string | null;
+};
+
+export type WalkInHandoverRecord = JsonRecord & {
+  id: EntityId;
+  document_id: EntityId;
+  issuance_request_id: EntityId;
+  official_serial_number: string;
+  taker_person_id: EntityId;
+  handed_by_assignment_id: EntityId;
+  handover_method: WalkInHandoverMethod;
+  copy_count: number;
+  handover_note?: string | null;
+  handed_over_at?: string | null;
+};
+
+export type WalkInRequestDetail = {
+  request: WalkInIssuanceRequest;
+  requester: WalkInExternalPerson | null;
+  subject: WalkInExternalPerson | null;
+  taker: WalkInExternalPerson | null;
+  studentProfile: WalkInStudentProfile | null;
+  document: WalkInDocumentRecord | null;
+  printEvents: WalkInPrintEvent[];
+  handoverRecords: WalkInHandoverRecord[];
+};
+
+export type WalkInReference = {
+  confidentialityLevels: ConfidentialityLevel[];
+  departments: Unit[];
+  documentTypes: DocumentType[];
+  faculties: Unit[];
+  priorityLevels: PriorityLevel[];
+};
+
+export type CreateWalkInRequestInput = {
+  document_type_id: EntityId;
+  person?: WalkInExternalPersonInput;
+  requester?: WalkInExternalPersonInput;
+  subject?: WalkInExternalPersonInput;
+  taker?: WalkInExternalPersonInput;
+  relationship_to_subject?: string;
+  purpose?: string | null;
+  destination_organization?: string | null;
+  is_student?: boolean;
+  faculty_id?: EntityId;
+  department_id?: EntityId;
+  semester?: string;
+  academic_year?: string | null;
+  student_registration_number?: string | null;
+  student_status?: string | null;
+  student_notes?: string | null;
+};
+
+export type UpdateWalkInPersonsInput = Omit<CreateWalkInRequestInput, "document_type_id" | "purpose" | "destination_organization">;
+
+export type CreateWalkInDocumentInput = {
+  subject?: string;
+  document_date?: string | null;
+  summary?: string | null;
+  body?: string;
+  document_content?: DocumentContent;
+  template_fields?: Record<string, string>;
+  confidentiality_level_id?: EntityId;
+  priority_level_id?: EntityId;
+  change_reason?: string | null;
 };

@@ -14,6 +14,7 @@ type AppNavItem = {
 const appNavItems: AppNavItem[] = [
   { icon: "dashboard", label: "Work", to: "/app/work" },
   { icon: "document", label: "Documents", to: "/app/documents" },
+  { icon: "userPlus", label: "Walk-in Issuance", to: "/app/walk-in-issuance" },
   { icon: "signature", label: "Signature", to: "/app/signature-profile" }
 ];
 

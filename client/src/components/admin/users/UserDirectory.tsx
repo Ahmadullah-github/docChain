@@ -29,7 +29,7 @@ function setupTone(status: UserSetupStatus) {
   }
 }
 
-export function UserDirectory({ onAssignUser, onEditUser, onOpenUserActions, onSelectUser, onViewUser, rows, selectedUserId, units }: UserDirectoryProps) {
+export function UserDirectory({ onAssignUser, onEditUser, onOpenUserActions, onSelectUser, rows, selectedUserId, units }: UserDirectoryProps) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -183,8 +183,7 @@ export function UserDirectory({ onAssignUser, onEditUser, onOpenUserActions, onS
               key: "actions",
               header: t("admin.users.directory.columns.actions"),
               cell: (row) => (
-                <div className="flex items-center justify-end gap-1">
-                  <IconButton className="h-8 w-8 border-transparent" icon="view" label={t("admin.users.directory.view")} onClick={() => onViewUser(row)} />
+                <div className="flex items-center justify-center gap-1">
                   <IconButton className="h-8 w-8 border-transparent" icon="edit" label={t("admin.users.directory.edit")} onClick={() => onEditUser(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="users" label={t("admin.users.directory.assign")} onClick={() => onAssignUser(row)} />
                   <IconButton className="h-8 w-8 border-transparent" icon="more" label={t("admin.users.directory.more")} onClick={() => onOpenUserActions(row)} />

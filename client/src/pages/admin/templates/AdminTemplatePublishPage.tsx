@@ -1,14 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { adminApi, templateApi } from "../../../api";
-import type { DocumentTemplateBinding, DocumentTemplateDetail, DocumentType, TemplateLayout, TemplateLocale, TemplateVariant } from "../../../api";
+import { adminApi, documentApi, templateApi } from "../../../api";
+import type {
+  DocumentTemplateBinding,
+  DocumentTemplateDetail,
+  DocumentType,
+  EntityId,
+  TemplateLayout,
+  TemplateLocale,
+  TemplateVariant
+} from "../../../api";
 import { useAuth } from "../../../app/AuthContext";
-import { Button, PanelCard, SelectFilter, StatusBadge } from "../../../components/ui";
+import {
+  headerTemplateField,
+  scenarioValues,
+  templateFieldPrefix,
+  type PreviewScenario
+} from "../../../components/admin/templates/builder";
+import { Button, Icon, PanelCard, SelectFilter, StatusBadge } from "../../../components/ui";
+import type { IconName } from "../../../components/ui";
 import { cx } from "../../../lib/classNames";
-import type { PreviewScenario } from "../../../components/admin/templates/builder";
-import { PreviewPanel, TemplateA4Preview } from "./TemplatePreview";
+import { previewHtmlForFrame } from "../../../lib/previewFrame";
 import { activeLayout, documentTypeIdFromLayout, latestEditableVersion, locales, safe, variants } from "./templateBuilderModel";
-import { isWordTemplateLayout, wordTemplateZones } from "./wordTemplateModel";
+import { wordTemplateZones } from "./wordTemplateModel";
+
+type PreviewMode = "sample" | "document";
+type NoticeTone = "blue" | "green" | "red";
+
+type RenderNotice = {
+  tone: NoticeTone;
+  text: string;
+};
+
+type LastPdfRender = {
+  byteSize?: number;
+  generatedAt: string;
+  renderId: EntityId;
+  reused?: boolean;
+  storagePath?: string;
+};
 
 const scenarioOptions: Array<{ label: string; value: PreviewScenario }> = [
   { label: "Standard", value: "standard" },
@@ -17,70 +47,11 @@ const scenarioOptions: Array<{ label: string; value: PreviewScenario }> = [
   { label: "With copies", value: "withCc" }
 ];
 
-const previewShellCss = `
-<style>
-@media screen {
-  html { background: #e5e7eb; }
-  body {
-    min-width: 100%;
-    margin: 0;
-    padding: 24px;
-    box-sizing: border-box;
-    background: #e5e7eb !important;
-    direction: ltr;
-  }
-  .dc-word-page,
-  .dc-page {
-    margin-inline: auto;
-    box-shadow: 0 18px 50px rgba(15, 23, 42, .18);
-  }
-  html[dir="rtl"] .dc-word-page,
-  html[dir="rtl"] .dc-page {
-    direction: rtl;
-  }
-  html[dir="ltr"] .dc-word-page,
-  html[dir="ltr"] .dc-page {
-    direction: ltr;
-  }
-  .dc-page:not(:last-child) {
-    margin-bottom: 24px;
-  }
-}
-@media screen and (max-width: 900px) {
-  body { padding: 16px; }
-}
-@media screen and (max-width: 1100px) {
-  body { padding: 12px; }
-}
-@media screen and (max-width: 700px) {
-  body {
-    --dc-preview-scale: min(1, calc((100vw - 24px) / 794px));
-    overflow-x: hidden;
-  }
-  .dc-word-page,
-  .dc-page {
-    margin-inline: 0;
-    transform: scale(var(--dc-preview-scale));
-    transform-origin: top left;
-  }
-  .dc-word-page {
-    margin-bottom: calc((297mm * var(--dc-preview-scale)) - 297mm + 16px);
-  }
-  .dc-page:not(:last-child) {
-    margin-bottom: calc((297mm * var(--dc-preview-scale)) - 297mm + 24px);
-  }
-}
-</style>`;
-
-function previewHtmlForFrame(html: string) {
-  if (!html) {
-    return "";
-  }
-  if (html.includes("</head>")) {
-    return html.replace("</head>", `${previewShellCss}</head>`);
-  }
-  return `${previewShellCss}${html}`;
-}
+const noticeToneClasses: Record<NoticeTone, string> = {
+  blue: "border-blue-200 bg-blue-50 text-blue-700",
+  green: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  red: "border-red-200 bg-red-50 text-red-700"
+};
 
 function displayStatus(status = "") {
   return status.replaceAll("_", " ");
@@ -113,6 +84,56 @@ function targetDocumentTypeName(documentTypeId: string, documentTypes: DocumentT
   return documentTypes.find((type) => String(type.id) === documentTypeId)?.name || `Document type #${documentTypeId}`;
 }
 
+function scenarioDataFor(scenario: PreviewScenario) {
+  return scenarioValues[scenario] || scenarioValues.standard;
+}
+
+function sampleSubjectForScenario(scenario: PreviewScenario) {
+  return (scenarioDataFor(scenario)["document.subject"] || "موضوع نمونه قالب رسمی").replace(/^موضوع:\s*/u, "");
+}
+
+function sampleBodyForScenario(scenario: PreviewScenario) {
+  return scenarioDataFor(scenario)["document.body"] || "این متن نمونه برای پیش نمایش قالب رسمی سند است. متن اصلی سند در زمان ایجاد توسط کاربر کارمند جایگزین می شود.";
+}
+
+function sampleTemplateFields(layout: TemplateLayout, scenario: PreviewScenario) {
+  const data = scenarioDataFor(scenario);
+  const fields: Record<string, string> = {};
+  const headerUnit = data[headerTemplateField];
+  if (headerUnit) {
+    fields[headerTemplateField.slice(templateFieldPrefix.length)] = headerUnit;
+  }
+
+  for (const zone of wordTemplateZones(layout)) {
+    if (zone.key === "subject" || zone.key === "body") {
+      continue;
+    }
+    fields[zone.key] = data[`${templateFieldPrefix}${zone.key}`]
+      || data[zone.key]
+      || zone.placeholder
+      || zone.label
+      || zone.key;
+  }
+
+  return fields;
+}
+
+function positiveId(value: string) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : 0;
+}
+
+function fileSizeLabel(value: unknown) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) {
+    return "";
+  }
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
 function ScenarioSelect({
   className = "",
   onChange,
@@ -129,18 +150,59 @@ function ScenarioSelect({
   );
 }
 
-function sampleBodyForScenario(scenario: PreviewScenario) {
-  if (scenario === "longBody") {
-    return [
-      "این متن نمونه برای بررسی قالب رسمی سند است. کاربر نهایی فقط بخش های قابل ویرایش را تکمیل می کند و چوکات رسمی سند ثابت باقی می ماند.",
-      "در این حالت متن طولانی تر استفاده شده است تا فاصله ها، جدول ها، سرصفحه، امضا و جایگاه محتوای اصلی در پیش نمایش بررسی شود.",
-      "سیستم باید برای اسناد دانشگاهی مانند مکتوب، پیشنهاد، راپور و سایر انواع اسناد رسمی قابل استفاده باشد."
-    ].join("\n\n");
-  }
-  return "این متن نمونه برای پیش نمایش قالب رسمی سند است. متن اصلی سند در زمان ایجاد توسط کاربر کارمند جایگزین می شود.";
+function NoticeBox({ notice }: { notice: RenderNotice }) {
+  return (
+    <div className={cx("rounded-lg border px-3 py-2 text-sm font-semibold", noticeToneClasses[notice.tone])}>
+      {notice.text}
+    </div>
+  );
 }
 
-function WordServerPreview({
+function EmptyPreview({
+  action,
+  children,
+  className,
+  icon = "view"
+}: {
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  icon?: IconName;
+}) {
+  return (
+    <div className={cx("grid min-h-[32rem] place-items-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center", className)}>
+      <div className="max-w-sm">
+        <span className="mx-auto grid h-12 w-12 place-items-center rounded-lg bg-white text-[#061d49] shadow-sm ring-1 ring-slate-200">
+          <Icon className="h-6 w-6" name={icon} />
+        </span>
+        <div className="mt-3 text-sm leading-6 text-slate-600">{children}</div>
+        {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+function PreviewState({
+  children,
+  className,
+  tone = "slate"
+}: {
+  children: React.ReactNode;
+  className?: string;
+  tone?: "red" | "slate";
+}) {
+  return (
+    <div className={cx(
+      "grid place-items-center rounded-md border p-6 text-sm font-semibold",
+      tone === "red" ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-600",
+      className
+    )}>
+      {children}
+    </div>
+  );
+}
+
+function SampleServerPreview({
   className = "",
   layout,
   scenario,
@@ -149,23 +211,19 @@ function WordServerPreview({
   className?: string;
   layout: TemplateLayout;
   scenario: PreviewScenario;
-  variant?: "embedded" | "fullscreen" | "compact";
+  variant?: "embedded" | "fullscreen";
 }) {
   const [html, setHtml] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const documentTypeId = documentTypeIdFromLayout(layout);
-  const minHeightClass = variant === "fullscreen" ? "min-h-[calc(100vh-7rem)]" : variant === "compact" ? "min-h-[30rem]" : "min-h-[42rem]";
+  const templateFields = useMemo(() => sampleTemplateFields(layout, scenario), [layout, scenario]);
   const iframeClassName = variant === "fullscreen"
     ? "h-full min-h-[calc(100vh-7rem)] w-full border-0 bg-slate-200"
-    : variant === "compact"
-      ? "h-[32rem] w-full rounded-md border border-slate-200 bg-white"
-      : "h-full min-h-[42rem] w-full rounded-md border border-slate-200 bg-white";
-  const templateFields = useMemo(() => Object.fromEntries(
-    wordTemplateZones(layout)
-      .filter((zone) => !["subject", "body"].includes(zone.key))
-      .map((zone) => [zone.key, zone.kind === "recipient" ? "اداره محترم مربوط" : zone.placeholder || zone.label])
-  ), [layout]);
+    : "h-full min-h-[42rem] w-full rounded-md border border-slate-200 bg-white";
+  const stateClassName = variant === "fullscreen"
+    ? "h-full min-h-[calc(100vh-7rem)]"
+    : "min-h-[42rem]";
 
   useEffect(() => {
     let alive = true;
@@ -177,8 +235,8 @@ function WordServerPreview({
       document_type_id: documentTypeId,
       layout_definition: layout,
       locale: "all",
-      subject: "موضوع نمونه قالب رسمی",
-      summary: null,
+      subject: sampleSubjectForScenario(scenario),
+      summary: scenarioDataFor(scenario)["document.summary"] || null,
       template_fields: templateFields,
       variant: "official"
     })
@@ -203,21 +261,389 @@ function WordServerPreview({
   }, [documentTypeId, layout, scenario, templateFields]);
 
   if (error) {
-    return <div className={cx("grid place-items-center rounded-md border border-red-200 bg-red-50 p-6 text-sm font-semibold text-red-700", minHeightClass, className)}>{error}</div>;
+    return <PreviewState className={cx(stateClassName, className)} tone="red">{error}</PreviewState>;
   }
   if (loading && !html) {
-    return <div className={cx("grid place-items-center rounded-md border border-slate-200 bg-slate-50 p-6 text-sm font-semibold text-slate-600", minHeightClass, className)}>Rendering preview...</div>;
+    return <PreviewState className={cx(stateClassName, className)}>Rendering sample preview...</PreviewState>;
   }
-  return <iframe className={cx(iframeClassName, className)} srcDoc={previewHtmlForFrame(html)} title="Word template preview" />;
+  return <iframe className={cx(iframeClassName, className)} srcDoc={previewHtmlForFrame(html)} title="Sample template preview" />;
+}
+
+function HtmlPreviewFrame({
+  className = "",
+  html,
+  title
+}: {
+  className?: string;
+  html: string;
+  title: string;
+}) {
+  return <iframe className={cx("h-full min-h-[42rem] w-full rounded-md border border-slate-200 bg-white", className)} srcDoc={previewHtmlForFrame(html)} title={title} />;
+}
+
+function PreviewModeSegment({
+  disabled,
+  onChange,
+  value
+}: {
+  disabled?: boolean;
+  onChange: (mode: PreviewMode) => void;
+  value: PreviewMode;
+}) {
+  const modes: Array<{ label: string; value: PreviewMode }> = [
+    { label: "Sample", value: "sample" },
+    { label: "Real document", value: "document" }
+  ];
+
+  return (
+    <div className="grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+      {modes.map((mode) => (
+        <button
+          aria-pressed={value === mode.value}
+          className={cx(
+            "min-h-9 rounded-md px-3 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#061d49]/15 disabled:cursor-not-allowed disabled:opacity-60",
+            value === mode.value ? "bg-[#061d49] text-white shadow-sm" : "text-slate-600 hover:bg-white"
+          )}
+          disabled={disabled}
+          key={mode.value}
+          onClick={() => onChange(mode.value)}
+          type="button"
+        >
+          {mode.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PublishHeader({
+  busy,
+  detail,
+  onBackToBuilder,
+  version
+}: {
+  busy: boolean;
+  detail: DocumentTemplateDetail;
+  onBackToBuilder: () => void;
+  version: ReturnType<typeof latestEditableVersion>;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm shadow-slate-900/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge>{detail.template.status || "unknown"}</StatusBadge>
+            {version ? <span className="text-xs font-bold text-slate-500">v{version.version_number} {displayStatus(version.status)}</span> : null}
+          </div>
+          <h1 className="mt-2 text-2xl font-black text-slate-950">{detail.template.name}</h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{detail.template.description || "Reusable official document template."}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button disabled={busy} icon="edit" onClick={onBackToBuilder}>Back to Builder</Button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PublishTargetPanel({
+  activeDocumentTypes,
+  bindingLocale,
+  bindingTypeId,
+  bindingVariant,
+  busy,
+  canApprove,
+  canRunPublishAction,
+  detail,
+  onChangeLocale,
+  onChangeTypeId,
+  onChangeVariant,
+  onPublish,
+  onReject,
+  publishButtonLabel,
+  publishSummary,
+  selectedTargetBindingCount,
+  submittedVersion
+}: {
+  activeDocumentTypes: DocumentType[];
+  bindingLocale: TemplateLocale;
+  bindingTypeId: string;
+  bindingVariant: TemplateVariant;
+  busy: boolean;
+  canApprove: boolean;
+  canRunPublishAction: boolean;
+  detail: DocumentTemplateDetail;
+  onChangeLocale: (locale: TemplateLocale) => void;
+  onChangeTypeId: (documentTypeId: string) => void;
+  onChangeVariant: (variant: TemplateVariant) => void;
+  onPublish: () => void;
+  onReject: () => void;
+  publishButtonLabel: string;
+  publishSummary: string;
+  selectedTargetBindingCount: number;
+  submittedVersion: DocumentTemplateDetail["versions"][number] | null;
+}) {
+  return (
+    <PanelCard
+      actions={<StatusBadge tone={detail.template.status === "published" ? "green" : "blue"}>{detail.template.status === "published" ? "published" : "review"}</StatusBadge>}
+      title="Publish & Bind"
+    >
+      <div className="space-y-4">
+        {canApprove ? (
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-blue-800">Version {submittedVersion?.version_number} is waiting for admin review.</p>
+              <Button className="min-h-8 px-2.5 py-1 text-xs" disabled={busy} icon="x" onClick={onReject} variant="danger">Reject</Button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="space-y-3">
+          <label className="block text-xs font-bold text-slate-600">
+            Document type
+            <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => onChangeTypeId(event.target.value)} value={bindingTypeId}>
+              <option value="all">All document types</option>
+              {activeDocumentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+            </SelectFilter>
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-xs font-bold text-slate-600">
+              Language
+              <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => onChangeLocale(event.target.value as TemplateLocale)} value={bindingLocale}>
+                {locales.map((locale) => <option key={locale} value={locale}>{localeLabel(locale)}</option>)}
+              </SelectFilter>
+            </label>
+            <label className="block text-xs font-bold text-slate-600">
+              Variant
+              <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => onChangeVariant(event.target.value as TemplateVariant)} value={bindingVariant}>
+                {variants.map((variant) => <option key={variant} value={variant}>{variantLabel(variant)}</option>)}
+              </SelectFilter>
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+          <p className="text-sm font-black text-slate-950">{publishSummary}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            {selectedTargetBindingCount ? `${selectedTargetBindingCount} active binding already matches this target.` : "No active binding matches this target yet."}
+          </p>
+        </div>
+
+        <Button className="min-h-12 w-full" disabled={busy || !canRunPublishAction} icon="shield" onClick={onPublish} variant="primary">
+          {busy ? "Working..." : publishButtonLabel}
+        </Button>
+      </div>
+    </PanelCard>
+  );
+}
+
+function SubmitForApprovalPanel({
+  busy,
+  canSubmit,
+  detail,
+  onSubmit,
+  version
+}: {
+  busy: boolean;
+  canSubmit: boolean;
+  detail: DocumentTemplateDetail;
+  onSubmit: () => void;
+  version: ReturnType<typeof latestEditableVersion>;
+}) {
+  return (
+    <PanelCard actions={<StatusBadge>{detail.template.status}</StatusBadge>} title="Submit for Approval">
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-slate-600">{version ? `Version ${version.version_number} / ${displayStatus(version.status)}` : "No editable version available."}</p>
+        <Button className="min-h-12 w-full" disabled={busy || !canSubmit} icon="upload" onClick={onSubmit} variant="primary">
+          {detail.template.status === "submitted" ? "Submitted for Review" : "Submit for Approval"}
+        </Button>
+      </div>
+    </PanelCard>
+  );
+}
+
+function RenderCheckPanel({
+  lastPdfRender,
+  mode,
+  notice,
+  onChangeDocumentId,
+  onChangeLocale,
+  onChangeMode,
+  onChangeVariant,
+  onDownloadPdf,
+  onOpenPdf,
+  onRenderHtml,
+  onRenderPdf,
+  renderBusy,
+  renderDocumentId,
+  renderLocale,
+  renderVariant
+}: {
+  lastPdfRender: LastPdfRender | null;
+  mode: PreviewMode;
+  notice: RenderNotice | null;
+  onChangeDocumentId: (value: string) => void;
+  onChangeLocale: (locale: TemplateLocale) => void;
+  onChangeMode: (mode: PreviewMode) => void;
+  onChangeVariant: (variant: TemplateVariant) => void;
+  onDownloadPdf: () => void;
+  onOpenPdf: () => void;
+  onRenderHtml: () => void;
+  onRenderPdf: () => void;
+  renderBusy: boolean;
+  renderDocumentId: string;
+  renderLocale: TemplateLocale;
+  renderVariant: TemplateVariant;
+}) {
+  return (
+    <PanelCard title="Render Check">
+      <div className="space-y-4">
+        <PreviewModeSegment disabled={renderBusy} onChange={onChangeMode} value={mode} />
+
+        {mode === "sample" ? (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-600">
+            Sample data is active.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-slate-600">
+              Document ID
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
+                inputMode="numeric"
+                onChange={(event) => onChangeDocumentId(event.target.value)}
+                placeholder="Enter document ID"
+                value={renderDocumentId}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs font-bold text-slate-600">
+                Language
+                <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => onChangeLocale(event.target.value as TemplateLocale)} value={renderLocale}>
+                  {locales.map((locale) => <option key={locale} value={locale}>{localeLabel(locale)}</option>)}
+                </SelectFilter>
+              </label>
+              <label className="block text-xs font-bold text-slate-600">
+                Variant
+                <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => onChangeVariant(event.target.value as TemplateVariant)} value={renderVariant}>
+                  {variants.map((variant) => <option key={variant} value={variant}>{variantLabel(variant)}</option>)}
+                </SelectFilter>
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button disabled={renderBusy} icon="view" onClick={onRenderHtml}>HTML Preview</Button>
+              <Button disabled={renderBusy} icon="export" onClick={onRenderPdf} variant="primary">{renderBusy ? "Rendering..." : "PDF"}</Button>
+            </div>
+          </div>
+        )}
+
+        {notice ? <NoticeBox notice={notice} /> : null}
+
+        {lastPdfRender ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3">
+            <p className="text-sm font-black text-emerald-800">PDF render #{lastPdfRender.renderId} is ready.</p>
+            <p className="mt-1 text-xs font-semibold text-emerald-700">
+              {[lastPdfRender.reused ? "Reused existing render" : "Generated now", fileSizeLabel(lastPdfRender.byteSize), lastPdfRender.generatedAt].filter(Boolean).join(" / ")}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="view" onClick={onOpenPdf}>Open PDF</Button>
+              <Button className="min-h-9 px-3 py-1.5 text-xs" icon="export" onClick={onDownloadPdf}>Download</Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </PanelCard>
+  );
+}
+
+function BindingsSummaryPanel({
+  bindings
+}: {
+  bindings: DocumentTemplateBinding[];
+}) {
+  return (
+    <PanelCard actions={<StatusBadge tone="blue">{String(bindings.length)}</StatusBadge>} title="Template Bindings">
+      {bindings.length ? (
+        <div className="space-y-2">
+          {bindings.slice(0, 4).map((binding) => (
+            <div className="rounded-md border border-slate-200 bg-white px-3 py-2" key={binding.id}>
+              <p className="truncate text-sm font-bold text-slate-950">{binding.documentTypeName || "All document types"}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-500">{localeLabel(binding.locale)} / {variantLabel(binding.variant)} / v{binding.templateVersionNumber || binding.template_version_id}</p>
+            </div>
+          ))}
+          {bindings.length > 4 ? <p className="text-xs font-semibold text-slate-500">{bindings.length - 4} more active bindings.</p> : null}
+        </div>
+      ) : (
+        <p className="text-sm leading-6 text-slate-600">This template has no active bindings yet.</p>
+      )}
+    </PanelCard>
+  );
+}
+
+function PreviewWorkspace({
+  documentHtml,
+  lastPdfRender,
+  mode,
+  onOpenPdf,
+  onReview,
+  scenario,
+  setScenario,
+  layout
+}: {
+  documentHtml: string;
+  lastPdfRender: LastPdfRender | null;
+  layout: TemplateLayout;
+  mode: PreviewMode;
+  onOpenPdf: () => void;
+  onReview: () => void;
+  scenario: PreviewScenario;
+  setScenario: (scenario: PreviewScenario) => void;
+}) {
+  const title = mode === "sample" ? "Sample Preview" : "Real Document Preview";
+
+  return (
+    <PanelCard
+      actions={(
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === "sample" ? (
+            <ScenarioSelect className="h-9 w-40 rounded-md text-sm" onChange={setScenario} value={scenario} />
+          ) : (
+            <StatusBadge tone={documentHtml ? "green" : lastPdfRender ? "blue" : "slate"}>{documentHtml ? "html ready" : lastPdfRender ? "pdf ready" : "waiting"}</StatusBadge>
+          )}
+          <Button className="min-h-9 px-3 py-1.5 text-xs" icon="fullscreen" onClick={onReview}>Review</Button>
+        </div>
+      )}
+      bodyClassName="flex min-h-0 flex-1 bg-slate-100 p-2 sm:p-3"
+      className="flex min-h-[38rem] flex-col xl:sticky xl:top-24 xl:h-[calc(100vh-7rem)]"
+      headerClassName="flex-wrap"
+      title={title}
+    >
+      {mode === "sample" ? (
+        <SampleServerPreview className="flex-1" layout={layout} scenario={scenario} />
+      ) : documentHtml ? (
+        <HtmlPreviewFrame className="flex-1" html={documentHtml} title="Real document template preview" />
+      ) : (
+        <EmptyPreview
+          action={lastPdfRender ? <Button icon="view" onClick={onOpenPdf} variant="primary">Open PDF</Button> : undefined}
+          className="flex-1"
+          icon={lastPdfRender ? "export" : "document"}
+        >
+          {lastPdfRender ? "PDF render is ready." : "No real document preview yet."}
+        </EmptyPreview>
+      )}
+    </PanelCard>
+  );
 }
 
 function FullScreenReview({
   busy,
-  canApprove,
+  canPublish,
   layout,
-  onApprove,
   onBackToBuilder,
   onClose,
+  onPublish,
+  publishButtonLabel,
   publishSummary,
   scenario,
   setScenario,
@@ -225,11 +651,12 @@ function FullScreenReview({
   templateName
 }: {
   busy: boolean;
-  canApprove: boolean;
+  canPublish: boolean;
   layout: ReturnType<typeof activeLayout>;
-  onApprove: () => void;
   onBackToBuilder: () => void;
   onClose: () => void;
+  onPublish: () => void;
+  publishButtonLabel: string;
   publishSummary: string;
   scenario: PreviewScenario;
   setScenario: (scenario: PreviewScenario) => void;
@@ -260,18 +687,14 @@ function FullScreenReview({
         <div className="flex flex-wrap items-center justify-end gap-2">
           <ScenarioSelect className="h-9 w-40 rounded-md border-white/20 bg-white py-1 text-xs text-slate-900" onChange={setScenario} value={scenario} />
           <Button className="border-white/20 bg-white/10 text-white hover:bg-white/15" icon="edit" onClick={onBackToBuilder}>Edit</Button>
-          <Button className="border-white bg-white text-[#061d49] hover:bg-slate-100" disabled={busy || !canApprove} icon="shield" onClick={onApprove}>{busy ? "Working..." : "Approve & Publish"}</Button>
+          <Button className="border-white bg-white text-[#061d49] hover:bg-slate-100" disabled={busy || !canPublish} icon="shield" onClick={onPublish}>
+            {busy ? "Working..." : publishButtonLabel}
+          </Button>
           <Button className="border-white/20 bg-white/10 text-white hover:bg-white/15" icon="x" onClick={onClose}>Close</Button>
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-hidden bg-slate-900">
-        {isWordTemplateLayout(layout) ? (
-          <WordServerPreview className="h-full" layout={layout} scenario={scenario} variant="fullscreen" />
-        ) : (
-          <div className="h-full overflow-auto p-4">
-            <TemplateA4Preview layout={layout} scenario={scenario} selectedBlockId={null} zoom={1.08} />
-          </div>
-        )}
+        <SampleServerPreview className="h-full" layout={layout} scenario={scenario} variant="fullscreen" />
       </div>
     </div>
   );
@@ -288,13 +711,15 @@ export function AdminTemplatePublishPage() {
   const [bindingTypeId, setBindingTypeId] = useState("all");
   const [bindingLocale, setBindingLocale] = useState<TemplateLocale>("all");
   const [bindingVariant, setBindingVariant] = useState<TemplateVariant>("official");
+  const [previewMode, setPreviewMode] = useState<PreviewMode>("sample");
   const [renderDocumentId, setRenderDocumentId] = useState("");
   const [renderLocale, setRenderLocale] = useState<TemplateLocale>("all");
   const [renderVariant, setRenderVariant] = useState<TemplateVariant>("official");
-  const [renderResult, setRenderResult] = useState("");
-  const [htmlPreview, setHtmlPreview] = useState("");
+  const [documentHtmlPreview, setDocumentHtmlPreview] = useState("");
+  const [lastPdfRender, setLastPdfRender] = useState<LastPdfRender | null>(null);
+  const [renderNotice, setRenderNotice] = useState<RenderNotice | null>(null);
+  const [renderBusy, setRenderBusy] = useState(false);
   const [scenario, setScenario] = useState<PreviewScenario>("standard");
-  const [zoom, setZoom] = useState(0.9);
   const [reviewOpen, setReviewOpen] = useState(searchParams.get("review") === "1");
   const [bindingInitialized, setBindingInitialized] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -315,6 +740,9 @@ export function AdminTemplatePublishPage() {
     setDetail(nextDetail);
     setDocumentTypes(docs);
     setBindings(bindingRows);
+    if (!nextDetail) {
+      setError("Could not load template.");
+    }
   }
 
   useEffect(() => {
@@ -327,12 +755,17 @@ export function AdminTemplatePublishPage() {
 
   useEffect(() => {
     setBindingInitialized(false);
+    setPreviewMode("sample");
+    setDocumentHtmlPreview("");
+    setLastPdfRender(null);
+    setRenderNotice(null);
   }, [templateId]);
 
   useEffect(() => {
-    setHtmlPreview("");
-    setRenderResult("");
-  }, [renderDocumentId, renderLocale, renderVariant, templateId]);
+    setDocumentHtmlPreview("");
+    setLastPdfRender(null);
+    setRenderNotice(null);
+  }, [renderDocumentId, renderLocale, renderVariant]);
 
   const layout = activeLayout(detail);
   const version = latestEditableVersion(detail);
@@ -453,15 +886,15 @@ export function AdminTemplatePublishPage() {
   }
 
   async function renderDocument(output: "html" | "pdf") {
-    const documentId = Number(renderDocumentId);
+    const documentId = positiveId(renderDocumentId);
+    setPreviewMode("document");
     if (!documentId) {
-      setError("Enter a document id to render.");
+      setRenderNotice({ tone: "red", text: "Enter a document ID before rendering a real document." });
       return;
     }
 
-    setBusy(true);
-    setError(null);
-    setRenderResult("");
+    setRenderBusy(true);
+    setRenderNotice(null);
     try {
       const result = await templateApi.render(documentId, {
         layout_definition: layout,
@@ -469,16 +902,45 @@ export function AdminTemplatePublishPage() {
         variant: renderVariant,
         output
       });
-      if (result.html) {
-        setHtmlPreview(result.html);
-        setRenderResult("HTML preview generated.");
-      } else {
-        setRenderResult(`PDF render #${result.renderId} stored at ${result.storagePath}.`);
+      if (output === "html") {
+        if (!result.html) {
+          setDocumentHtmlPreview("");
+          setRenderNotice({ tone: "red", text: "The render completed, but no HTML preview was returned." });
+          return;
+        }
+        setDocumentHtmlPreview(result.html);
+        setRenderNotice({ tone: "blue", text: `HTML preview generated for document #${documentId}.` });
+        return;
       }
+
+      if (!result.renderId) {
+        setRenderNotice({ tone: "red", text: "The PDF render completed, but no render file was returned." });
+        return;
+      }
+      setLastPdfRender({
+        byteSize: result.byteSize,
+        generatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        renderId: result.renderId,
+        reused: result.reused,
+        storagePath: result.storagePath
+      });
+      setRenderNotice({ tone: "green", text: result.reused ? `Existing PDF render #${result.renderId} is ready.` : `PDF render #${result.renderId} generated.` });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not render document.");
+      setRenderNotice({ tone: "red", text: caught instanceof Error ? caught.message : "Could not render document." });
     } finally {
-      setBusy(false);
+      setRenderBusy(false);
+    }
+  }
+
+  function openPdfRender() {
+    if (lastPdfRender) {
+      window.open(documentApi.renderFileUrl(lastPdfRender.renderId), "_blank", "noreferrer");
+    }
+  }
+
+  function downloadPdfRender() {
+    if (lastPdfRender) {
+      window.open(documentApi.renderFileUrl(lastPdfRender.renderId, { download: true }), "_blank", "noreferrer");
     }
   }
 
@@ -500,20 +962,28 @@ export function AdminTemplatePublishPage() {
     return <PanelCard title="Publish Template"><p className="text-sm text-slate-600">Loading template...</p></PanelCard>;
   }
 
+  if (!detail) {
+    return (
+      <PanelCard title="Publish Template">
+        <p className="text-sm font-semibold text-red-700">{error || "Could not load template."}</p>
+      </PanelCard>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-      {renderResult ? <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">{renderResult}</div> : null}
       {actionMessage ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{actionMessage}</div> : null}
 
-      {reviewOpen && detail ? (
+      {reviewOpen ? (
         <FullScreenReview
           busy={busy}
-          canApprove={canRunPublishAction}
+          canPublish={canRunPublishAction}
           layout={layout}
-          onApprove={() => void approvePublishAndBind()}
           onBackToBuilder={() => navigate(`/admin/templates/builder/${detail.template.id}`)}
           onClose={closeReview}
+          onPublish={() => void approvePublishAndBind()}
+          publishButtonLabel={publishButtonLabel}
           publishSummary={publishSummary}
           scenario={scenario}
           setScenario={setScenario}
@@ -522,165 +992,77 @@ export function AdminTemplatePublishPage() {
         />
       ) : null}
 
-      <section className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm shadow-slate-900/5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge>{detail?.template.status || "unknown"}</StatusBadge>
-              {version ? <span className="text-xs font-bold text-slate-500">v{version.version_number} {displayStatus(version.status)}</span> : null}
-            </div>
-            <h1 className="mt-2 text-2xl font-black text-slate-950">{detail?.template.name}</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">{detail?.template.description || "No description."}</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button disabled={busy || !detail} icon="edit" onClick={() => navigate(`/admin/templates/builder/${detail!.template.id}`)}>Back to Builder</Button>
-            <Button disabled={!detail} icon="fullscreen" onClick={openReview}>Fullscreen Review</Button>
-          </div>
-        </div>
-      </section>
+      <PublishHeader
+        busy={busy}
+        detail={detail}
+        onBackToBuilder={() => navigate(`/admin/templates/builder/${detail.template.id}`)}
+        version={version}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(19rem,21rem)_minmax(0,1fr)]">
         <aside className="min-w-0 space-y-4">
           {auth.isAdmin ? (
-            <PanelCard
-              title="Publish Target"
-              actions={<StatusBadge tone={detail?.template.status === "published" ? "green" : "blue"}>{detail?.template.status === "published" ? "published" : "review"}</StatusBadge>}
-            >
-              <div className="space-y-4">
-                {canApprove ? (
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold text-blue-800">Version {submittedVersion?.version_number} is waiting for admin review.</p>
-                      <Button className="min-h-8 px-2.5 py-1 text-xs" disabled={busy} icon="x" onClick={() => void handleReject()} variant="danger">Reject</Button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <label className="block text-xs font-bold text-slate-600">
-                  Document type
-                  <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => setBindingTypeId(event.target.value)} value={bindingTypeId}>
-                    <option value="all">All document types</option>
-                    {activeDocumentTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-                  </SelectFilter>
-                </label>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="block text-xs font-bold text-slate-600">
-                    Language
-                    <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => setBindingLocale(event.target.value as TemplateLocale)} value={bindingLocale}>
-                      {locales.map((locale) => <option key={locale} value={locale}>{localeLabel(locale)}</option>)}
-                    </SelectFilter>
-                  </label>
-                  <label className="block text-xs font-bold text-slate-600">
-                    Variant
-                    <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => setBindingVariant(event.target.value as TemplateVariant)} value={bindingVariant}>
-                      {variants.map((variant) => <option key={variant} value={variant}>{variantLabel(variant)}</option>)}
-                    </SelectFilter>
-                  </label>
-                </div>
-
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">Selected binding</p>
-                  <p className="mt-1 text-sm font-black text-slate-950">{publishSummary}</p>
-                  <p className="mt-1 text-xs font-semibold text-slate-500">
-                    {selectedTargetBindingCount ? `${selectedTargetBindingCount} active binding already matches this target.` : "No active binding matches this target yet."}
-                  </p>
-                </div>
-
-                <Button className="w-full" disabled={busy || !canRunPublishAction} icon="shield" onClick={() => void approvePublishAndBind()} variant="primary">
-                  {busy ? "Working..." : publishButtonLabel}
-                </Button>
-              </div>
-            </PanelCard>
+            <PublishTargetPanel
+              activeDocumentTypes={activeDocumentTypes}
+              bindingLocale={bindingLocale}
+              bindingTypeId={bindingTypeId}
+              bindingVariant={bindingVariant}
+              busy={busy}
+              canApprove={canApprove}
+              canRunPublishAction={canRunPublishAction}
+              detail={detail}
+              onChangeLocale={setBindingLocale}
+              onChangeTypeId={setBindingTypeId}
+              onChangeVariant={setBindingVariant}
+              onPublish={() => void approvePublishAndBind()}
+              onReject={() => void handleReject()}
+              publishButtonLabel={publishButtonLabel}
+              publishSummary={publishSummary}
+              selectedTargetBindingCount={selectedTargetBindingCount}
+              submittedVersion={submittedVersion}
+            />
           ) : (
-            <PanelCard title="Submit for Approval" actions={detail ? <StatusBadge>{detail.template.status}</StatusBadge> : null}>
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-slate-600">{version ? `Version ${version.version_number} / ${displayStatus(version.status)}` : "No editable version available."}</p>
-                <Button className="w-full" disabled={busy || !canSubmit} icon="upload" onClick={() => void handleSubmit()} variant="primary">
-                  {detail?.template.status === "submitted" ? "Submitted for Review" : "Submit for Approval"}
-                </Button>
-              </div>
-            </PanelCard>
-          )}
-
-          <PanelCard title="Test Render">
-            <div className="space-y-3">
-              <label className="block text-xs font-bold text-slate-600">
-                Document ID
-                <input className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" inputMode="numeric" onChange={(event) => setRenderDocumentId(event.target.value)} value={renderDocumentId} />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs font-bold text-slate-600">
-                  Language
-                  <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => setRenderLocale(event.target.value as TemplateLocale)} value={renderLocale}>
-                    {locales.map((locale) => <option key={locale} value={locale}>{localeLabel(locale)}</option>)}
-                  </SelectFilter>
-                </label>
-                <label className="block text-xs font-bold text-slate-600">
-                  Variant
-                  <SelectFilter className="mt-1 w-full rounded-md" onChange={(event) => setRenderVariant(event.target.value as TemplateVariant)} value={renderVariant}>
-                    {variants.map((variant) => <option key={variant} value={variant}>{variantLabel(variant)}</option>)}
-                  </SelectFilter>
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button disabled={busy} icon="view" onClick={() => void renderDocument("html")}>HTML Preview</Button>
-                <Button disabled={busy} icon="export" onClick={() => void renderDocument("pdf")} variant="primary">PDF</Button>
-              </div>
-            </div>
-          </PanelCard>
-
-          {auth.isAdmin ? (
-            <PanelCard title="Template Bindings" actions={<StatusBadge tone="blue">{String(activeBindingsForTemplate.length)}</StatusBadge>}>
-              {activeBindingsForTemplate.length ? (
-                <div className="space-y-2">
-                  {activeBindingsForTemplate.slice(0, 4).map((binding) => (
-                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2" key={binding.id}>
-                      <p className="truncate text-sm font-bold text-slate-950">{binding.documentTypeName || "All document types"}</p>
-                      <p className="mt-1 text-xs font-semibold text-slate-500">{localeLabel(binding.locale)} / {variantLabel(binding.variant)} / v{binding.templateVersionNumber || binding.template_version_id}</p>
-                    </div>
-                  ))}
-                  {activeBindingsForTemplate.length > 4 ? <p className="text-xs font-semibold text-slate-500">{activeBindingsForTemplate.length - 4} more active bindings.</p> : null}
-                </div>
-              ) : (
-                <p className="text-sm leading-6 text-slate-600">This template has no active bindings yet.</p>
-              )}
-            </PanelCard>
-          ) : null}
-        </aside>
-
-        <div className="min-w-0 space-y-4">
-          {isWordTemplateLayout(layout) ? (
-            <PanelCard
-              actions={(
-                <div className="flex flex-wrap items-center gap-2">
-                  <ScenarioSelect className="h-9 w-40 rounded-md text-sm" onChange={setScenario} value={scenario} />
-                  <Button className="min-h-9 px-3 py-1.5 text-xs" icon="fullscreen" onClick={openReview}>Review</Button>
-                </div>
-              )}
-              bodyClassName="flex min-h-0 flex-1 p-2"
-              className="flex min-h-[38rem] flex-col xl:sticky xl:top-24 xl:h-[calc(100vh-7rem)]"
-              headerClassName="flex-wrap"
-              title="Template Preview"
-            >
-              <WordServerPreview className="flex-1" layout={layout} scenario={scenario} />
-            </PanelCard>
-          ) : (
-            <PreviewPanel
-              layout={layout}
-              scenario={scenario}
-              setScenario={setScenario}
-              setZoom={setZoom}
-              title="Template Preview"
-              zoom={zoom}
+            <SubmitForApprovalPanel
+              busy={busy}
+              canSubmit={canSubmit}
+              detail={detail}
+              onSubmit={() => void handleSubmit()}
+              version={version}
             />
           )}
 
-          {htmlPreview ? (
-            <PanelCard title="Document Data Preview">
-              <iframe className="h-[32rem] w-full rounded-md border border-slate-200 bg-white" srcDoc={previewHtmlForFrame(htmlPreview)} title="Template HTML preview" />
-            </PanelCard>
-          ) : null}
+          <RenderCheckPanel
+            lastPdfRender={lastPdfRender}
+            mode={previewMode}
+            notice={renderNotice}
+            onChangeDocumentId={setRenderDocumentId}
+            onChangeLocale={setRenderLocale}
+            onChangeMode={setPreviewMode}
+            onChangeVariant={setRenderVariant}
+            onDownloadPdf={downloadPdfRender}
+            onOpenPdf={openPdfRender}
+            onRenderHtml={() => void renderDocument("html")}
+            onRenderPdf={() => void renderDocument("pdf")}
+            renderBusy={renderBusy}
+            renderDocumentId={renderDocumentId}
+            renderLocale={renderLocale}
+            renderVariant={renderVariant}
+          />
+
+          {auth.isAdmin ? <BindingsSummaryPanel bindings={activeBindingsForTemplate} /> : null}
+        </aside>
+
+        <div className="min-w-0">
+          <PreviewWorkspace
+            documentHtml={documentHtmlPreview}
+            lastPdfRender={lastPdfRender}
+            layout={layout}
+            mode={previewMode}
+            onOpenPdf={openPdfRender}
+            onReview={openReview}
+            scenario={scenario}
+            setScenario={setScenario}
+          />
         </div>
       </div>
     </div>

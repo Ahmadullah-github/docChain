@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { documentApi, savedSearchApi, templateApi, workspaceApi } from "../../api";
-import type { DocumentListItem, DocumentRegistryStats, DocumentScope, DocumentTemplate, JsonRecord, WorkspaceReference } from "../../api";
+import type { DocumentListItem, DocumentRegistryStats, DocumentScope, JsonRecord, WorkspaceReference } from "../../api";
+import { AdminModal } from "../../components/admin";
 import { Button, DataTable, Icon, PanelCard, SearchInput, SelectFilter, StatusBadge, Toolbar } from "../../components/ui";
 import type { IconName } from "../../components/ui";
 import { formatDateTime } from "./appPageUtils";
@@ -44,6 +45,10 @@ function formatDocumentDate(value?: string | null) {
   }
 
   return String(value).replace("T", " ").slice(0, 10);
+}
+
+function booleanFlag(value: unknown) {
+  return value === true || value === 1 || value === "1";
 }
 
 function optionLabel(value: string) {
@@ -122,7 +127,6 @@ export function DocumentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [reference, setReference] = useState<WorkspaceReference | null>(null);
   const [savedSearches, setSavedSearches] = useState<JsonRecord[]>([]);
-  const [publishedTemplates, setPublishedTemplates] = useState<DocumentTemplate[]>([]);
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [stats, setStats] = useState<DocumentRegistryStats | null>(null);
   const [query, setQuery] = useState(searchParams.get("q") || "");
@@ -130,6 +134,11 @@ export function DocumentsPage() {
   const [scope, setScope] = useState<DocumentScope>(() => parseScope(searchParams.get("scope")));
   const [documentTypeId, setDocumentTypeId] = useState(searchParams.get("document_type_id") || "");
   const [priorityId, setPriorityId] = useState(searchParams.get("priority_level_id") || "");
+  const [deleteDocument, setDeleteDocument] = useState<DocumentListItem | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [pdfBusyKey, setPdfBusyKey] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,17 +207,15 @@ export function DocumentsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [referenceResult, documentsResult, statsResult, templateResult, savedResult] = await Promise.all([
+      const [referenceResult, documentsResult, statsResult, savedResult] = await Promise.all([
         workspaceApi.reference(),
         documentApi.list(currentFilters),
         documentApi.stats(statsFilters),
-        templateApi.list("published").catch(() => []),
         savedSearchApi.list().catch(() => [])
       ]);
       setReference(referenceResult);
       setDocuments(documentsResult);
       setStats(statsResult);
-      setPublishedTemplates(templateResult);
       setSavedSearches(savedResult);
     } catch {
       setError("Could not load the document registry.");
@@ -259,6 +266,86 @@ export function DocumentsPage() {
     }
   }
 
+  async function openOfficialPdf(document: DocumentListItem, download: boolean) {
+    const busyKey = `${document.id}:${download ? "download" : "open"}`;
+    const pdfWindow = window.open("about:blank", "_blank");
+    if (pdfWindow) {
+      pdfWindow.opener = null;
+    }
+    setPdfBusyKey(busyKey);
+    setActionError(null);
+    try {
+      const rendered = await templateApi.render(document.id, {
+        locale: "all",
+        output: "pdf",
+        variant: "official"
+      });
+      if (!rendered.renderId) {
+        throw new Error("No official PDF render was created.");
+      }
+      const fileUrl = documentApi.renderFileUrl(rendered.renderId, { download });
+      if (pdfWindow) {
+        pdfWindow.location.replace(fileUrl);
+      } else {
+        window.open(fileUrl, "_blank", "noreferrer");
+      }
+    } catch (caught) {
+      pdfWindow?.close();
+      setActionError(caught instanceof Error ? caught.message : "Could not prepare the official PDF.");
+    } finally {
+      setPdfBusyKey(null);
+    }
+  }
+
+  async function confirmDeleteDocument() {
+    if (!deleteDocument) {
+      return;
+    }
+
+    setDeleteBusy(true);
+    setActionError(null);
+    try {
+      await documentApi.delete(deleteDocument.id);
+      setDocuments((current) => current.filter((document) => document.id !== deleteDocument.id));
+      setNotice(`Draft deleted: ${deleteDocument.subject}`);
+      setDeleteDocument(null);
+      await load();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Could not delete this draft.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  function renderDocumentActions(document: DocumentListItem) {
+    const draft = document.status === "draft";
+    const finalized = document.status === "finalized";
+    const openBusy = pdfBusyKey === `${document.id}:open`;
+    const downloadBusy = pdfBusyKey === `${document.id}:download`;
+
+    return (
+      <div className="flex min-w-0 flex-wrap justify-end gap-2">
+        <Button className="min-h-9 px-3" icon="view" onClick={() => navigate(`/app/documents/${document.id}`)}>View</Button>
+        {draft && booleanFlag(document.canEdit) ? (
+          <Button className="min-h-9 px-3" icon="edit" onClick={() => navigate(`/app/documents/${document.id}/edit`)} variant="primary">Edit</Button>
+        ) : null}
+        {draft && booleanFlag(document.canDelete) ? (
+          <Button className="min-h-9 px-3" icon="userX" onClick={() => setDeleteDocument(document)} variant="danger">Delete</Button>
+        ) : null}
+        {finalized && booleanFlag(document.canOpenPdf) ? (
+          <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="document" onClick={() => void openOfficialPdf(document, false)}>
+            {openBusy ? "Opening" : "Open PDF"}
+          </Button>
+        ) : null}
+        {finalized && booleanFlag(document.canDownloadPdf) ? (
+          <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="export" onClick={() => void openOfficialPdf(document, true)}>
+            {downloadBusy ? "Downloading" : "Download"}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -299,7 +386,7 @@ export function DocumentsPage() {
         })}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <section className="min-w-0">
         <PanelCard
           actions={<Button disabled={loading} icon="save" onClick={() => void saveSearch()} variant="secondary">Save search</Button>}
           bodyClassName="space-y-4"
@@ -356,39 +443,14 @@ export function DocumentsPage() {
           )}
         </PanelCard>
 
-        <PanelCard title="Start from template">
-          {publishedTemplates.length ? (
-            <div className="space-y-3">
-              <p className="text-sm leading-6 text-slate-600">Published templates are ready in the document creator.</p>
-              <div className="space-y-2">
-                {publishedTemplates.slice(0, 4).map((template) => (
-                  <div className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2" key={template.id}>
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-emerald-700">
-                      <Icon className="h-5 w-5" name="template" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-950">{template.name}</p>
-                      <p className="text-xs font-semibold text-emerald-700">Published template</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {publishedTemplates.length > 4 ? (
-                <p className="text-xs font-semibold text-slate-500">+{publishedTemplates.length - 4} more available</p>
-              ) : null}
-              <Link className="block" to="/app/documents/new">
-                <Button className="w-full" icon="template" variant="secondary">Open creator</Button>
-              </Link>
-            </div>
-          ) : (
-            <RegistryMessage
-              description="Templates published by administrators will appear here."
-              icon="template"
-              title="No templates published"
-            />
-          )}
-        </PanelCard>
       </section>
+
+      {notice ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{notice}</div>
+      ) : null}
+      {actionError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{actionError}</div>
+      ) : null}
 
       <PanelCard
         actions={<span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{loading ? "Loading" : `${formatCount(matchingCount)} matching`}</span>}
@@ -429,14 +491,15 @@ export function DocumentsPage() {
               },
               { key: "holder", header: "Holder", hideOnMobile: true, cell: (document) => <span className="block max-w-48 truncate">{document.currentHolderUnitName}</span>, className: "w-52" },
               { key: "status", header: "Status", cell: (document) => <StatusBadge>{document.status}</StatusBadge>, className: "w-40" },
-              { key: "updated", header: "Updated", hideOnMobile: true, cell: (document) => formatDateTime(document.updatedAt), className: "w-40" }
+              { key: "updated", header: "Updated", hideOnMobile: true, cell: (document) => formatDateTime(document.updatedAt), className: "w-40" },
+              { key: "actions", header: <span className="block text-right">Actions</span>, cell: renderDocumentActions, className: "w-[28rem]" }
             ]}
             emptyLabel="No documents match the current filters."
             getRowAriaLabel={(document) => document.subject}
             getRowKey={(document) => document.id}
             onRowClick={(document) => navigate(`/app/documents/${document.id}`)}
             rows={documents}
-            tableClassName="min-w-[72rem]"
+            tableClassName="min-w-[92rem]"
           />
         ) : hasActiveFilters ? (
           <RegistryMessage
@@ -458,6 +521,29 @@ export function DocumentsPage() {
           />
         )}
       </PanelCard>
+
+      <AdminModal
+        description="This removes the draft from the registry. Finalized documents cannot be deleted."
+        footer={(
+          <>
+            <Button disabled={deleteBusy} onClick={() => setDeleteDocument(null)}>Cancel</Button>
+            <Button disabled={deleteBusy} icon="userX" onClick={() => void confirmDeleteDocument()} variant="danger">
+              {deleteBusy ? "Deleting" : "Delete draft"}
+            </Button>
+          </>
+        )}
+        onClose={() => {
+          if (!deleteBusy) {
+            setDeleteDocument(null);
+          }
+        }}
+        open={Boolean(deleteDocument)}
+        title="Delete draft document"
+      >
+        <p className="text-sm leading-6 text-slate-700">
+          Delete <span className="font-bold text-slate-950">{deleteDocument?.subject}</span>? This action only applies to draft documents and will remove the draft from document search and registry views.
+        </p>
+      </AdminModal>
     </section>
   );
 }

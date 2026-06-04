@@ -1,13 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { adminApi } from "../../api";
 import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../api";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   buildPositionRows,
   PositionDirectory,
-  PositionHierarchyPreview,
-  PositionInspector,
-  PositionRegistry,
   PositionStats
 } from "../../components/admin/positions";
 import type { PositionAdminRow } from "../../components/admin/positions/types";
@@ -153,7 +150,6 @@ export function AdminPositionsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [positionForm, setPositionForm] = useState<PositionForm>(positionFormDefaults);
   const [assignmentForm, setAssignmentForm] = useState<HolderAssignmentForm>(() => assignmentFormFor(null, [], []));
-  const inspectorRef = useRef<HTMLDivElement | null>(null);
 
   const refreshPositions = useCallback(async (nextSelectedPositionId?: EntityId | null) => {
     setLoading(true);
@@ -216,18 +212,6 @@ export function AdminPositionsPage() {
     setModalPositionId(null);
     setFormError(null);
     setBusy(false);
-  }
-
-  function scrollToInspector() {
-    window.requestAnimationFrame(() => {
-      inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      inspectorRef.current?.focus({ preventScroll: true });
-    });
-  }
-
-  function viewPosition(row: PositionAdminRow) {
-    setSelectedPositionId(row.id);
-    scrollToInspector();
   }
 
   function openCreatePositionModal() {
@@ -497,38 +481,9 @@ export function AdminPositionsPage() {
         <PositionDirectory
           onAssignPosition={openAssignPositionModal}
           onEditPosition={openEditPositionModal}
-          onOpenPositionActions={openActionsModal}
-          onSelectPosition={setSelectedPositionId}
-          onViewPosition={viewPosition}
-          rows={rows}
-          selectedPositionId={selectedPositionId}
-        />
-      </section>
-
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
-        <PositionHierarchyPreview
-          onSelectPosition={setSelectedPositionId}
-          rows={rows}
-          selectedPositionId={selectedPositionId}
-        />
-        <div ref={inspectorRef} tabIndex={-1}>
-          <PositionInspector
-            onAssignPosition={openAssignPositionModal}
-            onClonePosition={openClonePositionModal}
-            onEditPosition={openEditPositionModal}
-            selectedPosition={selectedPosition}
-          />
-        </div>
-      </section>
-
-      <section className="min-w-0 space-y-4">
-        <PositionRegistry
-          onAssignPosition={openAssignPositionModal}
-          onEditPosition={openEditPositionModal}
           onExportPositions={() => void downloadPositions()}
           onOpenPositionActions={openActionsModal}
           onSelectPosition={setSelectedPositionId}
-          onViewPosition={viewPosition}
           rows={rows}
           selectedPositionId={selectedPositionId}
           units={data.units}
@@ -634,7 +589,6 @@ export function AdminPositionsPage() {
               <p className="force-ltr mt-1 text-xs font-semibold text-slate-500">{modalPosition.position.code}</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button className="justify-start" icon="view" onClick={() => { closeModal(); viewPosition(modalPosition); }}>{t("admin.positions.directory.view")}</Button>
               <Button className="justify-start" icon="edit" onClick={() => openEditPositionModal(modalPosition)}>{t("admin.positions.directory.edit")}</Button>
               <Button className="justify-start" icon="users" onClick={() => openAssignPositionModal(modalPosition)}>{t("admin.positions.directory.assign")}</Button>
               <Button className="justify-start" icon="document" onClick={() => openClonePositionModal(modalPosition)}>{t("admin.positions.inspector.clonePosition")}</Button>

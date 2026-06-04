@@ -1,13 +1,10 @@
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { adminApi } from "../../api";
 import type { AdminAssignment, EntityId, Person, Position, Unit } from "../../api";
 import { AdminModal, AdminPageHeader } from "../../components/admin";
 import {
   AssignmentDirectory,
-  AssignmentInspector,
-  AssignmentRegistry,
-  AssignmentRelationshipPreview,
   AssignmentStats,
   buildAssignmentRows
 } from "../../components/admin/assignments";
@@ -144,7 +141,6 @@ export function AdminAssignmentsPage() {
   const [bulkForm, setBulkForm] = useState<BulkAssignmentForm>(() => bulkAssignmentDefaults(emptyData));
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const inspectorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -464,9 +460,9 @@ export function AdminAssignmentsPage() {
 
   function viewAssignment(assignmentId: EntityId) {
     setSelectedAssignmentId(assignmentId);
-    window.setTimeout(() => {
-      inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    setModalAssignmentId(assignmentId);
+    setFormError(null);
+    setActiveModal("actions");
   }
 
   function renderError() {
@@ -633,35 +629,6 @@ export function AdminAssignmentsPage() {
       <section className="min-w-0">
         <AssignmentDirectory
           onEditAssignment={openEditModal}
-          onOpenAssignmentActions={openActionsModal}
-          onSelectAssignment={setSelectedAssignmentId}
-          onViewAssignment={viewAssignment}
-          rows={rows}
-          selectedAssignmentId={selectedAssignmentId}
-          units={data.units}
-        />
-      </section>
-
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(18rem,.45fr)_minmax(0,1fr)]">
-        <AssignmentRelationshipPreview
-          onSelectAssignment={setSelectedAssignmentId}
-          rows={rows}
-          selectedAssignmentId={selectedAssignmentId}
-        />
-        <div ref={inspectorRef}>
-          <AssignmentInspector
-            onEditAssignment={openEditModal}
-            onManageAccess={openAccessModal}
-            onTransferAssignment={openTransferModal}
-            onViewRules={openRulesModal}
-            selectedAssignment={selectedAssignment}
-          />
-        </div>
-      </section>
-
-      <section className="min-w-0 space-y-4">
-        <AssignmentRegistry
-          onEditAssignment={openEditModal}
           onExportRows={(exportRows) => void exportAssignments(exportRows)}
           onOpenAssignmentActions={openActionsModal}
           onSelectAssignment={setSelectedAssignmentId}
@@ -772,7 +739,6 @@ export function AdminAssignmentsPage() {
         {modalAssignment ? (
           <div className="grid gap-2 sm:grid-cols-2">
             {renderError()}
-            {renderActionButton(t("admin.assignments.form.viewAssignment"), () => { viewAssignment(modalAssignment.id); closeModal(); }, "primary")}
             {renderActionButton(t("admin.assignments.form.editAssignment"), () => openEditModal(modalAssignment))}
             {renderActionButton(t("admin.assignments.form.transferAssignment"), () => openTransferModal(modalAssignment))}
             {renderActionButton(t("admin.assignments.form.manageAccess"), () => openAccessModal(modalAssignment))}

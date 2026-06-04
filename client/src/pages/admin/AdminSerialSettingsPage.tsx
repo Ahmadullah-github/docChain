@@ -12,7 +12,6 @@ import {
   SerialFormatBuilder,
   SerialPreviewPanel,
   SerialRuleDirectory,
-  SerialRuleInspector,
   SerialRulePresets,
   SerialSettingsStats
 } from "../../components/admin/serial-settings";
@@ -437,13 +436,13 @@ export function AdminSerialSettingsPage() {
           onEditRule={openEditRule}
           onOpenRuleActions={openActionsModal}
           onSelectRule={selectRule}
-          onViewRule={viewRule}
+          onViewRule={openActionsModal}
           rows={rows}
           selectedRuleId={selectedRuleId}
         />
       </section>
 
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,.72fr)] min-[1800px]:grid-cols-[minmax(0,1.05fr)_minmax(24rem,.72fr)_minmax(27rem,.78fr)]">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(27rem,.78fr)]">
         <div className="min-w-0" ref={builderRef} tabIndex={-1}>
           <SerialFormatBuilder
             busy={busy}
@@ -454,19 +453,6 @@ export function AdminSerialSettingsPage() {
             onChange={updateForm}
             onSaveDraft={() => void saveSerialRule("draft")}
             onSaveRule={() => void saveSerialRule("active")}
-          />
-        </div>
-        <div className="min-w-0">
-          <SerialRuleInspector
-            onCloneRule={openCloneRule}
-            onDisableRule={(row) => void updateRuleStatus(row, "inactive")}
-            onEditRule={openEditRule}
-            onPreviewRule={(row) => {
-              const form = serialRuleFormFromRow(row);
-              setSerialForm(form);
-              void runPreview(form);
-            }}
-            selectedRule={selectedRule}
           />
         </div>
         <div className="min-w-0">
