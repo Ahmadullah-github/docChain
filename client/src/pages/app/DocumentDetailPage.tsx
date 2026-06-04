@@ -304,15 +304,6 @@ function SendRequestsBuilder({
     });
   }
 
-  function updateRecipientPermission(recipient: DraftRecipient, permission: keyof DocumentRequestPermissions, value: boolean) {
-    updateRecipient(recipient.localId, {
-      permissions: {
-        ...recipient.permissions,
-        [permission]: value
-      }
-    });
-  }
-
   function removeRecipient(localId: string) {
     setRecipients((current) => current.filter((recipient) => recipient.localId !== localId));
   }
@@ -510,21 +501,6 @@ function SendRequestsBuilder({
                             Due date
                             <input className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10" onChange={(event) => updateRecipient(recipient.localId, { due_at: event.target.value })} type="datetime-local" value={recipient.due_at} />
                           </label>
-                        </div>
-
-                        <div className="mt-3 grid gap-2 sm:grid-cols-5">
-                          {([
-                            ["can_edit", "Edit"],
-                            ["can_sign", "Sign"],
-                            ["can_forward", "Forward"],
-                            ["can_finalize", "Finalize"],
-                            ["can_archive", "Archive"]
-                          ] as Array<[keyof DocumentRequestPermissions, string]>).map(([permission, label]) => (
-                            <label className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-bold text-slate-700" key={permission}>
-                              <input checked={recipient.permissions[permission]} onChange={(event) => updateRecipientPermission(recipient, permission, event.target.checked)} type="checkbox" />
-                              {label}
-                            </label>
-                          ))}
                         </div>
 
                         <label className="mt-3 block text-sm font-bold text-slate-700">

@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { documentApi, savedSearchApi, templateApi, workspaceApi } from "../../api";
 import type { DocumentListItem, DocumentRegistryStats, DocumentScope, JsonRecord, WorkspaceReference } from "../../api";
 import { AdminModal } from "../../components/admin";
-import { Button, DataTable, Icon, PanelCard, SearchInput, SelectFilter, StatusBadge, Toolbar } from "../../components/ui";
+import { Button, DataTable, Icon, IconButton, PanelCard, SearchInput, SelectFilter, StatusBadge, Toolbar } from "../../components/ui";
 import type { IconName } from "../../components/ui";
 import { downloadBlob, openBlobInNewWindow } from "../../lib/downloads";
 import { formatDateTime } from "./appPageUtils";
@@ -321,23 +321,30 @@ export function DocumentsPage() {
     const downloadBusy = pdfBusyKey === `${document.id}:download`;
 
     return (
-      <div className="flex min-w-0 flex-wrap justify-end gap-2">
-        <Button className="min-h-9 px-3" icon="view" onClick={() => navigate(`/app/documents/${document.id}`)}>View</Button>
-        {draft && booleanFlag(document.canEdit) ? (
-          <Button className="min-h-9 px-3" icon="edit" onClick={() => navigate(`/app/documents/${document.id}/edit`)} variant="primary">Edit</Button>
-        ) : null}
+      <div className="flex min-w-0 flex-nowrap justify-end gap-1.5">
+        <IconButton className="h-9 w-9" icon="view" label="View document" onClick={() => navigate(`/app/documents/${document.id}`)} title="View document" />
         {draft && booleanFlag(document.canDelete) ? (
-          <Button className="min-h-9 px-3" icon="userX" onClick={() => setDeleteDocument(document)} variant="danger">Delete</Button>
+          <IconButton className="h-9 w-9 border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100" icon="userX" label="Delete document" onClick={() => setDeleteDocument(document)} title="Delete document" />
         ) : null}
         {booleanFlag(document.canOpenPdf) ? (
-          <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="document" onClick={() => void openOfficialPdf(document, false)}>
-            {openBusy ? "Opening" : lockedPdf ? "Open PDF" : "Preview PDF"}
-          </Button>
+          <IconButton
+            className="h-9 w-9"
+            disabled={Boolean(pdfBusyKey)}
+            icon="document"
+            label={openBusy ? "Opening PDF" : lockedPdf ? "Open PDF" : "Preview PDF"}
+            onClick={() => void openOfficialPdf(document, false)}
+            title={openBusy ? "Opening PDF" : lockedPdf ? "Open PDF" : "Preview PDF"}
+          />
         ) : null}
         {booleanFlag(document.canDownloadPdf) ? (
-          <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="export" onClick={() => void openOfficialPdf(document, true)}>
-            {downloadBusy ? "Downloading" : "Download"}
-          </Button>
+          <IconButton
+            className="h-9 w-9"
+            disabled={Boolean(pdfBusyKey)}
+            icon="export"
+            label={downloadBusy ? "Downloading PDF" : "Download PDF"}
+            onClick={() => void openOfficialPdf(document, true)}
+            title={downloadBusy ? "Downloading PDF" : "Download PDF"}
+          />
         ) : null}
       </div>
     );
@@ -489,7 +496,7 @@ export function DocumentsPage() {
               { key: "holder", header: "Holder", hideOnMobile: true, cell: (document) => <span className="block max-w-48 truncate">{document.currentHolderUnitName}</span>, className: "w-52" },
               { key: "status", header: "Status", cell: (document) => <StatusBadge>{document.status}</StatusBadge>, className: "w-40" },
               { key: "updated", header: "Updated", hideOnMobile: true, cell: (document) => formatDateTime(document.updatedAt), className: "w-40" },
-              { key: "actions", header: <span className="block text-right">Actions</span>, cell: renderDocumentActions, className: "w-[28rem]" }
+              { key: "actions", header: <span className="block text-right">Actions</span>, cell: renderDocumentActions, className: "w-56" }
             ]}
             emptyLabel="No documents match the current filters."
             getRowAriaLabel={(document) => document.subject}
