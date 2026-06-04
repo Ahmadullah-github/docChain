@@ -61,15 +61,6 @@ function nextRank(rows: LevelRecord[]) {
   return Math.max(...rows.map((row) => Number(row.rank) || 0)) + 10;
 }
 
-function codeFromName(name: string) {
-  return name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-}
-
 function sortedLevels<T extends LevelRecord>(rows: T[]) {
   return [...rows].sort((left, right) => (
     (Number(left.rank) || 0) - (Number(right.rank) || 0)
@@ -299,6 +290,32 @@ export function AdminDocumentSettingsPage() {
     void refreshSettings();
   }, [refreshSettings]);
 
+  useEffect(() => {
+    if (!modal || modal.mode !== "create" || codeManuallyEdited || !form.name.trim()) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: modal.kind === "priority" ? "priority_level" : "confidentiality_level",
+          name: form.name
+        });
+        if (alive) {
+          setForm((current) => ({ ...current, code: suggestion.code }));
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [codeManuallyEdited, form.name, modal]);
+
   const rowsForKind = useCallback((kind: SettingKind): LevelRecord[] => (
     kind === "priority" ? priorityLevels : confidentialityLevels
   ), [confidentialityLevels, priorityLevels]);
@@ -338,9 +355,26 @@ export function AdminDocumentSettingsPage() {
   function handleNameChange(name: string) {
     setForm((current) => ({
       ...current,
-      code: codeManuallyEdited ? current.code : codeFromName(name),
       name
     }));
+  }
+
+  async function regenerateCode() {
+    if (!modal || !form.name.trim()) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: modal.kind === "priority" ? "priority_level" : "confidentiality_level",
+        exclude_id: modal.recordId,
+        name: form.name
+      });
+      patchForm({ code: suggestion.code });
+      setCodeManuallyEdited(false);
+    } catch (error) {
+      setFormError(errorMessage(error));
+    }
   }
 
   async function updateLevel(kind: SettingKind, row: LevelRecord, payload: Partial<PriorityLevel> | Partial<ConfidentialityLevel>) {
@@ -489,16 +523,19 @@ export function AdminDocumentSettingsPage() {
             </label>
             <label className={labelClassName}>
               {t("admin.documentSettings.form.code")}
-              <input
-                className={`${fieldClassName} force-ltr text-start font-mono`}
-                maxLength={80}
-                onChange={(event) => {
-                  setCodeManuallyEdited(true);
-                  patchForm({ code: event.target.value });
-                }}
-                required
-                value={form.code}
-              />
+              <div className="flex gap-2">
+                <input
+                  className={`${fieldClassName} force-ltr w-full text-start font-mono uppercase`}
+                  maxLength={80}
+                  onChange={(event) => {
+                    setCodeManuallyEdited(true);
+                    patchForm({ code: event.target.value.toUpperCase() });
+                  }}
+                  required
+                  value={form.code}
+                />
+                <Button className="min-h-10 px-3" disabled={!form.name.trim()} icon="reset" onClick={() => void regenerateCode()}>{t("admin.code.generate")}</Button>
+              </div>
             </label>
             <label className={labelClassName}>
               {t("admin.documentSettings.form.rank")}

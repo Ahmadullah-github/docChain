@@ -101,6 +101,7 @@ publicDocumentVerificationRouter.get("/verify/:token", asyncHandler(async (reque
       `SELECT DISTINCT persons.display_name AS signerName,
               positions.title AS positionTitle,
               units.name AS unitName,
+              signature_events.created_at AS signedAt,
               COALESCE(document_tasks.id, signature_events.id) AS stepNumber
        FROM signature_events
        LEFT JOIN document_tasks ON signature_events.document_task_id = document_tasks.id
@@ -138,6 +139,7 @@ publicDocumentVerificationRouter.get("/verify/:token", asyncHandler(async (reque
     signedBy: signerRows.map((row) => ({
       name: row.signerName,
       position: row.positionTitle,
+      signedAt: row.signedAt || null,
       unit: row.unitName
     })),
     documentHash: {

@@ -30,7 +30,7 @@ create table `signature_upload_sessions` (
   `status` varchar(40) not null default 'pending',
   `uploaded_file_asset_id` bigint unsigned,
   `preview_data_url` mediumtext,
-  `expires_at` timestamp not null,
+  `expires_at` datetime not null,
   `consumed_at` timestamp null,
   `ip_address` varchar(80),
   `user_agent` text,

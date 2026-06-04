@@ -14,6 +14,7 @@ export async function signatureEventsWithAssets(documentId: number) {
       document_tasks.required_action AS documentTaskRequiredAction,
       document_tasks.title AS documentTaskTitle,
       document_tasks.due_at AS documentTaskDueAt,
+      document_tasks.response_note AS taskResponseNote,
       signature_assets.encryption_algorithm AS signatureEncryptionAlgorithm,
       file_assets.storage_path AS signatureStoragePath,
       file_assets.encryption_status AS signatureEncryptionStatus,

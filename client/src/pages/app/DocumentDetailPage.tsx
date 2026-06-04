@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -19,7 +19,10 @@ import type {
   DocumentTask,
   EntityId,
   JsonRecord,
+  SignaturePlacement,
+  SignaturePrintOptions,
   SignatureProfile,
+  SigningSession,
   WorkspaceReference
 } from "../../api";
 import { useAuth } from "../../app/AuthContext";
@@ -45,6 +48,15 @@ type DraftRecipient = {
 
 const requestActions: DocumentRequestAction[] = ["review", "edit", "sign", "forward", "information"];
 const endorsementCommentMaxLength = 300;
+const pageWidthMm = 210;
+const pageHeightMm = 297;
+const minSignatureWidthMm = 20;
+const minSignatureHeightMm = 10;
+
+type SigningTarget = {
+  task?: DocumentTask;
+  type: "self" | "task";
+};
 
 const supportTabs: Array<{ id: SupportTab; label: string }> = [
   { id: "dispatch", label: "Transmissions" },
@@ -639,11 +651,451 @@ function OfficialDocumentPreview({
   );
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizePlacement(value: SignaturePlacement): SignaturePlacement {
+  const width = clampNumber(value.render_width, minSignatureWidthMm, pageWidthMm);
+  const height = clampNumber(value.render_height, minSignatureHeightMm, pageHeightMm);
+  return {
+    render_page: Math.max(1, Math.round(value.render_page || 1)),
+    render_width: width,
+    render_height: height,
+    render_x: clampNumber(value.render_x, 0, pageWidthMm - width),
+    render_y: clampNumber(value.render_y, 0, pageHeightMm - height)
+  };
+}
+
+function SignaturePlacementFrame({
+  comment,
+  html,
+  onPageCount,
+  onPlacementChange,
+  placement,
+  printOptions,
+  signatureImage,
+  signer
+}: {
+  comment: string;
+  html: string;
+  onPageCount: (count: number) => void;
+  onPlacementChange: (placement: SignaturePlacement) => void;
+  placement: SignaturePlacement;
+  printOptions: SignaturePrintOptions;
+  signatureImage: string;
+  signer?: SigningSession["signer"];
+}) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const placementRef = useRef(placement);
+  const onPlacementChangeRef = useRef(onPlacementChange);
+  const [frameReady, setFrameReady] = useState(0);
+
+  useEffect(() => {
+    placementRef.current = placement;
+    const doc = iframeRef.current?.contentDocument;
+    const overlay = doc?.querySelector<HTMLElement>(".dc-sign-placement-ui");
+    if (overlay) {
+      overlay.style.left = `${placement.render_x}mm`;
+      overlay.style.top = `${placement.render_y}mm`;
+      overlay.style.width = `${placement.render_width}mm`;
+      overlay.style.height = `${placement.render_height}mm`;
+    }
+  }, [placement]);
+
+  useEffect(() => {
+    onPlacementChangeRef.current = onPlacementChange;
+  }, [onPlacementChange]);
+
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    const win = iframeRef.current?.contentWindow;
+    if (!doc || !win || !signatureImage) {
+      return undefined;
+    }
+
+    const pages = Array.from(doc.querySelectorAll<HTMLElement>(".dc-page, .dc-word-page"));
+    onPageCount(Math.max(1, pages.length));
+    doc.querySelectorAll(".dc-sign-placement-ui").forEach((item) => item.remove());
+    const pageIndex = clampNumber(placementRef.current.render_page - 1, 0, Math.max(0, pages.length - 1));
+    const page = pages[pageIndex];
+    if (!page) {
+      return undefined;
+    }
+    if (win.getComputedStyle(page).position === "static") {
+      page.style.position = "relative";
+    }
+
+    const overlay = doc.createElement("div");
+    overlay.className = "dc-sign-placement-ui";
+    overlay.style.cssText = [
+      "position:absolute",
+      "z-index:50",
+      "box-sizing:border-box",
+      "display:flex",
+      "flex-direction:column",
+      "align-items:center",
+      "justify-content:flex-end",
+      "border:1.5px solid #059669",
+      "background:rgba(236,253,245,.34)",
+      "cursor:move",
+      "overflow:hidden",
+      "color:#064e3b",
+      "font:600 8px/1.15 Arial,sans-serif",
+      "text-align:center"
+    ].join(";");
+
+    const image = doc.createElement("img");
+    image.alt = "";
+    image.src = signatureImage;
+    image.style.cssText = "max-width:100%;min-height:0;max-height:100%;object-fit:contain;flex:1 1 auto;pointer-events:none;";
+    overlay.appendChild(image);
+
+    const metaParts = [
+      printOptions.show_name_position ? signer?.name || "" : "",
+      printOptions.show_name_position ? [signer?.position, signer?.unit].filter(Boolean).join(" - ") : "",
+      printOptions.show_date ? new Date().toLocaleDateString() : "",
+      printOptions.show_comment && comment ? comment : ""
+    ].filter(Boolean);
+    if (metaParts.length) {
+      const meta = doc.createElement("div");
+      meta.style.cssText = "flex:0 0 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;";
+      meta.textContent = metaParts.join(" / ");
+      overlay.appendChild(meta);
+    }
+
+    const handle = doc.createElement("span");
+    handle.style.cssText = "position:absolute;right:0;bottom:0;width:10px;height:10px;background:#059669;cursor:nwse-resize;";
+    overlay.appendChild(handle);
+    page.appendChild(overlay);
+
+    const applyPlacement = (next: SignaturePlacement) => {
+      const normalized = normalizePlacement(next);
+      placementRef.current = normalized;
+      overlay.style.left = `${normalized.render_x}mm`;
+      overlay.style.top = `${normalized.render_y}mm`;
+      overlay.style.width = `${normalized.render_width}mm`;
+      overlay.style.height = `${normalized.render_height}mm`;
+      onPlacementChangeRef.current(normalized);
+    };
+
+    applyPlacement(placementRef.current);
+    let drag:
+      | {
+          mode: "move" | "resize";
+          offsetX: number;
+          offsetY: number;
+          start: SignaturePlacement;
+        }
+      | null = null;
+
+    const pointInPageMm = (event: PointerEvent) => {
+      const rect = page.getBoundingClientRect();
+      return {
+        x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * pageWidthMm,
+        y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * pageHeightMm
+      };
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const point = pointInPageMm(event);
+      const current = placementRef.current;
+      drag = {
+        mode: event.target === handle ? "resize" : "move",
+        offsetX: point.x - current.render_x,
+        offsetY: point.y - current.render_y,
+        start: current
+      };
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag) {
+        return;
+      }
+      event.preventDefault();
+      const point = pointInPageMm(event);
+      if (drag.mode === "move") {
+        applyPlacement({
+          ...drag.start,
+          render_x: point.x - drag.offsetX,
+          render_y: point.y - drag.offsetY
+        });
+      } else {
+        applyPlacement({
+          ...drag.start,
+          render_width: point.x - drag.start.render_x,
+          render_height: point.y - drag.start.render_y
+        });
+      }
+    };
+
+    const onPointerUp = () => {
+      drag = null;
+    };
+
+    overlay.addEventListener("pointerdown", onPointerDown);
+    doc.addEventListener("pointermove", onPointerMove);
+    doc.addEventListener("pointerup", onPointerUp);
+
+    return () => {
+      overlay.removeEventListener("pointerdown", onPointerDown);
+      doc.removeEventListener("pointermove", onPointerMove);
+      doc.removeEventListener("pointerup", onPointerUp);
+      overlay.remove();
+    };
+  }, [comment, frameReady, html, onPageCount, placement.render_page, printOptions, signatureImage, signer]);
+
+  return (
+    <iframe
+      className="h-[min(72vh,52rem)] min-h-[32rem] w-full rounded-lg border border-slate-200 bg-white"
+      onLoad={() => setFrameReady((current) => current + 1)}
+      ref={iframeRef}
+      srcDoc={previewHtmlForFrame(html)}
+      title="Signature placement preview"
+    />
+  );
+}
+
+function SigningModal({
+  documentId,
+  expectedDocumentHash,
+  expectedDocumentVersion,
+  onClose,
+  onSigned,
+  previewHtml,
+  signatureProfile,
+  subject,
+  target
+}: {
+  documentId: EntityId;
+  expectedDocumentHash?: string;
+  expectedDocumentVersion?: number;
+  onClose: () => void;
+  onSigned: () => Promise<void>;
+  previewHtml: string;
+  signatureProfile: SignatureProfile | null;
+  subject: string;
+  target: SigningTarget;
+}) {
+  const [pin, setPin] = useState("");
+  const [responseNote, setResponseNote] = useState("");
+  const [session, setSession] = useState<SigningSession | null>(null);
+  const [placement, setPlacement] = useState<SignaturePlacement>({
+    render_page: 1,
+    render_x: 128,
+    render_y: 226,
+    render_width: 46,
+    render_height: 18
+  });
+  const [pageCount, setPageCount] = useState(1);
+  const [printOptions, setPrintOptions] = useState<SignaturePrintOptions>({
+    show_comment: false,
+    show_date: false,
+    show_name_position: true
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requiresComment = target.task ? taskRequiresComment(target.task) : false;
+
+  async function unlockSignature(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const note = responseNote.trim();
+    if (!pin.trim()) {
+      setError("Enter your signature PIN.");
+      return;
+    }
+    if (requiresComment && !note) {
+      setError("Enter the required comment before signing.");
+      return;
+    }
+    if (note.length > endorsementCommentMaxLength) {
+      setError(`Comment must be ${endorsementCommentMaxLength} characters or fewer.`);
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const input = {
+        expected_document_hash: expectedDocumentHash,
+        expected_document_version_number: expectedDocumentVersion,
+        pin: pin.trim(),
+        response_note: note || null
+      };
+      const nextSession = target.type === "task" && target.task
+        ? await signatureApi.createTaskSigningSession(documentId, target.task.id, input)
+        : await signatureApi.createSigningSession(documentId, input);
+      setSession(nextSession);
+      setPlacement(normalizePlacement(nextSession.placement));
+      setPrintOptions(nextSession.print_options);
+      setPin("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not unlock signature.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitSignature() {
+    if (!session) {
+      return;
+    }
+    const note = responseNote.trim();
+    if (requiresComment && !note) {
+      setError("Enter the required comment before signing.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = {
+        ...normalizePlacement(placement),
+        placement_token: session.placement_token,
+        print_options: printOptions,
+        response_note: note || null
+      };
+      if (target.type === "task" && target.task) {
+        await signatureApi.signTask(documentId, target.task.id, payload);
+      } else {
+        await signatureApi.signDocument(documentId, payload);
+      }
+      await onSigned();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not sign this document.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title = target.type === "task" && target.task ? `Sign request - ${taskTargetLabel(target.task)}` : "Sign document";
+  const stage = session ? "place" : "unlock";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3">
+      <div className="flex max-h-[96vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="text-lg font-black text-slate-950">{title}</h2>
+            <p className="mt-1 truncate text-sm text-slate-500">{subject}</p>
+          </div>
+          <Button disabled={busy} icon="x" onClick={onClose}>Close</Button>
+        </header>
+
+        {error ? <div className="mx-5 mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+
+        <div className="min-h-0 flex-1 overflow-auto p-5">
+          {stage === "unlock" ? (
+            <form className="mx-auto grid max-w-xl gap-4" onSubmit={unlockSignature}>
+              {!signatureProfile ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                  <Link className="underline" to="/app/signature-profile">Enroll a signature profile</Link> before signing.
+                </p>
+              ) : null}
+              <label className="block text-sm font-bold text-slate-700">
+                Signature PIN
+                <input
+                  className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
+                  onChange={(event) => setPin(event.target.value)}
+                  type="password"
+                  value={pin}
+                />
+              </label>
+              <label className="block text-sm font-bold text-slate-700">
+                Comment {requiresComment ? <span className="text-red-700">*</span> : null}
+                <textarea
+                  className="mt-2 min-h-28 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
+                  maxLength={endorsementCommentMaxLength}
+                  onChange={(event) => setResponseNote(event.target.value)}
+                  value={responseNote}
+                />
+                <span className="mt-1 block text-xs text-slate-500">{responseNote.length}/{endorsementCommentMaxLength}</span>
+              </label>
+              <Button disabled={busy || !signatureProfile} type="submit" variant="primary">{busy ? "Unlocking..." : "Unlock signature"}</Button>
+            </form>
+          ) : session ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+              <SignaturePlacementFrame
+                comment={responseNote.trim()}
+                html={previewHtml}
+                onPageCount={(count) => {
+                  setPageCount(count);
+                  setPlacement((current) => (
+                    current.render_page <= count
+                      ? current
+                      : normalizePlacement({ ...current, render_page: count })
+                  ));
+                }}
+                onPlacementChange={setPlacement}
+                placement={placement}
+                printOptions={printOptions}
+                signatureImage={session.signature_image.data_url}
+                signer={session.signer}
+              />
+              <aside className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm font-bold text-slate-700">
+                    Page
+                    <input
+                      className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                      max={pageCount}
+                      min={1}
+                      onChange={(event) => setPlacement((current) => normalizePlacement({ ...current, render_page: Number(event.target.value) || 1 }))}
+                      type="number"
+                      value={placement.render_page}
+                    />
+                  </label>
+                  <label className="block text-sm font-bold text-slate-700">
+                    Width
+                    <input
+                      className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                      min={minSignatureWidthMm}
+                      onChange={(event) => setPlacement((current) => normalizePlacement({ ...current, render_width: Number(event.target.value) || current.render_width }))}
+                      type="number"
+                      value={Math.round(placement.render_width)}
+                    />
+                  </label>
+                </div>
+                <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm font-semibold text-slate-700">
+                  <label className="flex items-center gap-2">
+                    <input checked={printOptions.show_name_position} onChange={(event) => setPrintOptions((current) => ({ ...current, show_name_position: event.target.checked }))} type="checkbox" />
+                    Name / position
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input checked={printOptions.show_date} onChange={(event) => setPrintOptions((current) => ({ ...current, show_date: event.target.checked }))} type="checkbox" />
+                    Date
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input checked={printOptions.show_comment} disabled={!responseNote.trim()} onChange={(event) => setPrintOptions((current) => ({ ...current, show_comment: event.target.checked }))} type="checkbox" />
+                    Comment
+                  </label>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-600">
+                  <p>X {placement.render_x.toFixed(1)} mm</p>
+                  <p>Y {placement.render_y.toFixed(1)} mm</p>
+                  <p>H {placement.render_height.toFixed(1)} mm</p>
+                </div>
+              </aside>
+            </div>
+          ) : null}
+        </div>
+
+        <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-5 py-4">
+          <Button disabled={busy} onClick={onClose}>Cancel</Button>
+          {session ? <Button disabled={busy} icon="signature" onClick={() => void submitSignature()} variant="primary">{busy ? "Signing..." : "Sign"}</Button> : null}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function DocumentActionPanel({
   canArchive,
   canEdit,
   canFinalize,
   canSend,
+  canSelfSign,
   documentId,
   documentStatus,
   myOpenTasks,
@@ -652,12 +1104,9 @@ function DocumentActionPanel({
   onCompleteTask,
   onFinalize,
   onOpenSend,
+  onOpenSelfSign,
   onSignTask,
   openTasks,
-  pinByTask,
-  responseNoteByTask,
-  setResponseNoteByTask,
-  setPinByTask,
   signatureProfile,
   signing,
   tasks
@@ -666,6 +1115,7 @@ function DocumentActionPanel({
   canEdit: boolean;
   canFinalize: boolean;
   canSend: boolean;
+  canSelfSign: boolean;
   documentId: EntityId;
   documentStatus: string;
   myOpenTasks: DocumentTask[];
@@ -674,12 +1124,9 @@ function DocumentActionPanel({
   onCompleteTask: (task: DocumentTask) => void;
   onFinalize: () => void;
   onOpenSend: () => void;
+  onOpenSelfSign: () => void;
   onSignTask: (task: DocumentTask) => void;
   openTasks: DocumentTask[];
-  pinByTask: Record<number, string>;
-  responseNoteByTask: Record<number, string>;
-  setResponseNoteByTask: React.Dispatch<React.SetStateAction<Record<number, string>>>;
-  setPinByTask: React.Dispatch<React.SetStateAction<Record<number, string>>>;
   signatureProfile: SignatureProfile | null;
   signing: boolean;
   tasks: DocumentTask[];
@@ -718,26 +1165,7 @@ function DocumentActionPanel({
             {signableTasks.map((task) => (
               <div className="grid gap-2" key={task.id}>
                 <p className="text-sm font-bold text-emerald-900">{taskTargetLabel(task)}</p>
-                <label className="block text-sm font-bold text-emerald-900">
-                  Comment {taskRequiresComment(task) ? <span className="text-red-700">*</span> : null}
-                  <textarea
-                    className="mt-1 min-h-20 w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-700/10"
-                    maxLength={endorsementCommentMaxLength}
-                    onChange={(event) => setResponseNoteByTask((current) => ({ ...current, [task.id]: event.target.value }))}
-                    value={responseNoteByTask[task.id] || ""}
-                  />
-                  <span className="mt-1 block text-xs text-emerald-800">{(responseNoteByTask[task.id] || "").length}/{endorsementCommentMaxLength}</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    className="min-h-11 min-w-0 flex-1 rounded-lg border border-emerald-200 bg-white px-3 text-sm outline-none focus:border-emerald-700 focus:ring-4 focus:ring-emerald-700/10"
-                    onChange={(event) => setPinByTask((current) => ({ ...current, [task.id]: event.target.value }))}
-                    placeholder="Signature PIN"
-                    type="password"
-                    value={pinByTask[task.id] || ""}
-                  />
-                  <Button disabled={!signatureProfile || signing} onClick={() => onSignTask(task)} variant="primary">Sign</Button>
-                </div>
+                <Button disabled={!signatureProfile || signing} icon="signature" onClick={() => onSignTask(task)} variant="primary">Place signature</Button>
               </div>
             ))}
           </div>
@@ -789,6 +1217,7 @@ function DocumentActionPanel({
         ) : null}
 
         <div className="grid gap-2">
+          {canSelfSign ? <Button className="min-h-12 w-full" disabled={!signatureProfile || signing} icon="signature" onClick={onOpenSelfSign} variant="primary">Sign document</Button> : null}
           {canSend ? <Button className="min-h-12 w-full" icon="export" onClick={onOpenSend} variant="primary">Send requests</Button> : null}
           {canEdit ? (
             <Link to={`/app/documents/${documentId}/edit`}>
@@ -825,8 +1254,6 @@ export function DocumentDetailPage() {
   const [transmissionRecipientRows, setTransmissionRecipientRows] = useState<JsonRecord[]>([]);
   const [activeSupportTab, setActiveSupportTab] = useState<SupportTab>("dispatch");
   const [commentBody, setCommentBody] = useState("");
-  const [pinByTask, setPinByTask] = useState<Record<number, string>>({});
-  const [responseNoteByTask, setResponseNoteByTask] = useState<Record<number, string>>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
   const [pdfActionBusy, setPdfActionBusy] = useState<"download" | "open" | null>(null);
@@ -837,7 +1264,7 @@ export function DocumentDetailPage() {
   const [sendWizardOpen, setSendWizardOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
-  const [signingTaskId, setSigningTaskId] = useState<EntityId | null>(null);
+  const [signingTarget, setSigningTarget] = useState<SigningTarget | null>(null);
   const [completionTask, setCompletionTask] = useState<DocumentTask | null>(null);
   const [completionNote, setCompletionNote] = useState("");
   const [archiveModalOpen, setArchiveModalOpen] = useState(false);
@@ -862,7 +1289,11 @@ export function DocumentDetailPage() {
   const canSend = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_forward")) || (documentStatus === "draft" && documentWritePermission)));
   const canFinalize = Boolean(!finalTerminalStatus && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_finalize"))));
   const canArchive = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_archive"))));
+  const canSelfSign = Boolean(!finalTerminalStatus && active && (auth.isAdmin || booleanValue(active.isSigningAuthority)));
   const officialSerial = textField(documentRecord, "official_serial", "") || textField(documentRecord, "officialSerial", "");
+  const latestVersion = detail?.versions[0] || null;
+  const expectedDocumentHash = typeof latestVersion?.content_hash === "string" ? latestVersion.content_hash : undefined;
+  const expectedDocumentVersion = Number(documentRecord?.current_version_number || latestVersion?.version_number || 0) || undefined;
 
   async function renderOfficialHtmlPreview() {
     setPreviewLoading(true);
@@ -982,42 +1413,10 @@ export function DocumentDetailPage() {
     await load();
   }
 
-  async function signTask(task: DocumentTask) {
-    const pin = pinByTask[task.id]?.trim();
-    const responseNote = responseNoteByTask[task.id]?.trim() || "";
-    if (!pin) {
-      setError("Enter your signature PIN.");
-      return;
-    }
-    if (taskRequiresComment(task) && !responseNote) {
-      setError("Enter the required response comment before signing.");
-      return;
-    }
-    if (responseNote.length > endorsementCommentMaxLength) {
-      setError(`Response comment must be ${endorsementCommentMaxLength} characters or fewer.`);
-      return;
-    }
-    const latestVersion = detail?.versions[0] || null;
-    const expectedHash = typeof latestVersion?.content_hash === "string" ? latestVersion.content_hash : undefined;
-    const expectedVersion = Number(documentRecord?.current_version_number || latestVersion?.version_number || 0) || undefined;
-    setSigningTaskId(task.id);
-    setError(null);
-    try {
-      await signatureApi.signTask(documentId, task.id, {
-        expected_document_hash: expectedHash,
-        expected_document_version_number: expectedVersion,
-        pin,
-        response_note: responseNote || null
-      });
-      setPinByTask((current) => ({ ...current, [task.id]: "" }));
-      setResponseNoteByTask((current) => ({ ...current, [task.id]: "" }));
-      setNotice("Document signed.");
-      await load({ regeneratePreview: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not sign this request.");
-    } finally {
-      setSigningTaskId(null);
-    }
+  async function finishSigning() {
+    setSigningTarget(null);
+    setNotice("Document signed.");
+    await load({ regeneratePreview: true });
   }
 
   async function completeTask(task: DocumentTask, note: string) {
@@ -1194,12 +1593,19 @@ export function DocumentDetailPage() {
 
   const subject = textField(documentRecord, "subject", "Untitled document");
   const primaryAction = signableTasks.length
-    ? { label: "Sign document", action: () => document.getElementById("signature-duty")?.scrollIntoView({ behavior: "smooth", block: "center" }) }
+    ? { label: "Sign document", action: () => setSigningTarget({ task: signableTasks[0], type: "task" as const }) }
+    : canSelfSign
+      ? { label: "Sign document", action: () => setSigningTarget({ type: "self" as const }) }
     : documentStatus === "draft" && canEdit
       ? null
       : canSend
         ? { label: "Send requests", action: () => setSendWizardOpen(true) }
         : null;
+  const headerSignAction = signableTasks.length
+    ? () => setSigningTarget({ task: signableTasks[0], type: "task" as const })
+    : canSelfSign
+      ? () => setSigningTarget({ type: "self" as const })
+      : null;
 
   return (
     <section className="mx-auto max-w-[108rem] space-y-4">
@@ -1216,11 +1622,14 @@ export function DocumentDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {headerSignAction ? (
+              <Button className="min-h-12" disabled={!signatureProfile} icon="signature" onClick={headerSignAction} variant="primary">Sign document</Button>
+            ) : null}
             {documentStatus === "draft" && canEdit ? (
               <Link to={`/app/documents/${documentId}/edit`}>
                 <Button className="min-h-12" icon="edit" variant="primary">Edit document</Button>
               </Link>
-            ) : primaryAction ? (
+            ) : primaryAction && !headerSignAction ? (
               <Button className="min-h-12" icon={signableTasks.length ? "signature" : "export"} onClick={primaryAction.action} variant="primary">{primaryAction.label}</Button>
             ) : null}
           </div>
@@ -1236,6 +1645,20 @@ export function DocumentDetailPage() {
           onClose={() => setPreviewOpen(false)}
           subtitle="Official preview"
           title={subject}
+        />
+      ) : null}
+
+      {signingTarget ? (
+        <SigningModal
+          documentId={documentId}
+          expectedDocumentHash={expectedDocumentHash}
+          expectedDocumentVersion={expectedDocumentVersion}
+          onClose={() => setSigningTarget(null)}
+          onSigned={finishSigning}
+          previewHtml={previewHtml}
+          signatureProfile={signatureProfile}
+          subject={subject}
+          target={signingTarget}
         />
       ) : null}
 
@@ -1332,6 +1755,7 @@ export function DocumentDetailPage() {
           canEdit={canEdit}
           canFinalize={canFinalize && !lifecycleBusy}
           canSend={canSend}
+          canSelfSign={canSelfSign}
           documentId={documentId}
           documentStatus={documentStatus}
           myOpenTasks={myOpenTasks}
@@ -1343,14 +1767,11 @@ export function DocumentDetailPage() {
           }}
           onFinalize={() => void finalizeDocument()}
           onOpenSend={() => setSendWizardOpen(true)}
-          onSignTask={(task) => void signTask(task)}
+          onOpenSelfSign={() => setSigningTarget({ type: "self" })}
+          onSignTask={(task) => setSigningTarget({ task, type: "task" })}
           openTasks={openTasks}
-          pinByTask={pinByTask}
-          responseNoteByTask={responseNoteByTask}
-          setResponseNoteByTask={setResponseNoteByTask}
-          setPinByTask={setPinByTask}
           signatureProfile={signatureProfile}
-          signing={Boolean(signingTaskId)}
+          signing={Boolean(signingTarget)}
           tasks={detail.tasks}
         />
       </div>

@@ -3,9 +3,12 @@ import type {
   EnrollSignatureProfileInput,
   EntityId,
   JsonRecord,
+  SignDocumentInput,
   SignTaskInput,
   SignatureAssetPreview,
   SignatureProfile,
+  SigningSession,
+  SigningSessionInput,
   SignatureUploadSession
 } from "./types";
 
@@ -91,6 +94,24 @@ export const signatureApi = {
     mime_type?: string;
   }) {
     return postJson<SignatureProfile>("/api/signatures/profile/confirm-upload", input);
+  },
+
+  createSigningSession(documentId: EntityId, input: SigningSessionInput) {
+    return postJson<SigningSession>(`/api/signatures/documents/${documentId}/signing-session`, input);
+  },
+
+  createTaskSigningSession(documentId: EntityId, taskId: EntityId, input: SigningSessionInput) {
+    return postJson<SigningSession>(`/api/signatures/documents/${documentId}/tasks/${taskId}/signing-session`, input);
+  },
+
+  signDocument(documentId: EntityId, input: SignDocumentInput) {
+    return postJson<{
+      detail?: JsonRecord;
+      document?: JsonRecord;
+      finalRender?: JsonRecord | null;
+      serialAssignment: JsonRecord | null;
+      signatureEvent: JsonRecord;
+    }>(`/api/signatures/documents/${documentId}/sign`, input);
   },
 
   signTask(documentId: EntityId, taskId: EntityId, input: SignTaskInput) {

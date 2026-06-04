@@ -1,18 +1,20 @@
 import argon2 from "argon2";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { Router } from "express";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
+import { env } from "../../config/env";
 import { pool } from "../../db/mysql";
 import { requireAnyRole, requireAuth } from "../../middleware/auth";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
-import { assertDocumentAccess, getActiveAssignment } from "../../shared/document-access";
+import { assertDocumentAccess, getActiveAssignment, isAdmin } from "../../shared/document-access";
 import { calculateDocumentContentHash } from "../../shared/document-hash";
 import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
+import { generateAdminCode } from "../admin/code-generator";
 import { assignOfficialSerial as assignOfficialSerialForTask } from "./serial-assignment-service";
 import { decryptSignatureFile, encryptAndStoreSignature } from "./signature-assets";
 import {
@@ -33,6 +35,7 @@ signatureRouter.use(requireAuth);
 adminSignatureRouter.use(requireAuth, requireAnyRole(["system_admin", "admin_staff"]));
 
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
+const optionalCodeString = (max: number) => z.string().trim().max(max).transform((value) => value || undefined).optional();
 const endorsementCommentMaxLength = 300;
 
 const enrollSignatureSchema = z.object({
@@ -56,16 +59,66 @@ const confirmUploadSchema = z.object({
   upload_session_id: z.coerce.number().int().positive()
 });
 
-const signTaskSchema = z.object({
+const signaturePrintOptionsSchema = z.object({
+  show_name_position: z.boolean().default(true),
+  show_date: z.boolean().default(false),
+  show_comment: z.boolean().default(false)
+}).default({
+  show_name_position: true,
+  show_date: false,
+  show_comment: false
+});
+
+const signaturePlacementSchema = z.object({
+  render_page: z.coerce.number().int().positive(),
+  render_x: z.coerce.number().min(0),
+  render_y: z.coerce.number().min(0),
+  render_width: z.coerce.number().positive(),
+  render_height: z.coerce.number().positive()
+}).superRefine((input, context) => {
+  if (input.render_x + input.render_width > 210) {
+    context.addIssue({ code: "custom", message: "Signature placement must stay inside the page width.", path: ["render_x"] });
+  }
+  if (input.render_y + input.render_height > 297) {
+    context.addIssue({ code: "custom", message: "Signature placement must stay inside the page height.", path: ["render_y"] });
+  }
+});
+
+const signingSessionSchema = z.object({
   pin: z.string().min(4).max(32),
   expected_document_hash: z.string().trim().length(64).optional(),
   expected_document_version_number: z.coerce.number().int().positive().optional(),
+  response_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional()
+});
+
+const completeSignatureSchema = signaturePlacementSchema.extend({
+  placement_token: z.string().trim().min(40).max(3000),
+  print_options: signaturePrintOptionsSchema,
+  response_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional()
+});
+
+const signTaskSchema = z.object({
+  pin: z.string().min(4).max(32).optional(),
+  placement_token: z.string().trim().min(40).max(3000).optional(),
+  expected_document_hash: z.string().trim().length(64).optional(),
+  expected_document_version_number: z.coerce.number().int().positive().optional(),
+  print_options: signaturePrintOptionsSchema,
   response_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional(),
-  render_page: z.coerce.number().int().nonnegative().nullable().optional(),
-  render_x: z.coerce.number().nullable().optional(),
-  render_y: z.coerce.number().nullable().optional(),
-  render_width: z.coerce.number().positive().nullable().optional(),
-  render_height: z.coerce.number().positive().nullable().optional()
+  render_page: z.coerce.number().int().positive(),
+  render_x: z.coerce.number().min(0),
+  render_y: z.coerce.number().min(0),
+  render_width: z.coerce.number().positive(),
+  render_height: z.coerce.number().positive()
+}).superRefine((input, context) => {
+  if (input.render_x + input.render_width > 210) {
+    context.addIssue({ code: "custom", message: "Signature placement must stay inside the page width.", path: ["render_x"] });
+  }
+  if (input.render_y + input.render_height > 297) {
+    context.addIssue({ code: "custom", message: "Signature placement must stay inside the page height.", path: ["render_y"] });
+  }
+  if (!input.pin && !input.placement_token) {
+    context.addIssue({ code: "custom", message: "PIN or placement token is required.", path: ["placement_token"] });
+  }
 });
 
 const serialStatusSchema = z.enum(serialStatuses);
@@ -73,7 +126,7 @@ const serialScopeSchema = z.enum(serialScopes);
 const serialResetPolicySchema = z.enum(serialResetPolicies);
 
 const createSerialRuleSchema = z.object({
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
   name: z.string().trim().min(1).max(140),
   format: z.string().trim().min(1).max(160).default("DOC-{YEAR}-{SEQUENCE}"),
   scope: serialScopeSchema.default("global"),
@@ -343,6 +396,218 @@ async function activateSignatureAsset(connection: PoolConnection, request: Reque
 
 function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+type PlacementTokenPayload = {
+  assignmentId: number;
+  documentHash: string;
+  documentId: number;
+  documentVersionNumber: number;
+  expiresAt: number;
+  pinVerificationEventId: number;
+  purpose: "self" | "task";
+  signatureAssetId: number;
+  taskId?: number | null;
+  userId: number;
+};
+
+const placementTokenPayloadSchema = z.object({
+  assignmentId: z.number().int().positive(),
+  documentHash: z.string().length(64),
+  documentId: z.number().int().positive(),
+  documentVersionNumber: z.number().int().positive(),
+  expiresAt: z.number().int().positive(),
+  pinVerificationEventId: z.number().int().positive(),
+  purpose: z.enum(["self", "task"]),
+  signatureAssetId: z.number().int().positive(),
+  taskId: z.number().int().positive().nullable().optional(),
+  userId: z.number().int().positive()
+});
+
+function placementTokenSignature(encodedPayload: string) {
+  return createHmac("sha256", env.SESSION_SECRET)
+    .update(encodedPayload)
+    .digest("base64url");
+}
+
+function createPlacementToken(payload: PlacementTokenPayload) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${encodedPayload}.${placementTokenSignature(encodedPayload)}`;
+}
+
+function parsePlacementToken(token: string): PlacementTokenPayload {
+  const [encodedPayload, signature] = token.split(".");
+  if (!encodedPayload || !signature) {
+    throw new AppError(401, "invalid_signature_token", "Signature placement token is invalid.");
+  }
+
+  const expected = placementTokenSignature(encodedPayload);
+  const signatureBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (signatureBuffer.length !== expectedBuffer.length || !timingSafeEqual(signatureBuffer, expectedBuffer)) {
+    throw new AppError(401, "invalid_signature_token", "Signature placement token is invalid.");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+  } catch {
+    throw new AppError(401, "invalid_signature_token", "Signature placement token is invalid.");
+  }
+
+  const payload = placementTokenPayloadSchema.parse(parsed);
+  if (payload.expiresAt <= Date.now()) {
+    throw new AppError(401, "signature_token_expired", "Signature placement token expired. Enter your PIN again.");
+  }
+  return payload;
+}
+
+function defaultSignaturePrintOptions(input?: z.infer<typeof signaturePrintOptionsSchema>) {
+  return {
+    show_name_position: input?.show_name_position ?? true,
+    show_date: input?.show_date ?? false,
+    show_comment: input?.show_comment ?? false
+  };
+}
+
+function assertDocumentVersionUnchanged(
+  lockedDocument: RowDataPacket,
+  input: { expected_document_hash?: string; expected_document_version_number?: number },
+  tokenPayload?: PlacementTokenPayload
+) {
+  const documentHash = calculateDocumentContentHash(lockedDocument);
+  const documentVersionNumber = Number(lockedDocument.current_version_number || 1);
+  const expectedHash = input.expected_document_hash || tokenPayload?.documentHash;
+  const expectedVersion = input.expected_document_version_number || tokenPayload?.documentVersionNumber;
+
+  if (
+    (expectedVersion && expectedVersion !== documentVersionNumber)
+    || (expectedHash && expectedHash !== documentHash)
+  ) {
+    throw new AppError(409, "document_version_changed", "The document changed after you opened it. Review the latest version before signing.");
+  }
+
+  return { documentHash, documentVersionNumber };
+}
+
+async function assertPlacementTokenUnused(connection: PoolConnection, pinVerificationEventId: number) {
+  const [rows] = await connection.execute<RowDataPacket[]>(
+    "SELECT id FROM signature_events WHERE pin_verification_event_id = ? LIMIT 1",
+    [pinVerificationEventId]
+  );
+  if (rows.length) {
+    throw new AppError(409, "signature_token_used", "This signature placement token was already used.");
+  }
+}
+
+async function activeSignatureAssetPreview(signatureAssetId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT file_assets.storage_path AS storagePath, file_assets.mime_type AS mimeType
+     FROM signature_assets
+     INNER JOIN file_assets ON signature_assets.file_asset_id = file_assets.id
+     WHERE signature_assets.id = ?
+       AND signature_assets.status = 'active'
+       AND file_assets.status = 'active'
+     LIMIT 1`,
+    [signatureAssetId]
+  );
+  const asset = rows[0];
+  if (!asset) {
+    throw notFound("Signature asset");
+  }
+  const decrypted = await decryptSignatureFile({
+    mimeType: String(asset.mimeType),
+    storagePath: String(asset.storagePath)
+  });
+  return { data_url: decrypted.dataUrl, mime_type: decrypted.mimeType };
+}
+
+async function signerPayload(assignmentId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+       persons.display_name AS name,
+       positions.title AS position,
+       units.name AS unit
+     FROM assignments
+     INNER JOIN persons ON assignments.person_id = persons.id
+     INNER JOIN positions ON assignments.position_id = positions.id
+     INNER JOIN units ON positions.unit_id = units.id
+     WHERE assignments.id = ?
+     LIMIT 1`,
+    [assignmentId]
+  );
+  return rows[0] ? {
+    name: rows[0].name || null,
+    position: rows[0].position || null,
+    unit: rows[0].unit || null
+  } : null;
+}
+
+async function activeAssignmentHasSigningAuthority(assignmentId: number) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT positions.is_signing_authority AS isSigningAuthority
+     FROM assignments
+     INNER JOIN positions ON assignments.position_id = positions.id
+     WHERE assignments.id = ?
+     LIMIT 1`,
+    [assignmentId]
+  );
+  return rows[0]?.isSigningAuthority === true || rows[0]?.isSigningAuthority === 1;
+}
+
+async function assertSelfSigningAllowed(response: Response, assignmentId: number) {
+  if (isAdmin(response)) {
+    return;
+  }
+  if (await activeAssignmentHasSigningAuthority(assignmentId)) {
+    return;
+  }
+  throw new AppError(403, "signature_not_allowed", "Your active position is not allowed to self-sign this document.");
+}
+
+function assertDocumentSignable(document: RowDataPacket) {
+  if (["archived", "closed", "finalized", "serial_assigned"].includes(String(document.status))) {
+    throw new AppError(409, "document_not_signable", "Finalized, closed, or archived documents cannot be signed.");
+  }
+}
+
+function signingSessionResponse(input: {
+  assignmentId: number;
+  documentHash: string;
+  documentId: number;
+  documentVersionNumber: number;
+  preview: { data_url: string; mime_type: string };
+  purpose: "self" | "task";
+  signatureAssetId: number;
+  taskId?: number | null;
+  pinVerificationEventId: number;
+  userId: number;
+}) {
+  const expiresAt = Date.now() + 5 * 60 * 1000;
+  return {
+    expires_at: new Date(expiresAt).toISOString(),
+    placement: {
+      render_page: 1,
+      render_x: 128,
+      render_y: 226,
+      render_width: 46,
+      render_height: 18
+    },
+    placement_token: createPlacementToken({
+      assignmentId: input.assignmentId,
+      documentHash: input.documentHash,
+      documentId: input.documentId,
+      documentVersionNumber: input.documentVersionNumber,
+      expiresAt,
+      pinVerificationEventId: input.pinVerificationEventId,
+      purpose: input.purpose,
+      signatureAssetId: input.signatureAssetId,
+      taskId: input.taskId || null,
+      userId: input.userId
+    }),
+    print_options: defaultSignaturePrintOptions(),
+    signature_image: input.preview
+  };
 }
 
 signatureRouter.get("/profile", asyncHandler(async (_request, response) => {
@@ -626,6 +891,217 @@ publicSignatureUploadRouter.post("/signature-upload/:token", asyncHandler(async 
   created(response, { session_id: sessionId, status: "uploaded" });
 }));
 
+signatureRouter.post("/documents/:documentId/signing-session", asyncHandler(async (request, response) => {
+  const { documentId } = z.object({ documentId: z.coerce.number().int().positive() }).parse(request.params);
+  const input = signingSessionSchema.parse(request.body);
+  const authUser = response.locals.authUser!;
+  const { document, assignment } = await assertDocumentAccess(documentId, request, response);
+
+  assertDocumentSignable(document);
+  await assertSelfSigningAllowed(response, assignment.id);
+  const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(document, input);
+  const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
+  const preview = await activeSignatureAssetPreview(verification.signatureAssetId);
+
+  ok(response, {
+    ...signingSessionResponse({
+      assignmentId: assignment.id,
+      documentHash,
+      documentId,
+      documentVersionNumber,
+      pinVerificationEventId: verification.pinEventId,
+      preview,
+      purpose: "self",
+      signatureAssetId: verification.signatureAssetId,
+      userId: authUser.id
+    }),
+    signer: await signerPayload(assignment.id)
+  });
+}));
+
+signatureRouter.post("/documents/:documentId/sign", asyncHandler(async (request, response) => {
+  const { documentId } = z.object({ documentId: z.coerce.number().int().positive() }).parse(request.params);
+  const input = completeSignatureSchema.parse(request.body);
+  const tokenPayload = parsePlacementToken(input.placement_token);
+  const authUser = response.locals.authUser!;
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
+
+  if (
+    tokenPayload.purpose !== "self"
+    || tokenPayload.documentId !== documentId
+    || tokenPayload.userId !== authUser.id
+    || tokenPayload.assignmentId !== assignment.id
+  ) {
+    throw new AppError(401, "invalid_signature_token", "Signature placement token is invalid for this document.");
+  }
+  await assertSelfSigningAllowed(response, assignment.id);
+
+  let signatureEventId = 0;
+  const responseNote = input.response_note?.trim() || "";
+  const printOptions = defaultSignaturePrintOptions(input.print_options);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [lockedDocumentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE",
+      [documentId]
+    );
+    const lockedDocument = lockedDocumentRows[0];
+    if (!lockedDocument) {
+      throw notFound("Document");
+    }
+    assertDocumentSignable(lockedDocument);
+    const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(lockedDocument, {}, tokenPayload);
+    await assertPlacementTokenUnused(connection, tokenPayload.pinVerificationEventId);
+
+    const [eventResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO signature_events (
+        uuid, document_id, document_task_id, user_id, assignment_id,
+        signature_asset_id, pin_verification_event_id, document_version_number,
+        document_hash, response_note, print_options, status, render_page,
+        render_x, render_y, render_width, render_height, ip_address, user_agent
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        documentId,
+        null,
+        authUser.id,
+        assignment.id,
+        tokenPayload.signatureAssetId,
+        tokenPayload.pinVerificationEventId,
+        documentVersionNumber,
+        documentHash,
+        responseNote || null,
+        JSON.stringify(printOptions),
+        "completed",
+        input.render_page,
+        input.render_x,
+        input.render_y,
+        input.render_width,
+        input.render_height,
+        request.ip || null,
+        request.get("user-agent") || null
+      ]
+    );
+    signatureEventId = Number(eventResult.insertId);
+    const nextStatus = "partially_signed";
+    await connection.execute<ResultSetHeader>(
+      "UPDATE documents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [nextStatus, documentId]
+    );
+
+    await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_workflow_events (
+        uuid, document_id, actor_assignment_id, action, required_action,
+        from_status, to_status, from_unit_id, to_unit_id, to_position_id,
+        note, payload, permissions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        documentId,
+        assignment.id,
+        "sign",
+        "sign",
+        lockedDocument.status,
+        nextStatus,
+        lockedDocument.current_holder_unit_id,
+        assignment.unitId,
+        assignment.positionId,
+        "Document signed.",
+        JSON.stringify({
+          documentHash,
+          documentVersionNumber,
+          responseNote: responseNote || null,
+          signatureEventId,
+          signatureSource: "self",
+          placement: {
+            renderPage: input.render_page,
+            renderX: input.render_x,
+            renderY: input.render_y,
+            renderWidth: input.render_width,
+            renderHeight: input.render_height
+          }
+        }),
+        JSON.stringify({ selfSigned: true })
+      ]
+    );
+
+    await writeAuditLog(request, { action: "signature.event.create", entityType: "signature_event", entityId: signatureEventId }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  const [signatureEventRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_events WHERE id = ? LIMIT 1", [signatureEventId]);
+  const [documentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM documents WHERE id = ? LIMIT 1", [documentId]);
+  created(response, {
+    document: documentRows[0] || null,
+    finalRender: null,
+    serialAssignment: null,
+    signatureEvent: signatureEventRows[0] || null
+  });
+}));
+
+signatureRouter.post("/documents/:documentId/tasks/:taskId/signing-session", asyncHandler(async (request, response) => {
+  const params = z.object({
+    documentId: z.coerce.number().int().positive(),
+    taskId: z.coerce.number().int().positive()
+  }).parse(request.params);
+  const input = signingSessionSchema.parse(request.body);
+  const authUser = response.locals.authUser!;
+  const { document, assignment } = await assertDocumentAccess(params.documentId, request, response);
+
+  assertDocumentSignable(document);
+  const [taskRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT *
+     FROM document_tasks
+     WHERE id = ?
+       AND document_id = ?
+       AND status = 'open'
+       AND deleted_at IS NULL
+       AND (required_action = 'sign' OR can_sign = TRUE)
+       AND (
+         assigned_assignment_id = ?
+         OR (
+           assigned_unit_id = ?
+           AND (assigned_position_id IS NULL OR assigned_position_id = ?)
+         )
+       )
+     LIMIT 1`,
+    [params.taskId, params.documentId, assignment.id, assignment.unitId, assignment.positionId]
+  );
+  const task = taskRows[0];
+  if (!task) {
+    throw new AppError(404, "signature_task_not_found", "No open signature request is assigned to your active position.");
+  }
+  const responseNote = input.response_note?.trim() || "";
+  if (task.requires_comment && !responseNote) {
+    throw new AppError(422, "comment_required", "A comment is required before signing this request.");
+  }
+
+  const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(document, input);
+  const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
+  const preview = await activeSignatureAssetPreview(verification.signatureAssetId);
+  ok(response, {
+    ...signingSessionResponse({
+      assignmentId: assignment.id,
+      documentHash,
+      documentId: params.documentId,
+      documentVersionNumber,
+      pinVerificationEventId: verification.pinEventId,
+      preview,
+      purpose: "task",
+      signatureAssetId: verification.signatureAssetId,
+      taskId: params.taskId,
+      userId: authUser.id
+    }),
+    signer: await signerPayload(assignment.id)
+  });
+}));
+
 signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(async (request, response) => {
   const params = z.object({
     documentId: z.coerce.number().int().positive(),
@@ -634,7 +1110,16 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
   const input = signTaskSchema.parse(request.body);
   const authUser = response.locals.authUser!;
   const { assignment } = await assertDocumentAccess(params.documentId, request, response);
-  const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
+  const tokenPayload = input.placement_token ? parsePlacementToken(input.placement_token) : null;
+  if (tokenPayload && (
+    tokenPayload.purpose !== "task"
+    || tokenPayload.documentId !== params.documentId
+    || tokenPayload.taskId !== params.taskId
+    || tokenPayload.userId !== authUser.id
+    || tokenPayload.assignmentId !== assignment.id
+  )) {
+    throw new AppError(401, "invalid_signature_token", "Signature placement token is invalid for this request.");
+  }
 
   let signatureEventId = 0;
   let serialAssignmentAfterSign: RowDataPacket | null = null;
@@ -650,9 +1135,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
     if (!lockedDocument) {
       throw notFound("Document");
     }
-    if (["archived", "closed", "finalized", "serial_assigned"].includes(String(lockedDocument.status))) {
-      throw new AppError(409, "document_not_signable", "Finalized, closed, or archived documents cannot be signed.");
-    }
+    assertDocumentSignable(lockedDocument);
 
     const [taskRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
@@ -683,39 +1166,43 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
       throw new AppError(422, "comment_required", "A comment is required before signing this request.");
     }
 
-    const documentHash = calculateDocumentContentHash(lockedDocument);
-    const documentVersionNumber = Number(lockedDocument.current_version_number || 1);
-
-    if (
-      (input.expected_document_version_number && input.expected_document_version_number !== documentVersionNumber)
-      || (input.expected_document_hash && input.expected_document_hash !== documentHash)
-    ) {
-      throw new AppError(409, "document_version_changed", "The document changed after you opened it. Review the latest version before signing.");
+    const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(lockedDocument, input, tokenPayload || undefined);
+    let signatureAssetId = tokenPayload?.signatureAssetId || 0;
+    let pinVerificationEventId = tokenPayload?.pinVerificationEventId || 0;
+    if (tokenPayload) {
+      await assertPlacementTokenUnused(connection, tokenPayload.pinVerificationEventId);
+    } else {
+      const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin!);
+      signatureAssetId = verification.signatureAssetId;
+      pinVerificationEventId = verification.pinEventId;
     }
+    const printOptions = defaultSignaturePrintOptions(input.print_options);
 
     const [eventResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO signature_events (
         uuid, document_id, document_task_id, user_id, assignment_id,
         signature_asset_id, pin_verification_event_id, document_version_number,
-        document_hash, status, render_page,
+        document_hash, response_note, print_options, status, render_page,
         render_x, render_y, render_width, render_height, ip_address, user_agent
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
         params.documentId,
         params.taskId,
         authUser.id,
         assignment.id,
-        verification.signatureAssetId,
-        verification.pinEventId,
+        signatureAssetId,
+        pinVerificationEventId,
         documentVersionNumber,
         documentHash,
+        responseNote || null,
+        JSON.stringify(printOptions),
         "completed",
-        input.render_page || null,
-        input.render_x || null,
-        input.render_y || null,
-        input.render_width || null,
-        input.render_height || null,
+        input.render_page,
+        input.render_x,
+        input.render_y,
+        input.render_width,
+        input.render_height,
         request.ip || null,
         request.get("user-agent") || null
       ]
@@ -775,6 +1262,14 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
           documentHash,
           documentTaskId: params.taskId,
           documentVersionNumber,
+          placement: {
+            renderPage: input.render_page,
+            renderX: input.render_x,
+            renderY: input.render_y,
+            renderWidth: input.render_width,
+            renderHeight: input.render_height
+          },
+          printOptions,
           responseNote: responseNote || null,
           signatureEventId: eventId,
           serialAssignmentId: serialAssignmentAfterSign?.id || null
@@ -838,6 +1333,23 @@ async function unsetOtherDefaultSerialRules(connection: PoolConnection, serialRu
   );
 }
 
+function isDuplicateEntryError(error: unknown) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ER_DUP_ENTRY"
+  );
+}
+
+function rethrowCodeConflict(error: unknown): never {
+  if (isDuplicateEntryError(error)) {
+    throw new AppError(409, "code_conflict", "This code is already in use for the selected scope.");
+  }
+
+  throw error;
+}
+
 async function currentSerialSequenceValue(rule: SerialRuleLike & { id?: unknown }, context: SerialContext, date = new Date()) {
   if (!rule.id) {
     return 0;
@@ -898,6 +1410,10 @@ adminSignatureRouter.post("/serial-rules", asyncHandler(async (request, response
       await unsetOtherDefaultSerialRules(connection);
     }
 
+    const code = input.code || (await generateAdminCode(connection, {
+      entity_type: "serial_rule",
+      name: input.name
+    })).code;
     const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO serial_rules (
         uuid, code, name, format, scope, reset_policy, sequence_padding,
@@ -905,7 +1421,7 @@ adminSignatureRouter.post("/serial-rules", asyncHandler(async (request, response
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
-        input.code,
+        code,
         input.name,
         input.format,
         input.scope,
@@ -924,7 +1440,7 @@ adminSignatureRouter.post("/serial-rules", asyncHandler(async (request, response
     await connection.commit();
   } catch (error) {
     await connection.rollback();
-    throw error;
+    rethrowCodeConflict(error);
   } finally {
     connection.release();
   }
@@ -990,7 +1506,7 @@ adminSignatureRouter.patch("/serial-rules/:serialRuleId", asyncHandler(async (re
     await connection.commit();
   } catch (error) {
     await connection.rollback();
-    throw error;
+    rethrowCodeConflict(error);
   } finally {
     connection.release();
   }

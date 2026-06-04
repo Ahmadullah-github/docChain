@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { adminApi } from "../../../api";
 import { useI18n } from "../../../i18n";
 import { Button, Icon, PanelCard, SelectFilter, StatusBadge } from "../../ui";
 import { formatLabel, sampleSerialFor, serialResetPolicyOptions, serialScopeOptions, serialStatusOptions, unsupportedSerialTokens } from "./serialSettingsUtils";
@@ -44,10 +46,59 @@ function titleForMode(mode: BuilderMode, t: ReturnType<typeof useI18n>["t"]) {
 
 export function SerialFormatBuilder({ busy = false, embedded = false, form, formError, mode, onCancel, onChange, onSaveDraft, onSaveRule }: SerialFormatBuilderProps) {
   const { t } = useI18n();
+  const [codeManuallyEdited, setCodeManuallyEdited] = useState(mode === "edit");
+
+  useEffect(() => {
+    setCodeManuallyEdited(mode === "edit");
+  }, [form?.id, mode]);
+
+  useEffect(() => {
+    if (!form || mode === "edit" || codeManuallyEdited || !form.name.trim()) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: "serial_rule",
+          name: form.name
+        });
+        if (alive) {
+          onChange({ code: suggestion.code });
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [codeManuallyEdited, form?.name, mode]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSaveRule();
+  }
+
+  async function regenerateCode() {
+    if (!form?.name.trim()) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: "serial_rule",
+        exclude_id: form.id || undefined,
+        name: form.name
+      });
+      onChange({ code: suggestion.code });
+      setCodeManuallyEdited(false);
+    } catch {
+      // Code generation is a convenience; final create can still ask the server to generate.
+    }
   }
 
   const unsupportedTokens = form ? unsupportedSerialTokens(form.format) : [];
@@ -60,12 +111,18 @@ export function SerialFormatBuilder({ busy = false, embedded = false, form, form
       <section className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
         <div className="grid gap-3 md:grid-cols-2">
           <label className={labelClassName}>
-            <span>{t("admin.serialSettings.builder.ruleCode")}</span>
-            <input className={`${fieldClassName} force-ltr w-full text-start font-mono`} onChange={(event) => onChange({ code: event.target.value })} required value={form.code} />
-          </label>
-          <label className={labelClassName}>
             <span>{t("admin.serialSettings.builder.ruleName")}</span>
             <input className={`${fieldClassName} w-full`} onChange={(event) => onChange({ name: event.target.value })} required value={form.name} />
+          </label>
+          <label className={labelClassName}>
+            <span>{t("admin.serialSettings.builder.ruleCode")}</span>
+            <div className="flex gap-2">
+              <input className={`${fieldClassName} force-ltr w-full text-start font-mono uppercase`} maxLength={80} onChange={(event) => {
+                setCodeManuallyEdited(true);
+                onChange({ code: event.target.value.toUpperCase() });
+              }} value={form.code} />
+              <Button className="min-h-10 px-3" disabled={!form.name.trim()} icon="reset" onClick={() => void regenerateCode()}>{t("admin.code.generate")}</Button>
+            </div>
           </label>
           <label className={labelClassName}>
             <span>{t("admin.serialSettings.builder.scope")}</span>

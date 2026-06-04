@@ -63,17 +63,6 @@ const fieldClassName = "mt-1 block min-h-10 w-full rounded-lg border border-slat
 const checkboxClassName = "h-4 w-4 rounded border-slate-300 text-[#061d49] focus:ring-[#061d49]/20";
 const documentTypeStatuses = ["active", "draft", "inactive", "archived"];
 
-function suggestTypeCode(name: string) {
-  const normalized = name
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 80);
-
-  return normalized || "";
-}
-
 function documentTypeFormDefaults(): DocumentTypeForm {
   return {
     code: "",
@@ -570,6 +559,32 @@ export function AdminDocumentTypesPage() {
   }, [rows, selectedTypeId]);
 
   useEffect(() => {
+    if (activeModal !== "create" || codeManuallyEdited || !typeForm.name.trim()) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: "document_type",
+          name: typeForm.name
+        });
+        if (alive) {
+          setTypeForm((current) => ({ ...current, code: suggestion.code }));
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeModal, codeManuallyEdited, typeForm.name]);
+
+  useEffect(() => {
     setEditingRuleId(null);
     setRuleForm(writeRuleFormDefaults());
     setShowArchivedRules(false);
@@ -591,6 +606,7 @@ export function AdminDocumentTypesPage() {
     setModalTypeId(null);
     setFormError(null);
     setBusy(false);
+    setCodeManuallyEdited(false);
   }
 
   function openCreateTypeModal() {
@@ -614,7 +630,7 @@ export function AdminDocumentTypesPage() {
     setSelectedTypeId(row.id);
     setModalTypeId(row.id);
     setTypeForm(clonedDocumentTypeFormFor(row));
-    setCodeManuallyEdited(true);
+    setCodeManuallyEdited(false);
     setFormError(null);
     setActiveModal("create");
   }
@@ -646,7 +662,6 @@ export function AdminDocumentTypesPage() {
   function updateTypeName(name: string) {
     setTypeForm((current) => ({
       ...current,
-      code: codeManuallyEdited ? current.code : suggestTypeCode(name),
       name
     }));
   }
@@ -654,6 +669,24 @@ export function AdminDocumentTypesPage() {
   function updateTypeCode(code: string) {
     setCodeManuallyEdited(true);
     setTypeForm((current) => ({ ...current, code: code.toUpperCase() }));
+  }
+
+  async function regenerateTypeCode() {
+    if (!typeForm.name.trim()) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: "document_type",
+        exclude_id: modalTypeId || undefined,
+        name: typeForm.name
+      });
+      setTypeForm((current) => ({ ...current, code: suggestion.code }));
+      setCodeManuallyEdited(false);
+    } catch (error) {
+      setFormError(errorMessage(error));
+    }
   }
 
   async function handleCreateType(event: FormEvent<HTMLFormElement>) {
@@ -766,7 +799,10 @@ export function AdminDocumentTypesPage() {
           </label>
           <label className={labelClassName}>
             {t("admin.documentTypes.form.code")}
-            <input className={`${fieldClassName} force-ltr text-start uppercase`} maxLength={80} onChange={(event) => updateTypeCode(event.target.value)} required value={typeForm.code} />
+            <div className="flex gap-2">
+              <input className={`${fieldClassName} force-ltr text-start uppercase`} maxLength={80} onChange={(event) => updateTypeCode(event.target.value)} required value={typeForm.code} />
+              <Button className="mt-1 min-h-10 px-3" disabled={!typeForm.name.trim()} icon="reset" onClick={() => void regenerateTypeCode()}>{t("admin.code.generate")}</Button>
+            </div>
           </label>
           <label className={labelClassName}>
             {t("admin.documentTypes.form.status")}

@@ -160,7 +160,9 @@ export function AdminOrganizationsPage() {
   const [importPreview, setImportPreview] = useState<StructureImportPreview | null>(null);
   const [assignmentForm, setAssignmentForm] = useState(assignmentInitialForm);
   const [organizationForm, setOrganizationForm] = useState(organizationInitialForm);
+  const [organizationCodeManuallyEdited, setOrganizationCodeManuallyEdited] = useState(false);
   const [unitForm, setUnitForm] = useState(unitInitialForm);
+  const [unitCodeManuallyEdited, setUnitCodeManuallyEdited] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -188,6 +190,68 @@ export function AdminOrganizationsPage() {
       setSelectedUnitId(chooseDefaultUnit(data.units)?.id || null);
     }
   }, [data.units, selectedUnitId]);
+
+  useEffect(() => {
+    if (activeModal !== "organization" || organizationCodeManuallyEdited || !organizationForm.name.trim()) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: "organization",
+          name: organizationForm.name
+        });
+        if (alive) {
+          setOrganizationForm((form) => ({ ...form, code: suggestion.code }));
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeModal, organizationCodeManuallyEdited, organizationForm.name]);
+
+  useEffect(() => {
+    if (
+      activeModal !== "unit" ||
+      editingUnitId ||
+      unitCodeManuallyEdited ||
+      !unitForm.name.trim() ||
+      !unitForm.organization_id ||
+      !unitForm.unit_type_id
+    ) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: "unit",
+          name: unitForm.name,
+          organization_id: Number(unitForm.organization_id),
+          parent_unit_id: unitForm.parent_unit_id ? Number(unitForm.parent_unit_id) : null,
+          unit_type_id: Number(unitForm.unit_type_id)
+        });
+        if (alive) {
+          setUnitForm((form) => ({ ...form, code: suggestion.code }));
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeModal, editingUnitId, unitCodeManuallyEdited, unitForm.name, unitForm.organization_id, unitForm.parent_unit_id, unitForm.unit_type_id]);
 
   const positionsById = useMemo(() => new Map(data.positions.map((position) => [position.id, position])), [data.positions]);
   const selectedUnit = data.units.find((unit) => unit.id === selectedUnitId) || null;
@@ -269,10 +333,13 @@ export function AdminOrganizationsPage() {
     setImportFile(null);
     setImportMessage(null);
     setImportPreview(null);
+    setOrganizationCodeManuallyEdited(false);
+    setUnitCodeManuallyEdited(false);
   }
 
   function openOrganizationModal() {
     setOrganizationForm(organizationInitialForm);
+    setOrganizationCodeManuallyEdited(false);
     setFormError(null);
     setActiveModal("organization");
   }
@@ -312,6 +379,7 @@ export function AdminOrganizationsPage() {
       unit_type_id: chooseChildUnitTypeId(parentUnit)
     });
     setEditingUnitId(null);
+    setUnitCodeManuallyEdited(false);
     setFormError(null);
     setActiveModal("unit");
   }
@@ -334,8 +402,47 @@ export function AdminOrganizationsPage() {
       unit_type_id: String(unit.unit_type_id || "")
     });
     setEditingUnitId(unit.id);
+    setUnitCodeManuallyEdited(true);
     setFormError(null);
     setActiveModal("unit");
+  }
+
+  async function regenerateOrganizationCode() {
+    if (!organizationForm.name.trim()) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: "organization",
+        name: organizationForm.name
+      });
+      setOrganizationForm((form) => ({ ...form, code: suggestion.code }));
+      setOrganizationCodeManuallyEdited(false);
+    } catch (error) {
+      setFormError(formErrorMessage(error));
+    }
+  }
+
+  async function regenerateUnitCode() {
+    if (!unitForm.name.trim() || !unitForm.organization_id || !unitForm.unit_type_id) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: "unit",
+        exclude_id: editingUnitId || undefined,
+        name: unitForm.name,
+        organization_id: Number(unitForm.organization_id),
+        parent_unit_id: unitForm.parent_unit_id ? Number(unitForm.parent_unit_id) : null,
+        unit_type_id: Number(unitForm.unit_type_id)
+      });
+      setUnitForm((form) => ({ ...form, code: suggestion.code }));
+      setUnitCodeManuallyEdited(false);
+    } catch (error) {
+      setFormError(formErrorMessage(error));
+    }
   }
 
   function openAddChildUnitModal(unitId: EntityId) {
@@ -447,7 +554,7 @@ export function AdminOrganizationsPage() {
         await adminApi.units.update(editingUnitId, unitInput);
         await refreshOrganizations(editingUnitId);
       } else {
-        const createdUnit = await adminApi.units.create(unitInput);
+        const createdUnit = await adminApi.units.create({ ...unitInput, create_default_position: true });
         await refreshOrganizations(createdUnit.id);
       }
 
@@ -720,8 +827,8 @@ export function AdminOrganizationsPage() {
         <form className="grid gap-4 md:grid-cols-2" id="organization-create-form" onSubmit={handleCreateOrganization}>
           {formError ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 md:col-span-2">{formError}</p> : null}
           <label className={labelClassName}>
-            {t("admin.organizations.form.code")}
-            <input className={fieldClassName} onChange={(event) => setOrganizationForm((form) => ({ ...form, code: event.target.value }))} required value={organizationForm.code} />
+            {t("admin.organizations.form.name")}
+            <input className={fieldClassName} onChange={(event) => setOrganizationForm((form) => ({ ...form, name: event.target.value }))} required value={organizationForm.name} />
           </label>
           <label className={labelClassName}>
             {t("admin.organizations.form.status")}
@@ -731,8 +838,14 @@ export function AdminOrganizationsPage() {
             </select>
           </label>
           <label className={labelClassName}>
-            {t("admin.organizations.form.name")}
-            <input className={fieldClassName} onChange={(event) => setOrganizationForm((form) => ({ ...form, name: event.target.value }))} required value={organizationForm.name} />
+            {t("admin.organizations.form.code")}
+            <div className="flex gap-2">
+              <input className={`${fieldClassName} force-ltr text-start uppercase`} maxLength={64} onChange={(event) => {
+                setOrganizationCodeManuallyEdited(true);
+                setOrganizationForm((form) => ({ ...form, code: event.target.value.toUpperCase() }));
+              }} required value={organizationForm.code} />
+              <Button className="mt-1 min-h-10 px-3" disabled={!organizationForm.name.trim()} icon="reset" onClick={() => void regenerateOrganizationCode()}>{t("admin.code.generate")}</Button>
+            </div>
           </label>
           <label className={labelClassName}>
             {t("admin.organizations.form.localName")}
@@ -825,12 +938,18 @@ export function AdminOrganizationsPage() {
             </select>
           </label>
           <label className={labelClassName}>
-            {t("admin.organizations.form.code")}
-            <input className={fieldClassName} onChange={(event) => setUnitForm((form) => ({ ...form, code: event.target.value }))} required value={unitForm.code} />
-          </label>
-          <label className={labelClassName}>
             {t("admin.organizations.form.name")}
             <input className={fieldClassName} onChange={(event) => setUnitForm((form) => ({ ...form, name: event.target.value }))} required value={unitForm.name} />
+          </label>
+          <label className={labelClassName}>
+            {t("admin.organizations.form.code")}
+            <div className="flex gap-2">
+              <input className={`${fieldClassName} force-ltr text-start uppercase`} maxLength={80} onChange={(event) => {
+                setUnitCodeManuallyEdited(true);
+                setUnitForm((form) => ({ ...form, code: event.target.value.toUpperCase() }));
+              }} required value={unitForm.code} />
+              <Button className="mt-1 min-h-10 px-3" disabled={!unitForm.name.trim() || !unitForm.organization_id || !unitForm.unit_type_id} icon="reset" onClick={() => void regenerateUnitCode()}>{t("admin.code.generate")}</Button>
+            </div>
           </label>
           <label className={labelClassName}>
             {t("admin.organizations.form.localName")}

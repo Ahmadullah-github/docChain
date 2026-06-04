@@ -56,6 +56,7 @@ type UnitTypeInput = Partial<UnitType> & {
 };
 
 type UnitInput = Partial<Unit> & {
+  create_default_position?: boolean;
   organization_id?: EntityId;
   unit_type_id?: EntityId;
   code?: string;
@@ -140,6 +141,23 @@ type AuditLogQuery = {
   q?: QueryValue;
 };
 
+type CodeSuggestionInput = {
+  entity_type: "organization" | "unit" | "position" | "document_type" | "confidentiality_level" | "priority_level" | "serial_rule";
+  exclude_id?: EntityId;
+  name?: string;
+  organization_id?: EntityId;
+  parent_unit_id?: EntityId | null;
+  title?: string;
+  unit_id?: EntityId;
+  unit_type_id?: EntityId;
+};
+
+type CodeSuggestion = {
+  base: string;
+  code: string;
+  sequence: number;
+};
+
 function resourceApi<TRecord, TCreate extends object, TUpdate extends object = Partial<TCreate> & StatusPatch>(path: string) {
   return {
     list() {
@@ -172,6 +190,11 @@ export const adminApi = {
   auditLogs: {
     list(query?: AuditLogQuery) {
       return getJson<AuditLog[]>("/api/admin/audit-logs", query);
+    }
+  },
+  codeSuggestions: {
+    create(input: CodeSuggestionInput) {
+      return postJson<CodeSuggestion>("/api/admin/code-suggestions", input);
     }
   },
   persons: resourceApi<Person, PersonInput>("/api/admin/persons"),
