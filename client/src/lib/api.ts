@@ -142,20 +142,46 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 
 export async function apiBlobRequest(path: string, options: RequestInit = {}) {
   const method = (options.method || "GET").toUpperCase();
-  const headers = new Headers(options.headers);
+  const unsafeRequest = !["GET", "HEAD", "OPTIONS"].includes(method);
+  const csrfExempt = isCsrfExemptPath(path);
 
-  headers.set("accept-language", apiLocale);
-
-  if (!["GET", "HEAD", "OPTIONS"].includes(method) && csrfToken) {
-    headers.set("x-csrf-token", csrfToken);
+  if (unsafeRequest && !csrfExempt && !csrfToken) {
+    await refreshCsrfTokenFromSession();
   }
 
-  const response = await fetch(path, {
-    ...options,
-    method,
-    headers,
-    credentials: "include"
-  });
+  const request = async () => {
+    const headers = new Headers(options.headers);
+
+    if (!headers.has("content-type") && options.body && !isFormDataBody(options.body)) {
+      headers.set("content-type", "application/json");
+    }
+
+    headers.set("accept-language", apiLocale);
+
+    if (unsafeRequest && csrfToken) {
+      headers.set("x-csrf-token", csrfToken);
+    }
+
+    return fetch(path, {
+      ...options,
+      method,
+      headers,
+      credentials: "include"
+    });
+  };
+
+  let response = await request();
+
+  if (!response.ok && unsafeRequest && !csrfExempt) {
+    const payload = await response.clone().json().catch(() => null);
+    const errorPayload = payload as ApiErrorPayload | null;
+    if (response.status === 403 && errorPayload?.error?.code === "csrf_failed") {
+      await refreshCsrfTokenFromSession();
+      if (csrfToken) {
+        response = await request();
+      }
+    }
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null);

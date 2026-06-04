@@ -1,5 +1,5 @@
 import { getJson, patchJson, postJson } from "./http";
-import { apiRequest } from "../lib/api";
+import { apiBlobRequest, apiRequest } from "../lib/api";
 import type {
   ActiveDocumentTemplate,
   DocumentContent,
@@ -127,10 +127,18 @@ export const templateApi = {
   },
 
   render(documentId: EntityId, input: RenderTemplateInput) {
-    return postJson<{ renderId?: EntityId; fileAssetId?: EntityId; storagePath?: string; byteSize?: number; html?: string; reused?: boolean; metadata?: Record<string, unknown> }>(
+    return postJson<{ html?: string; layout_definition?: TemplateLayout }>(
       `/api/templates/documents/${documentId}/render`,
       input
     );
+  },
+
+  renderPdf(documentId: EntityId, input: RenderTemplateInput & { download?: boolean }) {
+    const { output: _output, ...body } = input;
+    return apiBlobRequest(`/api/templates/documents/${documentId}/pdf`, {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
   },
 
   preview(input: PreviewTemplateInput) {

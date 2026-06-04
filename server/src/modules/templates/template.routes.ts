@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import puppeteer from "puppeteer";
+import QRCode from "qrcode";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
@@ -18,6 +18,7 @@ import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
 import { documentContentToPlainText, normalizeDocumentContent, normalizeTemplateFieldRecord } from "../documents/document-content";
 import { signatureEventsWithAssets } from "./final-render-service";
+import { renderHtmlToPdf } from "./pdf-renderer";
 import { defaultTemplateLayout, renderTemplateHtml } from "./template-renderer";
 import type { TemplateLayout } from "./template-renderer";
 
@@ -92,6 +93,9 @@ const renderSchema = z.object({
     visibility_reason: optionalNullableString
   })).default([])
 });
+const pdfRenderSchema = renderSchema.extend({
+  download: z.boolean().default(false)
+});
 
 const templateFieldKeySchema = z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9_.-]+$/);
 const templateFieldValueSchema = z.string().max(10_000);
@@ -162,25 +166,6 @@ function activeBindingPayload(row: RowDataPacket) {
     ...row,
     layout_definition: parseTemplateLayoutDefinition(row.layoutDefinition, "The active published template layout is invalid.")
   };
-}
-
-function chromeExecutablePath() {
-  const candidates = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    "/opt/google/chrome/chrome",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser"
-  ].filter(Boolean) as string[];
-
-  return candidates.find((candidate) => {
-    try {
-      return require("node:fs").existsSync(candidate);
-    } catch {
-      return false;
-    }
-  });
 }
 
 function extensionForMimeType(mimeType: string) {
@@ -471,98 +456,109 @@ type RenderableLayout = {
   version: RowDataPacket | null;
 };
 
-type EnsureOfficialPdfRenderInput = {
+const lockedOfficialPdfStatuses = new Set(["finalized", "archived", "closed", "serial_assigned"]);
+
+function tokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function verificationUrlForToken(token: string) {
+  return new URL(`/verify/${token}`, env.APP_ORIGIN).toString();
+}
+
+function metadataRecord(value: unknown) {
+  return parseJson<Record<string, unknown>>(value, {});
+}
+
+async function activePublicVerificationUrl(documentId: number, documentHash: string) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT *
+     FROM document_verification_tokens
+     WHERE document_id = ?
+       AND verification_scope = 'public_minimal'
+       AND status = 'active'
+       AND revoked_at IS NULL
+       AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+     ORDER BY created_at DESC, id DESC
+     LIMIT 25`,
+    [documentId]
+  );
+
+  for (const row of rows) {
+    const metadata = metadataRecord(row.metadata);
+    const url = typeof metadata.verificationUrl === "string" ? metadata.verificationUrl : "";
+    if (metadata.documentHash === documentHash && metadata.publicRouteEnabled === true && url) {
+      return url;
+    }
+  }
+
+  return "";
+}
+
+async function ensurePublicVerificationForPdf(request: Request, input: {
   assignmentId: number;
-  documentId: number;
-  layout_definition?: TemplateLayout;
-  layout_draft_id?: number | null;
-  locale?: z.infer<typeof localeSchema>;
-  signature_visibility?: RenderSignatureVisibilityInput;
-  template_id?: number | null;
-  template_version_id?: number | null;
-  variant?: z.infer<typeof variantSchema>;
-};
-
-function sha256Json(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function normalizedSignatureVisibility(input: RenderSignatureVisibilityInput) {
-  return input
-    .map((item) => ({
-      isVisible: item.is_visible,
-      signatureEventId: item.signature_event_id || null,
-      visibilityReason: item.visibility_reason || null
-    }))
-    .sort((left, right) => {
-      const leftId = left.signatureEventId || 0;
-      const rightId = right.signatureEventId || 0;
-      if (leftId !== rightId) {
-        return leftId - rightId;
-      }
-      return String(left.visibilityReason || "").localeCompare(String(right.visibilityReason || ""));
-    });
-}
-
-function officialRenderMetadata(input: {
-  cacheIdentityHash: string;
   documentHash: string;
-  layoutHash: string;
-  locale: z.infer<typeof localeSchema>;
-  renderable: RenderableLayout;
-  signatureVisibilityHash: string;
-  sourceVersionNumber: number;
+  documentId: number;
+}) {
+  const existingUrl = await activePublicVerificationUrl(input.documentId, input.documentHash);
+  if (existingUrl) {
+    return {
+      qrDataUrl: await QRCode.toDataURL(existingUrl, { errorCorrectionLevel: "M", margin: 1, width: 180 }),
+      url: existingUrl
+    };
+  }
+
+  const rawToken = randomBytes(32).toString("hex");
+  const verificationUrl = verificationUrlForToken(rawToken);
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO document_verification_tokens (
+      uuid, document_id, document_render_id, token_hash, verification_scope,
+      status, expires_at, created_by_assignment_id, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      uuid(),
+      input.documentId,
+      null,
+      tokenHash(rawToken),
+      "public_minimal",
+      "active",
+      null,
+      input.assignmentId,
+      JSON.stringify({
+        documentHash: input.documentHash,
+        publicRouteEnabled: true,
+        verificationUrl
+      })
+    ]
+  );
+  await writeAuditLog(request, { action: "document.verification_token.create", entityType: "document_verification_token", entityId: result.insertId });
+
+  return {
+    qrDataUrl: await QRCode.toDataURL(verificationUrl, { errorCorrectionLevel: "M", margin: 1, width: 180 }),
+    url: verificationUrl
+  };
+}
+
+async function verificationForPdf(request: Request, input: {
+  assignmentId: number;
+  documentHash: string;
+  documentId: number;
+  status: string;
   variant: z.infer<typeof variantSchema>;
 }) {
-  const layoutDraftId = input.renderable.layoutDraft ? Number(input.renderable.layoutDraft.id) || null : null;
-  const baseTemplateVersionId = input.renderable.layoutDraft ? Number(input.renderable.layoutDraft.base_template_version_id) || null : null;
-  const templateId = input.renderable.template ? Number(input.renderable.template.id) || null : null;
-  const templateVersionId = input.renderable.version ? Number(input.renderable.version.id) || null : null;
-  return {
-    baseTemplateVersionId,
-    cacheIdentityHash: input.cacheIdentityHash,
-    documentHash: input.documentHash,
-    layoutDraftId,
-    layoutHash: input.layoutHash,
-    layoutSource: layoutDraftId ? "document_layout_snapshot" : "template_binding",
-    locale: input.locale,
-    renderPurpose: "official_template_pdf",
-    signatureVisibilityHash: input.signatureVisibilityHash,
-    sourceVersionNumber: input.sourceVersionNumber,
-    templateId,
-    templateVersionId,
-    variant: input.variant
-  };
+  if (input.variant !== "official" || !lockedOfficialPdfStatuses.has(input.status)) {
+    return null;
+  }
+
+  return ensurePublicVerificationForPdf(request, input);
 }
 
-async function existingOfficialPdfRender(renderKey: string) {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT
-      document_renders.*,
-      file_assets.storage_path AS storagePath,
-      file_assets.byte_size AS byteSize
-     FROM document_renders
-     INNER JOIN file_assets ON document_renders.file_asset_id = file_assets.id
-     WHERE document_renders.render_key = ?
-       AND document_renders.render_type = 'template_pdf'
-       AND document_renders.status = 'generated'
-       AND file_assets.status = 'active'
-       AND file_assets.deleted_at IS NULL
-     LIMIT 1`,
-    [renderKey]
-  );
-  return rows[0] || null;
-}
-
-function officialPdfResponse(row: RowDataPacket, reused: boolean, metadata: Record<string, unknown>) {
-  return {
-    byteSize: Number(row.byteSize || row.byte_size || 0),
-    fileAssetId: Number(row.file_asset_id),
-    metadata,
-    renderId: Number(row.id),
-    reused,
-    storagePath: String(row.storagePath || "")
-  };
+function pdfFilename(documentId: number, document: RowDataPacket) {
+  const serial = String(document.official_serial || document.internal_reference || documentId)
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return `document-${serial || documentId}.pdf`;
 }
 
 function renderSignatureVisibilityRecord(input: RenderSignatureVisibilityInput) {
@@ -619,160 +615,6 @@ async function documentRenderContext(documentId: number, signatureVisibility: Re
     signatureEvents,
     workflowEvents,
     serialAssignment: serialRows[0] || null
-  };
-}
-
-export async function ensureOfficialDocumentPdfRender(request: Request, input: EnsureOfficialPdfRenderInput) {
-  const locale = input.locale || "all";
-  const variant = input.variant || "official";
-  const signatureVisibility = input.signature_visibility || [];
-  const renderInput: z.infer<typeof renderSchema> = {
-    layout_definition: input.layout_definition,
-    layout_draft_id: input.layout_draft_id || null,
-    locale,
-    output: "pdf",
-    signature_visibility: signatureVisibility,
-    template_id: input.template_id || null,
-    template_version_id: input.template_version_id || null,
-    variant
-  };
-
-  const context = await documentRenderContext(input.documentId, signatureVisibility);
-  const renderable = await getRenderableLayout(renderInput, {
-    documentId: input.documentId,
-    documentTypeId: Number(context.document.document_type_id) || null
-  }) as RenderableLayout;
-  const sourceVersionNumber = Number(context.document.current_version_number || 1);
-  const documentHash = calculateDocumentContentHash(context.document);
-  const layoutHash = sha256Json(renderable.layout);
-  const signatureVisibilityHash = sha256Json(normalizedSignatureVisibility(signatureVisibility));
-  const layoutDraftId = renderable.layoutDraft ? Number(renderable.layoutDraft.id) || null : null;
-  const baseTemplateVersionId = renderable.layoutDraft ? Number(renderable.layoutDraft.base_template_version_id) || null : null;
-  const templateId = renderable.template ? Number(renderable.template.id) || null : null;
-  const templateVersionId = renderable.version ? Number(renderable.version.id) || null : null;
-  const cacheIdentity = {
-    baseTemplateVersionId,
-    documentHash,
-    layoutDraftId,
-    layoutHash,
-    locale,
-    signatureVisibilityHash,
-    sourceVersionNumber,
-    templateId,
-    templateVersionId,
-    variant
-  };
-  const cacheIdentityHash = sha256Json(cacheIdentity);
-  const renderKey = `official_template_pdf_${input.documentId}_${cacheIdentityHash.slice(0, 64)}`;
-  const metadata = officialRenderMetadata({
-    cacheIdentityHash,
-    documentHash,
-    layoutHash,
-    locale,
-    renderable,
-    signatureVisibilityHash,
-    sourceVersionNumber,
-    variant
-  });
-
-  const existing = await existingOfficialPdfRender(renderKey);
-  if (existing) {
-    return officialPdfResponse(existing, true, parseJson(existing.metadata, metadata));
-  }
-
-  const html = renderTemplateHtml(renderable.layout, context);
-  const pdfBuffer = await htmlToPdf(html);
-  const rendersDir = path.resolve(process.cwd(), "storage/document-renders");
-  await fs.mkdir(rendersDir, { recursive: true });
-  const pdfFilename = `${uuid()}.pdf`;
-  const storagePath = path.join("storage/document-renders", pdfFilename);
-  await fs.writeFile(path.resolve(process.cwd(), storagePath), pdfBuffer);
-  const checksum = createHash("sha256").update(pdfBuffer).digest("hex");
-
-  let renderId = 0;
-  let fileAssetId = 0;
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [assetResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO file_assets (
-        uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
-        storage_disk, storage_path, original_filename, stored_filename,
-        mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        request.session.userId || null,
-        input.assignmentId,
-        "document_render_pdf",
-        "local",
-        storagePath,
-        `document-${input.documentId}.pdf`,
-        pdfFilename,
-        "application/pdf",
-        pdfBuffer.length,
-        checksum,
-        "not_encrypted",
-        "active",
-        JSON.stringify(metadata)
-      ]
-    );
-    fileAssetId = Number(assetResult.insertId);
-
-    const [renderResult] = await connection.execute<ResultSetHeader>(
-      `INSERT INTO document_renders (
-        uuid, document_id, file_asset_id, render_key, render_type,
-        visibility_policy, source_version_number, document_hash, status,
-        created_by_assignment_id, render_definition, metadata
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        uuid(),
-        input.documentId,
-        fileAssetId,
-        renderKey,
-        "template_pdf",
-        variant,
-        sourceVersionNumber,
-        documentHash,
-        "generated",
-        input.assignmentId,
-        JSON.stringify(renderable.layout),
-        JSON.stringify(metadata)
-      ]
-    );
-    renderId = Number(renderResult.insertId);
-    for (const item of signatureVisibility) {
-      await connection.execute<ResultSetHeader>(
-        `INSERT INTO render_signature_visibility (
-          uuid, document_render_id, signature_event_id,
-          is_visible, visibility_reason, visibility_policy
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-        [
-          uuid(),
-          renderId,
-          item.signature_event_id || null,
-          item.is_visible,
-          item.visibility_reason || null,
-          variant
-        ]
-      );
-    }
-    await writeAuditLog(request, { action: "document.template_render.create", entityType: "document_render", entityId: renderId }, connection);
-    await connection.commit();
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-
-  return {
-    byteSize: pdfBuffer.length,
-    fileAssetId,
-    metadata,
-    renderId,
-    reused: false,
-    storagePath
   };
 }
 
@@ -857,26 +699,6 @@ async function draftRenderContext(request: Request, input: z.infer<typeof draftP
     workflowEvents: [],
     serialAssignment: null
   };
-}
-
-async function htmlToPdf(html: string) {
-  const executablePath = chromeExecutablePath();
-  const browser = await puppeteer.launch({
-    executablePath,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    headless: true
-  });
-  try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    return Buffer.from(await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" }
-    }));
-  } finally {
-    await browser.close();
-  }
 }
 
 templateRouter.get("/", asyncHandler(async (request, response) => {
@@ -1261,23 +1083,51 @@ templateRouter.put("/documents/:documentId/layout-draft", asyncHandler(async (re
   ok(response, { ...rows[0], layout_definition: parseJson(rows[0].layout_definition, defaultTemplateLayout()) });
 }));
 
+templateRouter.post("/documents/:documentId/pdf", asyncHandler(async (request, response) => {
+  const { documentId } = documentIdSchema.parse(request.params);
+  const input = pdfRenderSchema.parse(request.body);
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  const signatureVisibility = input.signature_visibility || [];
+  const context = await documentRenderContext(documentId, signatureVisibility);
+  const renderInput: z.infer<typeof renderSchema> = {
+    layout_definition: input.layout_definition,
+    layout_draft_id: input.layout_draft_id || null,
+    locale: input.locale,
+    output: "pdf",
+    signature_visibility: signatureVisibility,
+    template_id: input.template_id || null,
+    template_version_id: input.template_version_id || null,
+    variant: input.variant
+  };
+  const renderable = await getRenderableLayout(renderInput, {
+    documentId,
+    documentTypeId: Number(context.document.document_type_id) || null
+  }) as RenderableLayout;
+  const documentHash = calculateDocumentContentHash(context.document);
+  const verification = await verificationForPdf(request, {
+    assignmentId: assignment.id,
+    documentHash,
+    documentId,
+    status: String(context.document.status || "draft"),
+    variant: input.variant
+  });
+  const html = renderTemplateHtml(renderable.layout, { ...context, verification });
+  const pdfBuffer = await renderHtmlToPdf(html);
+  const filename = pdfFilename(documentId, context.document);
+  const disposition = input.download ? "attachment" : "inline";
+
+  response.setHeader("content-type", "application/pdf");
+  response.setHeader("content-length", String(pdfBuffer.length));
+  response.setHeader("content-disposition", `${disposition}; filename="${filename.replaceAll("\"", "")}"`);
+  response.send(pdfBuffer);
+}));
+
 templateRouter.post("/documents/:documentId/render", asyncHandler(async (request, response) => {
   const { documentId } = documentIdSchema.parse(request.params);
   const input = renderSchema.parse(request.body);
-  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  await assertDocumentAccess(documentId, request, response);
   if (input.output === "pdf") {
-    created(response, await ensureOfficialDocumentPdfRender(request, {
-      assignmentId: assignment.id,
-      documentId,
-      layout_definition: input.layout_definition,
-      layout_draft_id: input.layout_draft_id || null,
-      locale: input.locale,
-      signature_visibility: input.signature_visibility,
-      template_id: input.template_id || null,
-      template_version_id: input.template_version_id || null,
-      variant: input.variant
-    }));
-    return;
+    throw new AppError(410, "pdf_render_endpoint_changed", "Use the document PDF endpoint for PDF output.");
   }
 
   const context = await documentRenderContext(documentId, input.signature_visibility);

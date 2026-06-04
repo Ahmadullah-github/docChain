@@ -18,8 +18,6 @@ import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
 import { refreshSearchIndexForEntitySafe } from "../search/global-search.service";
 import { assignOfficialSerial } from "../signatures/serial-assignment-service";
-import { createFinalDocumentRender } from "../templates/final-render-service";
-import { ensureOfficialDocumentPdfRender } from "../templates/template.routes";
 import { assertWalkInArchiveAllowedForDocument, markWalkInRequestArchivedForDocument, markWalkInRequestFinalizedForDocument } from "../walk-in-issuance/walk-in-issuance.service";
 import { documentContentToPlainText, normalizeDocumentContent, normalizeTemplateFieldRecord } from "./document-content";
 
@@ -1007,16 +1005,15 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
   ok(response, rows.map((row) => {
     const status = String(row.status || "draft");
     const draft = status === "draft";
-    const finalized = status === "finalized";
     const creator = Number(row.creatorAssignmentId) === context.assignment.id;
     const creatorCanWrite = creator && writableDocumentTypeIds.has(Number(row.documentTypeId));
 
     return {
       ...row,
       canDelete: draft && (admin || creator),
-      canDownloadPdf: finalized,
+      canDownloadPdf: true,
       canEdit: draft && (admin || creatorCanWrite),
-      canOpenPdf: finalized
+      canOpenPdf: true
     };
   }));
 }));
@@ -1291,12 +1288,6 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
 
   const recipients = normalizeSendRecipients(input);
   const targets = await Promise.all(recipients.map((recipient) => unitPositionTarget(recipient.to_unit_id, recipient.to_position_id || null)));
-  const sendRender = await ensureOfficialDocumentPdfRender(request, {
-    assignmentId: assignment.id,
-    documentId,
-    locale: "all",
-    variant: "official"
-  });
   const nextStatus = nextStatusForRequests(String(document.status || "draft"), recipients);
   let eventId = 0;
   const taskIds: number[] = [];
@@ -1332,8 +1323,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
             toPositionId: recipient.to_position_id || null,
             toUnitId: recipient.to_unit_id
           })),
-          sendRenderId: sendRender.renderId,
-          sendRenderReused: sendRender.reused
+          sendRenderId: null
         }),
         JSON.stringify(recipients.map((recipient) => permissionsForRecipient(recipient)))
       ]
@@ -1374,7 +1364,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
           JSON.stringify({
             requiredAction: recipient.required_action,
             requiresComment: Boolean(recipient.requires_comment),
-            sendRenderId: sendRender.renderId,
+            sendRenderId: null,
             targetId: target.id,
             targetLabel: target.type === "unit_position" ? `${target.positionTitle} - ${target.unitName}` : target.unitName
           })
@@ -1395,7 +1385,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
       action: "document.send",
       entityType: "document",
       entityId: documentId,
-      metadata: { eventId, sendRenderId: sendRender.renderId, taskIds }
+      metadata: { eventId, sendRenderId: null, taskIds }
     }, connection);
     await connection.commit();
   } catch (error) {
@@ -1416,7 +1406,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
   created(response, {
     event: eventRows[0] || null,
     tasks: taskRows,
-    sendRender,
+    sendRender: null,
     message: `Sent to ${recipients.length} receiver${recipients.length === 1 ? "" : "s"}.`
   });
 }));
@@ -1428,7 +1418,6 @@ documentRouter.post("/:documentId/finalize", asyncHandler(async (request, respon
   await assertLifecyclePermission(document, assignment, response, "can_finalize");
 
   let serialAssignment: RowDataPacket | null = null;
-  let documentHash = "";
 
   const connection = await pool.getConnection();
   try {
@@ -1444,7 +1433,6 @@ documentRouter.post("/:documentId/finalize", asyncHandler(async (request, respon
     if (["archived", "closed"].includes(String(lockedDocument.status))) {
       throw new AppError(409, "document_terminal_status", "Closed or archived documents cannot be finalized.");
     }
-    documentHash = calculateDocumentContentHash(lockedDocument);
     serialAssignment = await assignOfficialSerial(connection, {
       assignmentId: assignment.id,
       documentId,
@@ -1504,15 +1492,10 @@ documentRouter.post("/:documentId/finalize", asyncHandler(async (request, respon
     connection.release();
   }
 
-  const finalRender = await createFinalDocumentRender(request, {
-    assignmentId: assignment.id,
-    documentHash,
-    documentId
-  }).catch(() => null);
   await refreshSearchIndexForEntitySafe("document", documentId);
   ok(response, {
     detail: await getDocumentDetail(documentId),
-    finalRender,
+    finalRender: null,
     serialAssignment
   });
 }));
@@ -1524,7 +1507,6 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
   await assertLifecyclePermission(document, assignment, response, "can_archive");
 
   let serialAssignment: RowDataPacket | null = null;
-  let documentHash = "";
 
   const connection = await pool.getConnection();
   try {
@@ -1544,7 +1526,6 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
       throw new AppError(409, "document_closed", "Closed documents cannot be archived.");
     }
     await assertWalkInArchiveAllowedForDocument(connection, documentId);
-    documentHash = calculateDocumentContentHash(lockedDocument);
     serialAssignment = await assignOfficialSerial(connection, {
       assignmentId: assignment.id,
       documentId,
@@ -1613,15 +1594,10 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
     connection.release();
   }
 
-  const finalRender = await createFinalDocumentRender(request, {
-    assignmentId: assignment.id,
-    documentHash,
-    documentId
-  }).catch(() => null);
   await refreshSearchIndexForEntitySafe("document", documentId);
   ok(response, {
     detail: await getDocumentDetail(documentId),
-    finalRender,
+    finalRender: null,
     serialAssignment
   });
 }));

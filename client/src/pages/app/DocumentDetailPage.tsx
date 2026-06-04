@@ -13,7 +13,6 @@ import type {
   DocumentDetail,
   DocumentRequestAction,
   DocumentRequestPermissions,
-  DocumentRender,
   DocumentSendAction,
   DocumentSendOptions,
   DocumentSendTarget,
@@ -28,6 +27,7 @@ import { FullscreenDocumentPreview } from "../../components/app/FullscreenDocume
 import { Button, DataTable, Icon, PanelCard, StatusBadge } from "../../components/ui";
 import type { IconName } from "../../components/ui";
 import { cx } from "../../lib/classNames";
+import { downloadBlob, openBlobInNewWindow } from "../../lib/downloads";
 import { previewHtmlForFrame } from "../../lib/previewFrame";
 import { formatDateTime, numberField, statusLabel, textField } from "./appPageUtils";
 
@@ -65,16 +65,6 @@ function transmissionRecipientLabel(recipient: JsonRecord) {
     || numberField(recipient, "external_recipient_id");
   const type = statusLabel(textField(recipient, "recipient_type", "recipient"));
   return targetId ? `${type} #${targetId}` : type;
-}
-
-function renderId(render: DocumentRender | JsonRecord | null | undefined) {
-  return numberField(render || {}, "id");
-}
-
-function latestFinalPdfRender(detail: DocumentDetail | null) {
-  return (detail?.renders || []).find((render) => (
-    textField(render, "render_type", "") === "final_pdf" && numberField(render, "file_asset_id")
-  )) || null;
 }
 
 function targetLabel(target: DocumentSendTarget) {
@@ -587,7 +577,6 @@ function OfficialDocumentPreview({
   onOpenPdf,
   onRefresh,
   pdfActionBusy,
-  pdfRender,
   previewError,
   previewLoading,
   previewUpdatedAt
@@ -598,7 +587,6 @@ function OfficialDocumentPreview({
   onOpenPdf: () => void;
   onRefresh: () => void;
   pdfActionBusy: "download" | "open" | null;
-  pdfRender: DocumentRender | JsonRecord | null;
   previewError: string | null;
   previewLoading: boolean;
   previewUpdatedAt: string | null;
@@ -630,7 +618,7 @@ function OfficialDocumentPreview({
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold text-slate-500">
         <span>{previewStatusText}</span>
-        <span>{pdfRender ? textField(pdfRender, "render_type", "PDF").replaceAll("_", " ") : "html preview"}</span>
+        <span>{pdfActionBusy ? "preparing pdf" : "pdf on demand"}</span>
       </div>
       {previewError ? (
         <EmptyPreview action={<Button icon="reset" onClick={onRefresh}>Try again</Button>} icon="x">
@@ -841,7 +829,6 @@ export function DocumentDetailPage() {
   const [responseNoteByTask, setResponseNoteByTask] = useState<Record<number, string>>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [previewHtml, setPreviewHtml] = useState("");
-  const [pdfRender, setPdfRender] = useState<DocumentRender | JsonRecord | null>(null);
   const [pdfActionBusy, setPdfActionBusy] = useState<"download" | "open" | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -877,10 +864,6 @@ export function DocumentDetailPage() {
   const canArchive = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_archive"))));
   const officialSerial = textField(documentRecord, "official_serial", "") || textField(documentRecord, "officialSerial", "");
 
-  function applyPdfRender(render: DocumentRender | JsonRecord | null) {
-    setPdfRender(render);
-  }
-
   async function renderOfficialHtmlPreview() {
     setPreviewLoading(true);
     setPreviewError(null);
@@ -905,57 +888,38 @@ export function DocumentDetailPage() {
     }
   }
 
-  async function ensureOfficialPdfRender(action: "download" | "open") {
-    const existingFinal = latestFinalPdfRender(detail);
-    if (existingFinal) {
-      applyPdfRender(existingFinal);
-      return existingFinal;
+  async function renderOfficialPdf(action: "download" | "open") {
+    const pdfWindow = action === "open" ? window.open("about:blank", "_blank") : null;
+    if (pdfWindow) {
+      pdfWindow.opener = null;
     }
-
     setPdfActionBusy(action);
     setError(null);
     try {
-      const rendered = await templateApi.render(documentId, {
+      const rendered = await templateApi.renderPdf(documentId, {
+        download: action === "download",
         locale: "all",
-        output: "pdf",
         variant: "official"
       });
-      if (!rendered.renderId) {
-        throw new Error("No official PDF render was created.");
+      if (action === "download") {
+        downloadBlob(rendered.blob, rendered.filename || `document-${documentId}.pdf`);
+      } else {
+        openBlobInNewWindow(rendered.blob, pdfWindow);
       }
-      const nextRender: DocumentRender = {
-        byteSize: rendered.byteSize || null,
-        document_id: documentId,
-        file_asset_id: rendered.fileAssetId || null,
-        id: rendered.renderId,
-        metadata: rendered.metadata || {},
-        render_type: "template_pdf",
-        status: "generated"
-      };
-      applyPdfRender(nextRender);
-      return nextRender;
     } catch (caught) {
+      pdfWindow?.close();
       setError(caught instanceof Error ? caught.message : "Could not prepare official PDF.");
-      return null;
     } finally {
       setPdfActionBusy(null);
     }
   }
 
   async function openOfficialPdf() {
-    const render = await ensureOfficialPdfRender("open");
-    const nextRenderId = renderId(render);
-    if (nextRenderId) {
-      window.open(documentApi.renderFileUrl(nextRenderId), "_blank", "noreferrer");
-    }
+    await renderOfficialPdf("open");
   }
 
   async function downloadOfficialPdf() {
-    const render = await ensureOfficialPdfRender("download");
-    const nextRenderId = renderId(render);
-    if (nextRenderId) {
-      window.open(documentApi.renderFileUrl(nextRenderId, { download: true }), "_blank", "noreferrer");
-    }
+    await renderOfficialPdf("download");
   }
 
   async function load(_options?: { regeneratePreview?: boolean }) {
@@ -976,7 +940,6 @@ export function DocumentDetailPage() {
       setReference(referenceResult);
       setTransmissions(transmissionResult.transmissions);
       setTransmissionRecipientRows(transmissionResult.recipients);
-      applyPdfRender(latestFinalPdfRender(detailResult));
       await renderOfficialHtmlPreview();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not load document.");
@@ -1358,7 +1321,6 @@ export function DocumentDetailPage() {
             onOpenPdf={() => void openOfficialPdf()}
             onRefresh={() => void renderOfficialHtmlPreview()}
             pdfActionBusy={pdfActionBusy}
-            pdfRender={pdfRender}
             previewError={previewError}
             previewLoading={previewLoading}
             previewUpdatedAt={previewUpdatedAt}

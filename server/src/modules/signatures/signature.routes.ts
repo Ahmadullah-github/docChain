@@ -13,7 +13,6 @@ import { calculateDocumentContentHash } from "../../shared/document-hash";
 import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
-import { createFinalDocumentRender } from "../templates/final-render-service";
 import { assignOfficialSerial as assignOfficialSerialForTask } from "./serial-assignment-service";
 import { decryptSignatureFile, encryptAndStoreSignature } from "./signature-assets";
 import {
@@ -638,8 +637,6 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
   const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
 
   let signatureEventId = 0;
-  let shouldCreateFinalRender = false;
-  let signedDocumentHash = "";
   let serialAssignmentAfterSign: RowDataPacket | null = null;
 
   const connection = await pool.getConnection();
@@ -688,7 +685,6 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
 
     const documentHash = calculateDocumentContentHash(lockedDocument);
     const documentVersionNumber = Number(lockedDocument.current_version_number || 1);
-    signedDocumentHash = documentHash;
 
     if (
       (input.expected_document_version_number && input.expected_document_version_number !== documentVersionNumber)
@@ -749,7 +745,6 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
         status: "finalized"
       });
       serialAssignmentAfterSign = serialAssignment;
-      shouldCreateFinalRender = true;
       nextStatus = "finalized";
     } else {
       await connection.execute<ResultSetHeader>(
@@ -809,13 +804,6 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
     connection.release();
   }
 
-  const finalRender = shouldCreateFinalRender
-    ? await createFinalDocumentRender(request, {
-      assignmentId: assignment.id,
-      documentHash: signedDocumentHash,
-      documentId: params.documentId
-    }).catch(() => null)
-    : null;
   const [signatureEventRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_events WHERE id = ? LIMIT 1", [signatureEventId]);
   const [documentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM documents WHERE id = ? LIMIT 1", [params.documentId]);
   const [taskRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [params.taskId]);
@@ -825,7 +813,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
     task: taskRows[0] || null,
     document: documentRows[0] || null,
     serialAssignment: serialAssignmentAfterSign || serialAssignmentRows[0] || null,
-    finalRender
+    finalRender: null
   });
 }));
 

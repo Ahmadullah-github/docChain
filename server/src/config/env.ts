@@ -15,7 +15,9 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(16).default("docchain-local-development-secret"),
   SESSION_COOKIE_NAME: z.string().default("docchain.sid"),
   SIGNATURE_STORAGE_DIR: z.string().default("storage/signatures"),
-  SIGNATURE_ENCRYPTION_KEY: z.string().min(16).default("docchain-local-signature-encryption-key")
+  SIGNATURE_ENCRYPTION_KEY: z.string().min(16).default("docchain-local-signature-encryption-key"),
+  PDF_RENDER_CONCURRENCY: z.coerce.number().int().positive().max(4).default(1),
+  PDF_RENDER_TIMEOUT_MS: z.coerce.number().int().positive().default(30000)
 });
 
 export const env = envSchema.parse(process.env);

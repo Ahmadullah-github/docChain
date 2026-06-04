@@ -23,6 +23,7 @@ import { FullscreenDocumentPreview } from "../../components/app/FullscreenDocume
 import { Button, Icon, PanelCard, SelectFilter, StatusBadge } from "../../components/ui";
 import { previewHtmlForFrame } from "../../lib/previewFrame";
 import { cx } from "../../lib/classNames";
+import { openBlobInNewWindow } from "../../lib/downloads";
 import { dateInputValue, normalizeTemplateFields, parseTemplateFields } from "./documentEditUtils";
 import { formatDateTime, statusLabel, textField } from "./appPageUtils";
 import {
@@ -657,19 +658,20 @@ export function WalkInIssuancePage() {
     if (!linkedDocumentId) {
       return;
     }
+    const pdfWindow = window.open("about:blank", "_blank");
+    if (pdfWindow) {
+      pdfWindow.opener = null;
+    }
     setBusyAction("pdf");
     setError(null);
     try {
-      const rendered = await templateApi.render(linkedDocumentId, {
+      const rendered = await templateApi.renderPdf(linkedDocumentId, {
         locale: "all",
-        output: "pdf",
         variant: "official"
       });
-      if (!rendered.renderId) {
-        throw new Error("No official PDF render was created.");
-      }
-      window.open(documentApi.renderFileUrl(rendered.renderId), "_blank", "noreferrer");
+      openBlobInNewWindow(rendered.blob, pdfWindow);
     } catch (caught) {
+      pdfWindow?.close();
       setError(caught instanceof Error ? caught.message : "Could not prepare official PDF.");
     } finally {
       setBusyAction(null);

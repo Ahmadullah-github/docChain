@@ -6,6 +6,7 @@ import type { DocumentListItem, DocumentRegistryStats, DocumentScope, JsonRecord
 import { AdminModal } from "../../components/admin";
 import { Button, DataTable, Icon, PanelCard, SearchInput, SelectFilter, StatusBadge, Toolbar } from "../../components/ui";
 import type { IconName } from "../../components/ui";
+import { downloadBlob, openBlobInNewWindow } from "../../lib/downloads";
 import { formatDateTime } from "./appPageUtils";
 
 type ScopeOption = {
@@ -268,26 +269,22 @@ export function DocumentsPage() {
 
   async function openOfficialPdf(document: DocumentListItem, download: boolean) {
     const busyKey = `${document.id}:${download ? "download" : "open"}`;
-    const pdfWindow = window.open("about:blank", "_blank");
+    const pdfWindow = download ? null : window.open("about:blank", "_blank");
     if (pdfWindow) {
       pdfWindow.opener = null;
     }
     setPdfBusyKey(busyKey);
     setActionError(null);
     try {
-      const rendered = await templateApi.render(document.id, {
+      const rendered = await templateApi.renderPdf(document.id, {
+        download,
         locale: "all",
-        output: "pdf",
         variant: "official"
       });
-      if (!rendered.renderId) {
-        throw new Error("No official PDF render was created.");
-      }
-      const fileUrl = documentApi.renderFileUrl(rendered.renderId, { download });
-      if (pdfWindow) {
-        pdfWindow.location.replace(fileUrl);
+      if (download) {
+        downloadBlob(rendered.blob, rendered.filename || `document-${document.id}.pdf`);
       } else {
-        window.open(fileUrl, "_blank", "noreferrer");
+        openBlobInNewWindow(rendered.blob, pdfWindow);
       }
     } catch (caught) {
       pdfWindow?.close();
@@ -319,7 +316,7 @@ export function DocumentsPage() {
 
   function renderDocumentActions(document: DocumentListItem) {
     const draft = document.status === "draft";
-    const finalized = document.status === "finalized";
+    const lockedPdf = ["finalized", "archived", "closed", "serial_assigned"].includes(document.status);
     const openBusy = pdfBusyKey === `${document.id}:open`;
     const downloadBusy = pdfBusyKey === `${document.id}:download`;
 
@@ -332,12 +329,12 @@ export function DocumentsPage() {
         {draft && booleanFlag(document.canDelete) ? (
           <Button className="min-h-9 px-3" icon="userX" onClick={() => setDeleteDocument(document)} variant="danger">Delete</Button>
         ) : null}
-        {finalized && booleanFlag(document.canOpenPdf) ? (
+        {booleanFlag(document.canOpenPdf) ? (
           <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="document" onClick={() => void openOfficialPdf(document, false)}>
-            {openBusy ? "Opening" : "Open PDF"}
+            {openBusy ? "Opening" : lockedPdf ? "Open PDF" : "Preview PDF"}
           </Button>
         ) : null}
-        {finalized && booleanFlag(document.canDownloadPdf) ? (
+        {booleanFlag(document.canDownloadPdf) ? (
           <Button className="min-h-9 px-3" disabled={Boolean(pdfBusyKey)} icon="export" onClick={() => void openOfficialPdf(document, true)}>
             {downloadBusy ? "Downloading" : "Download"}
           </Button>

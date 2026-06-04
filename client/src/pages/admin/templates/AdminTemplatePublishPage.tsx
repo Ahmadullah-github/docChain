@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { adminApi, documentApi, templateApi } from "../../../api";
+import { adminApi, templateApi } from "../../../api";
 import type {
   DocumentTemplateBinding,
   DocumentTemplateDetail,
@@ -20,6 +20,7 @@ import {
 import { Button, Icon, PanelCard, SelectFilter, StatusBadge } from "../../../components/ui";
 import type { IconName } from "../../../components/ui";
 import { cx } from "../../../lib/classNames";
+import { downloadBlob, openBlobInNewWindow } from "../../../lib/downloads";
 import { previewHtmlForFrame } from "../../../lib/previewFrame";
 import { activeLayout, documentTypeIdFromLayout, latestEditableVersion, locales, safe, variants } from "./templateBuilderModel";
 import { wordTemplateZones } from "./wordTemplateModel";
@@ -33,11 +34,10 @@ type RenderNotice = {
 };
 
 type LastPdfRender = {
-  byteSize?: number;
+  blob: Blob;
+  byteSize: number;
+  filename?: string;
   generatedAt: string;
-  renderId: EntityId;
-  reused?: boolean;
-  storagePath?: string;
 };
 
 const scenarioOptions: Array<{ label: string; value: PreviewScenario }> = [
@@ -542,9 +542,9 @@ function RenderCheckPanel({
 
         {lastPdfRender ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3">
-            <p className="text-sm font-black text-emerald-800">PDF render #{lastPdfRender.renderId} is ready.</p>
+            <p className="text-sm font-black text-emerald-800">PDF is ready for this session.</p>
             <p className="mt-1 text-xs font-semibold text-emerald-700">
-              {[lastPdfRender.reused ? "Reused existing render" : "Generated now", fileSizeLabel(lastPdfRender.byteSize), lastPdfRender.generatedAt].filter(Boolean).join(" / ")}
+              {["Generated now", fileSizeLabel(lastPdfRender.byteSize), lastPdfRender.generatedAt].filter(Boolean).join(" / ")}
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <Button className="min-h-9 px-3 py-1.5 text-xs" icon="view" onClick={onOpenPdf}>Open PDF</Button>
@@ -629,7 +629,7 @@ function PreviewWorkspace({
           className="flex-1"
           icon={lastPdfRender ? "export" : "document"}
         >
-          {lastPdfRender ? "PDF render is ready." : "No real document preview yet."}
+          {lastPdfRender ? "PDF is ready." : "No real document preview yet."}
         </EmptyPreview>
       )}
     </PanelCard>
@@ -896,35 +896,35 @@ export function AdminTemplatePublishPage() {
     setRenderBusy(true);
     setRenderNotice(null);
     try {
+      if (output === "pdf") {
+        const result = await templateApi.renderPdf(documentId, {
+          layout_definition: layout,
+          locale: renderLocale,
+          variant: renderVariant
+        });
+        setLastPdfRender({
+          blob: result.blob,
+          byteSize: result.blob.size,
+          filename: result.filename,
+          generatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        });
+        setRenderNotice({ tone: "green", text: "PDF generated for this browser session." });
+        return;
+      }
+
       const result = await templateApi.render(documentId, {
         layout_definition: layout,
         locale: renderLocale,
         variant: renderVariant,
         output
       });
-      if (output === "html") {
-        if (!result.html) {
-          setDocumentHtmlPreview("");
-          setRenderNotice({ tone: "red", text: "The render completed, but no HTML preview was returned." });
-          return;
-        }
-        setDocumentHtmlPreview(result.html);
-        setRenderNotice({ tone: "blue", text: `HTML preview generated for document #${documentId}.` });
+      if (!result.html) {
+        setDocumentHtmlPreview("");
+        setRenderNotice({ tone: "red", text: "The render completed, but no HTML preview was returned." });
         return;
       }
-
-      if (!result.renderId) {
-        setRenderNotice({ tone: "red", text: "The PDF render completed, but no render file was returned." });
-        return;
-      }
-      setLastPdfRender({
-        byteSize: result.byteSize,
-        generatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        renderId: result.renderId,
-        reused: result.reused,
-        storagePath: result.storagePath
-      });
-      setRenderNotice({ tone: "green", text: result.reused ? `Existing PDF render #${result.renderId} is ready.` : `PDF render #${result.renderId} generated.` });
+      setDocumentHtmlPreview(result.html);
+      setRenderNotice({ tone: "blue", text: `HTML preview generated for document #${documentId}.` });
     } catch (caught) {
       setRenderNotice({ tone: "red", text: caught instanceof Error ? caught.message : "Could not render document." });
     } finally {
@@ -934,13 +934,13 @@ export function AdminTemplatePublishPage() {
 
   function openPdfRender() {
     if (lastPdfRender) {
-      window.open(documentApi.renderFileUrl(lastPdfRender.renderId), "_blank", "noreferrer");
+      openBlobInNewWindow(lastPdfRender.blob);
     }
   }
 
   function downloadPdfRender() {
     if (lastPdfRender) {
-      window.open(documentApi.renderFileUrl(lastPdfRender.renderId, { download: true }), "_blank", "noreferrer");
+      downloadBlob(lastPdfRender.blob, lastPdfRender.filename || `document-${renderDocumentId || "preview"}.pdf`);
     }
   }
 
