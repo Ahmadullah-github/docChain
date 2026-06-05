@@ -10,6 +10,9 @@ import { AppError } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
 import { refreshSearchIndexForEntitySafe } from "../search/global-search.service";
+import { generateAdminCode } from "./code-generator";
+import type { AdminCodeEntityType } from "./code-generator";
+import { defaultHolderPositionDefaults, inferDefaultPositionTitle } from "./default-position";
 
 export const adminRouter = Router();
 
@@ -19,6 +22,7 @@ const statusSchema = z.string().trim().min(1).default("active");
 
 const optionalString = z.string().trim().min(1).optional();
 const optionalNullableString = z.string().trim().min(1).nullable().optional();
+const optionalCodeString = (max: number) => z.string().trim().max(max).transform((value) => value || undefined).optional();
 const roleSeparator = "|||";
 
 function clean<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
@@ -188,6 +192,23 @@ function requirePatch(input: Record<string, unknown>) {
   }
 }
 
+function isDuplicateEntryError(error: unknown) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ER_DUP_ENTRY"
+  );
+}
+
+function rethrowCodeConflict(error: unknown): never {
+  if (isDuplicateEntryError(error)) {
+    throw new AppError(409, "code_conflict", "This code is already in use for the selected scope.");
+  }
+
+  throw error;
+}
+
 async function validateUnitHierarchy(input: { organization_id?: number; unit_type_id?: number; parent_unit_id?: number | null }, unitId?: number) {
   if (input.unit_type_id) {
     const [unitTypeRows] = await pool.execute<RowDataPacket[]>(
@@ -252,6 +273,18 @@ async function validatePositionUnit(executor: Pool | PoolConnection, unitId: num
     throw new AppError(422, "invalid_unit", "Selected unit does not exist or is inactive.");
   }
 }
+
+const codeSuggestionEntitySchema = z.enum(["organization", "unit", "position", "document_type", "confidentiality_level", "priority_level", "serial_rule"]);
+const createCodeSuggestionSchema = z.object({
+  entity_type: codeSuggestionEntitySchema,
+  exclude_id: z.coerce.number().int().positive().optional(),
+  name: z.string().trim().optional(),
+  organization_id: z.coerce.number().int().positive().optional(),
+  parent_unit_id: z.coerce.number().int().positive().nullable().optional(),
+  title: z.string().trim().optional(),
+  unit_id: z.coerce.number().int().positive().optional(),
+  unit_type_id: z.coerce.number().int().positive().optional()
+});
 
 async function validateAssignmentPerson(executor: Pool | PoolConnection, personId: number) {
   const [personRows] = await executor.execute<RowDataPacket[]>(
@@ -739,8 +772,16 @@ adminRouter.delete("/users/:userId", asyncHandler(async (request, response) => {
 
 adminRouter.get("/roles", listRoute("roles", "name"));
 
+adminRouter.post("/code-suggestions", asyncHandler(async (request, response) => {
+  const input = createCodeSuggestionSchema.parse(request.body);
+  ok(response, await generateAdminCode(pool, {
+    ...input,
+    entity_type: input.entity_type as AdminCodeEntityType
+  }));
+}));
+
 const createOrganizationSchema = z.object({
-  code: z.string().trim().min(1).max(64),
+  code: optionalCodeString(64),
   name: z.string().trim().min(1).max(180),
   name_local: optionalNullableString,
   description: optionalNullableString,
@@ -758,11 +799,20 @@ const updateOrganizationSchema = z.object({
 adminRouter.get("/organizations", listRoute("organizations"));
 adminRouter.post("/organizations", asyncHandler(async (request, response) => {
   const input = createOrganizationSchema.parse(request.body);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO organizations (uuid, code, name, name_local, description, status)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [uuid(), input.code, input.name, input.name_local || null, input.description || null, input.status]
-  );
+  const code = input.code || (await generateAdminCode(pool, {
+    entity_type: "organization",
+    name: input.name
+  })).code;
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO organizations (uuid, code, name, name_local, description, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [uuid(), code, input.name, input.name_local || null, input.description || null, input.status]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
   const id = result.insertId;
   await writeAuditLog(request, { action: "admin.organization.create", entityType: "organization", entityId: id });
   await refreshSearchIndexForEntitySafe("organization", id);
@@ -775,12 +825,17 @@ adminRouter.patch("/organizations/:organizationId", asyncHandler(async (request,
   requirePatch(input);
 
   const { set, values } = updateParts(clean(input), ["code", "name", "name_local", "description", "status"]);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE organizations
-     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND deleted_at IS NULL`,
-    [...values, organizationId]
-  );
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE organizations
+       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND deleted_at IS NULL`,
+      [...values, organizationId]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
 
   if (!result.affectedRows) {
     throw new AppError(404, "not_found", "Organization was not found.");
@@ -949,7 +1004,8 @@ const createUnitSchema = z.object({
   organization_id: z.coerce.number().int().positive(),
   unit_type_id: z.coerce.number().int().positive(),
   parent_unit_id: z.coerce.number().int().positive().nullable().optional(),
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
+  create_default_position: z.boolean().default(false),
   name: z.string().trim().min(1).max(180),
   name_local: optionalNullableString,
   description: optionalNullableString,
@@ -990,27 +1046,89 @@ adminRouter.get("/units", asyncHandler(async (_request, response) => {
 adminRouter.post("/units", asyncHandler(async (request, response) => {
   const input = createUnitSchema.parse(request.body);
   await validateUnitHierarchy(input);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO units (
-      uuid, organization_id, unit_type_id, parent_unit_id, code,
-      name, name_local, description, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.organization_id,
-      input.unit_type_id,
-      input.parent_unit_id || null,
-      input.code,
-      input.name,
-      input.name_local || null,
-      input.description || null,
-      input.status
-    ]
-  );
-  const id = result.insertId;
-  await writeAuditLog(request, { action: "admin.unit.create", entityType: "unit", entityId: id });
-  await refreshSearchIndexForEntitySafe("unit", id);
-  created(response, await fetchById("units", Number(id)));
+  const connection = await pool.getConnection();
+  let unitId = 0;
+  let positionId: number | null = null;
+
+  try {
+    await connection.beginTransaction();
+    const code = input.code || (await generateAdminCode(connection, {
+      entity_type: "unit",
+      name: input.name,
+      organization_id: input.organization_id,
+      parent_unit_id: input.parent_unit_id || null,
+      unit_type_id: input.unit_type_id
+    })).code;
+    const [result] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO units (
+        uuid, organization_id, unit_type_id, parent_unit_id, code,
+        name, name_local, description, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.organization_id,
+        input.unit_type_id,
+        input.parent_unit_id || null,
+        code,
+        input.name,
+        input.name_local || null,
+        input.description || null,
+        input.status
+      ]
+    );
+    unitId = Number(result.insertId);
+    await writeAuditLog(request, { action: "admin.unit.create", entityType: "unit", entityId: unitId }, connection);
+
+    if (input.create_default_position) {
+      const [unitTypeRows] = await connection.execute<RowDataPacket[]>(
+        "SELECT code, name FROM unit_types WHERE id = ? LIMIT 1",
+        [input.unit_type_id]
+      );
+      const unitType = unitTypeRows[0]
+        ? { code: String(unitTypeRows[0].code || ""), name: String(unitTypeRows[0].name || "") }
+        : null;
+      const title = inferDefaultPositionTitle(input.name, unitType);
+      const titleLocal = input.name_local ? inferDefaultPositionTitle(input.name_local, unitType) : null;
+      const positionCode = (await generateAdminCode(connection, {
+        entity_type: "position",
+        title,
+        unit_id: unitId
+      })).code;
+      const [positionResult] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO positions (
+          uuid, unit_id, code, title, title_local, authority_level,
+          is_signing_authority, allows_multiple_active_assignments, description, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          uuid(),
+          unitId,
+          positionCode,
+          title,
+          titleLocal,
+          defaultHolderPositionDefaults.authorityLevel,
+          defaultHolderPositionDefaults.isSigningAuthority,
+          defaultHolderPositionDefaults.allowsMultipleActiveAssignments,
+          null,
+          defaultHolderPositionDefaults.status
+        ]
+      );
+      positionId = Number(positionResult.insertId);
+      await writeAuditLog(request, { action: "admin.position.create", entityType: "position", entityId: positionId }, connection);
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    rethrowCodeConflict(error);
+  } finally {
+    connection.release();
+  }
+
+  await Promise.all([
+    refreshSearchIndexForEntitySafe("unit", unitId),
+    positionId ? refreshSearchIndexForEntitySafe("position", positionId) : Promise.resolve()
+  ]);
+  created(response, await fetchById("units", unitId));
 }));
 
 adminRouter.patch("/units/:unitId", asyncHandler(async (request, response) => {
@@ -1043,12 +1161,16 @@ adminRouter.patch("/units/:unitId", asyncHandler(async (request, response) => {
     "description",
     "status"
   ]);
-  await pool.execute<ResultSetHeader>(
-    `UPDATE units
-     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [...values, unitId]
-  );
+  try {
+    await pool.execute<ResultSetHeader>(
+      `UPDATE units
+       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [...values, unitId]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
 
   await writeAuditLog(request, { action: "admin.unit.update", entityType: "unit", entityId: unitId });
   await refreshSearchIndexForEntitySafe("unit", unitId);
@@ -1154,7 +1276,7 @@ adminRouter.delete("/units/:unitId", asyncHandler(async (request, response) => {
 
 const createPositionSchema = z.object({
   unit_id: z.coerce.number().int().positive(),
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
   title: z.string().trim().min(1).max(140),
   title_local: optionalNullableString,
   authority_level: z.coerce.number().int().nonnegative().default(0),
@@ -1197,24 +1319,34 @@ adminRouter.get("/positions", asyncHandler(async (_request, response) => {
 adminRouter.post("/positions", asyncHandler(async (request, response) => {
   const input = createPositionSchema.parse(request.body);
   await validatePositionUnit(pool, input.unit_id);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO positions (
-      uuid, unit_id, code, title, title_local, authority_level,
-      is_signing_authority, allows_multiple_active_assignments, description, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      uuid(),
-      input.unit_id,
-      input.code,
-      input.title,
-      input.title_local || null,
-      input.authority_level,
-      input.is_signing_authority,
-      input.allows_multiple_active_assignments,
-      input.description || null,
-      input.status
-    ]
-  );
+  const code = input.code || (await generateAdminCode(pool, {
+    entity_type: "position",
+    title: input.title,
+    unit_id: input.unit_id
+  })).code;
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO positions (
+        uuid, unit_id, code, title, title_local, authority_level,
+        is_signing_authority, allows_multiple_active_assignments, description, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.unit_id,
+        code,
+        input.title,
+        input.title_local || null,
+        input.authority_level,
+        input.is_signing_authority,
+        input.allows_multiple_active_assignments,
+        input.description || null,
+        input.status
+      ]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
   const id = result.insertId;
   await writeAuditLog(request, { action: "admin.position.create", entityType: "position", entityId: id });
   await refreshSearchIndexForEntitySafe("position", id);
@@ -1240,12 +1372,17 @@ adminRouter.patch("/positions/:positionId", asyncHandler(async (request, respons
     "description",
     "status"
   ]);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE positions
-     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND deleted_at IS NULL`,
-    [...values, positionId]
-  );
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE positions
+       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND deleted_at IS NULL`,
+      [...values, positionId]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
 
   if (!result.affectedRows) {
     throw new AppError(404, "not_found", "Position was not found.");
@@ -1510,7 +1647,7 @@ adminRouter.delete("/assignments/:assignmentId", asyncHandler(async (request, re
 }));
 
 const createDocumentTypeSchema = z.object({
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
   name: z.string().trim().min(1).max(140),
   description: optionalNullableString,
   requires_serial: z.boolean().default(true),
@@ -1589,11 +1726,20 @@ async function fetchDocumentWriteRuleById(id: number) {
 adminRouter.get("/document-types", listRoute("document_types"));
 adminRouter.post("/document-types", requireAnyRole(["system_admin"]), asyncHandler(async (request, response) => {
   const input = createDocumentTypeSchema.parse(request.body);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO document_types (uuid, code, name, description, requires_serial, status)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [uuid(), input.code, input.name, input.description || null, input.requires_serial, input.status]
-  );
+  const code = input.code || (await generateAdminCode(pool, {
+    entity_type: "document_type",
+    name: input.name
+  })).code;
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `INSERT INTO document_types (uuid, code, name, description, requires_serial, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [uuid(), code, input.name, input.description || null, input.requires_serial, input.status]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
   const id = result.insertId;
   await writeAuditLog(request, { action: "admin.document_type.create", entityType: "document_type", entityId: id });
   await refreshSearchIndexForEntitySafe("document_type", id);
@@ -1606,12 +1752,17 @@ adminRouter.patch("/document-types/:documentTypeId", requireAnyRole(["system_adm
   requirePatch(input);
 
   const { set, values } = updateParts(clean(input), ["code", "name", "description", "requires_serial", "status"]);
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE document_types
-     SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [...values, documentTypeId]
-  );
+  let result: ResultSetHeader;
+  try {
+    [result] = await pool.execute<ResultSetHeader>(
+      `UPDATE document_types
+       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [...values, documentTypeId]
+    );
+  } catch (error) {
+    rethrowCodeConflict(error);
+  }
 
   if (!result.affectedRows) {
     throw new AppError(404, "not_found", "Document type was not found.");
@@ -1733,7 +1884,7 @@ adminRouter.patch("/document-write-rules/:ruleId", asyncHandler(async (request, 
 }));
 
 const createConfidentialityLevelSchema = z.object({
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
   name: z.string().trim().min(1).max(140),
   rank: z.coerce.number().int().nonnegative().default(0),
   is_default: z.boolean().default(false),
@@ -1764,6 +1915,10 @@ adminRouter.post("/confidentiality-levels", asyncHandler(async (request, respons
       );
     }
 
+    const code = input.code || (await generateAdminCode(connection, {
+      entity_type: "confidentiality_level",
+      name: input.name
+    })).code;
     const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO confidentiality_levels (
         uuid, code, name, \`rank\`, is_default, requires_access_log,
@@ -1771,7 +1926,7 @@ adminRouter.post("/confidentiality-levels", asyncHandler(async (request, respons
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
-        input.code,
+        code,
         input.name,
         input.rank,
         input.is_default,
@@ -1790,7 +1945,7 @@ adminRouter.post("/confidentiality-levels", asyncHandler(async (request, respons
     created(response, await fetchById("confidentiality_levels", id));
   } catch (error) {
     await connection.rollback();
-    throw error;
+    rethrowCodeConflict(error);
   } finally {
     connection.release();
   }
@@ -1822,12 +1977,17 @@ adminRouter.patch("/confidentiality-levels/:confidentialityLevelId", asyncHandle
       "description",
       "status"
     ]);
-    const [result] = await connection.execute<ResultSetHeader>(
-      `UPDATE confidentiality_levels
-       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [...values, confidentialityLevelId]
-    );
+    let result: ResultSetHeader;
+    try {
+      [result] = await connection.execute<ResultSetHeader>(
+        `UPDATE confidentiality_levels
+         SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [...values, confidentialityLevelId]
+      );
+    } catch (error) {
+      rethrowCodeConflict(error);
+    }
 
     if (!result.affectedRows) {
       throw new AppError(404, "not_found", "Confidentiality level was not found.");
@@ -1849,7 +2009,7 @@ adminRouter.patch("/confidentiality-levels/:confidentialityLevelId", asyncHandle
 }));
 
 const createPriorityLevelSchema = z.object({
-  code: z.string().trim().min(1).max(80),
+  code: optionalCodeString(80),
   name: z.string().trim().min(1).max(140),
   rank: z.coerce.number().int().nonnegative().default(0),
   is_default: z.boolean().default(false),
@@ -1882,13 +2042,17 @@ adminRouter.post("/priority-levels", asyncHandler(async (request, response) => {
       );
     }
 
+    const code = input.code || (await generateAdminCode(connection, {
+      entity_type: "priority_level",
+      name: input.name
+    })).code;
     const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO priority_levels (
         uuid, code, name, \`rank\`, is_default, default_due_days, color, description, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         uuid(),
-        input.code,
+        code,
         input.name,
         input.rank,
         input.is_default,
@@ -1904,7 +2068,7 @@ adminRouter.post("/priority-levels", asyncHandler(async (request, response) => {
     created(response, await fetchById("priority_levels", Number(id)));
   } catch (error) {
     await connection.rollback();
-    throw error;
+    rethrowCodeConflict(error);
   } finally {
     connection.release();
   }
@@ -1937,12 +2101,17 @@ adminRouter.patch("/priority-levels/:priorityLevelId", asyncHandler(async (reque
       "description",
       "status"
     ]);
-    const [result] = await connection.execute<ResultSetHeader>(
-      `UPDATE priority_levels
-       SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [...values, priorityLevelId]
-    );
+    let result: ResultSetHeader;
+    try {
+      [result] = await connection.execute<ResultSetHeader>(
+        `UPDATE priority_levels
+         SET ${set.join(", ")}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [...values, priorityLevelId]
+      );
+    } catch (error) {
+      rethrowCodeConflict(error);
+    }
 
     if (!result.affectedRows) {
       throw new AppError(404, "not_found", "Priority level was not found.");

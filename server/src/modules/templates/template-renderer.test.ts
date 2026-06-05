@@ -604,6 +604,71 @@ describe("template renderer rich staff document content", () => {
     expect(html).toContain("Dean");
   });
 
+  it("renders placed signatures at stored page coordinates", () => {
+    const html = renderTemplateHtml({
+      page: { direction: "rtl" },
+      blocks: [
+        { id: "body", type: "text", x: 20, y: 20, width: 120, height: 20, content: "Body" }
+      ]
+    }, {
+      ...emptyContext,
+      signatureEvents: [
+        {
+          id: 1,
+          created_at: "2026-05-05T00:00:00.000Z",
+          print_options: { show_name_position: true, show_date: true, show_comment: true },
+          render_height: 18,
+          render_page: 1,
+          render_width: 46,
+          render_x: 120,
+          render_y: 230,
+          response_note: "Approved.",
+          signatureImageDataUrl: "data:image/png;base64,placed",
+          signerName: "Signer One",
+          signerPositionTitle: "Dean",
+          signerUnitName: "Faculty"
+        }
+      ] as any
+    });
+
+    expect(html).toContain("dc-placed-signature");
+    expect(html).toContain("left:120mm;top:230mm;width:46mm;height:18mm");
+    expect(html).toContain("data:image/png;base64,placed");
+    expect(html).toContain("Approved.");
+  });
+
+  it("does not duplicate placed signatures inside signature zones", () => {
+    const html = renderTemplateHtml({
+      page: { direction: "rtl" },
+      blocks: [
+        { id: "signatures", type: "signature_zone", x: 20, y: 200, width: 160, height: 40, mode: "completed" }
+      ]
+    }, {
+      ...emptyContext,
+      signatureEvents: [
+        {
+          id: 1,
+          render_height: 18,
+          render_page: 1,
+          render_width: 46,
+          render_x: 120,
+          render_y: 230,
+          signatureImageDataUrl: "data:image/png;base64,placed",
+          signerPositionTitle: "Placed signer"
+        },
+        {
+          id: 2,
+          signatureImageDataUrl: "data:image/png;base64,legacy",
+          signerPositionTitle: "Legacy signer"
+        }
+      ] as any
+    });
+
+    expect(html).toContain("Placed signer");
+    expect(html).toContain("Legacy signer");
+    expect(html.indexOf("data:image/png;base64,placed")).toBe(html.lastIndexOf("data:image/png;base64,placed"));
+  });
+
   it("renders compact completed endorsements instead of workflow history", () => {
     const html = renderTemplateHtml({
       page: { direction: "rtl" },

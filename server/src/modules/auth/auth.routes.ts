@@ -92,7 +92,8 @@ async function getUserPayload(userId: number, activeAssignmentId?: number) {
       units.code AS unitCode,
       positions.id AS positionId,
       positions.title AS positionTitle,
-      positions.code AS positionCode
+      positions.code AS positionCode,
+      positions.is_signing_authority AS isSigningAuthority
     FROM assignments
     INNER JOIN positions ON assignments.position_id = positions.id
     INNER JOIN units ON positions.unit_id = units.id

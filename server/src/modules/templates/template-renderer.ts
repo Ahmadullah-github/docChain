@@ -659,12 +659,16 @@ function endorsementSource(context: RenderContext) {
     return endorsements;
   }
 
+  const placedIds = new Set(placedSignatureEvents(context).map((item) => Number(item.id)));
   const documentContent = richContentValue(context);
   const visibility = {
     ...(documentContent.metadata.signatureVisibility || {}),
     ...(context.signatureVisibility || {})
   };
   return context.signatureEvents.filter((item) => {
+    if (placedIds.has(Number(item.id))) {
+      return false;
+    }
     const key = `event:${item.id}`;
     return visibility[key] !== false && visibility[String(item.id)] !== false;
   }).map((item, index) => ({
@@ -673,9 +677,77 @@ function endorsementSource(context: RenderContext) {
     responderName: item.signerName || "",
     responderPositionTitle: item.signerPositionTitle || item.requiredPositionTitle || `Signature ${index + 1}`,
     responderUnitName: item.signerUnitName || item.targetUnitName || "",
-    responseNote: "",
+    responseNote: item.response_note || item.responseNote || item.taskResponseNote,
     signatureImageDataUrl: item.signatureImageDataUrl
   }));
+}
+
+function signatureEventVisible(context: RenderContext, item: RowDataPacket) {
+  const documentContent = richContentValue(context);
+  const visibility = {
+    ...(documentContent.metadata.signatureVisibility || {}),
+    ...(context.signatureVisibility || {})
+  };
+  const key = `event:${item.id}`;
+  return visibility[key] !== false && visibility[String(item.id)] !== false;
+}
+
+function signaturePrintOptions(item: RowDataPacket) {
+  const raw = jsonRecordValue(item.print_options || item.printOptions);
+  return {
+    showComment: boolValue(raw.show_comment ?? raw.showComment),
+    showDate: boolValue(raw.show_date ?? raw.showDate),
+    showNamePosition: raw.show_name_position === false || raw.showNamePosition === false ? false : true
+  };
+}
+
+function placedSignatureEvents(context: RenderContext) {
+  return context.signatureEvents.filter((item) => {
+    const page = Math.round(numberValue(item.render_page || item.renderPage, 0));
+    const x = numberValue(item.render_x || item.renderX, Number.NaN);
+    const y = numberValue(item.render_y || item.renderY, Number.NaN);
+    const width = numberValue(item.render_width || item.renderWidth, 0);
+    const height = numberValue(item.render_height || item.renderHeight, 0);
+    return page > 0
+      && Number.isFinite(x)
+      && Number.isFinite(y)
+      && width > 0
+      && height > 0
+      && signatureEventVisible(context, item);
+  });
+}
+
+function renderPlacedSignatureLayer(context: RenderContext, pageNumber: number) {
+  const items = placedSignatureEvents(context)
+    .filter((item) => Math.round(numberValue(item.render_page || item.renderPage, 0)) === pageNumber)
+    .map((item) => {
+      const image = stringValue(item.signatureImageDataUrl);
+      if (!image) {
+        return "";
+      }
+      const options = signaturePrintOptions(item);
+      const name = stringValue(item.signerName);
+      const office = [stringValue(item.signerPositionTitle), stringValue(item.signerUnitName)].filter(Boolean).join(" - ");
+      const signedAt = options.showDate ? formatTemplateDocumentDate(item.created_at || item.createdAt, "shamsi") : "";
+      const comment = options.showComment ? printableComment(item.response_note || item.responseNote || item.taskResponseNote) : "";
+      const metadata = [
+        options.showNamePosition && name ? `<span>${escapeHtml(name)}</span>` : "",
+        options.showNamePosition && office ? `<span>${escapeHtml(office)}</span>` : "",
+        signedAt ? `<span>${escapeHtml(signedAt)}</span>` : "",
+        comment ? `<span>${escapeHtml(comment)}</span>` : ""
+      ].filter(Boolean).join("");
+
+      const left = Math.max(0, numberValue(item.render_x || item.renderX, 0));
+      const top = Math.max(0, numberValue(item.render_y || item.renderY, 0));
+      const width = Math.max(1, numberValue(item.render_width || item.renderWidth, 46));
+      const height = Math.max(1, numberValue(item.render_height || item.renderHeight, 18));
+      return `<div class="dc-placed-signature" style="left:${left}mm;top:${top}mm;width:${width}mm;height:${height}mm">
+        <img src="${escapeHtml(image)}" alt="" />
+        ${metadata ? `<div class="dc-placed-signature-meta">${metadata}</div>` : ""}
+      </div>`;
+    }).join("\n");
+
+  return items ? `<section class="dc-placed-signature-layer">${items}</section>` : "";
 }
 
 function renderEndorsementCards(source: Array<Record<string, unknown>>, limit: number, classPrefix: "dc" | "dc-word") {
@@ -820,6 +892,11 @@ function renderWordTemplateHtml(layout: TemplateLayout, context: RenderContext) 
     .dc-word-content img { max-width: 100%; height: auto; object-fit: contain; }
     .dc-word-content [data-dc-live-field="date"] { letter-spacing: .04em; }
     .dc-word-floating-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+    .dc-placed-signature-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+    .dc-placed-signature { box-sizing: border-box; position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; text-align: center; color: #0f172a; font-size: 6.4pt; line-height: 1.15; overflow: hidden; }
+    .dc-placed-signature img { max-width: 100%; min-height: 0; max-height: 100%; object-fit: contain; flex: 1 1 auto; }
+    .dc-placed-signature-meta { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .dc-placed-signature-meta span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dc-word-floating-layer .dc-block { padding: 1.5mm; line-height: 1.65; }
     .dc-word-floating-layer .dc-table-block { padding: 0; line-height: 1.35; }
     .dc-word-floating-layer .dc-image { display: flex; align-items: center; justify-content: center; padding: 0; }
@@ -864,6 +941,7 @@ function renderWordTemplateHtml(layout: TemplateLayout, context: RenderContext) 
       ${documentHtml}
     </article>
     ${floatingHtml ? `<section class="dc-word-floating-layer">${floatingHtml}</section>` : ""}
+    ${renderPlacedSignatureLayer(pageContext, pageContext.pageNumber || 1)}
   </main>
 </body>
 </html>`;
@@ -1308,6 +1386,7 @@ export function renderTemplateHtml(layout: TemplateLayout, context: RenderContex
         return renderBlock(item.block, pageContext, direction, override);
       }).join("\n")}
       ${freeBlocks}
+      ${renderPlacedSignatureLayer(pageContext, pageIndex + 1)}
     </main>`;
   }).join("\n");
 
@@ -1342,6 +1421,11 @@ export function renderTemplateHtml(layout: TemplateLayout, context: RenderContex
     .dc-image { display: flex; align-items: center; justify-content: center; padding: 0; }
     .dc-image img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; }
     .dc-line { min-height: 0 !important; padding: 0; border-left: 0 !important; border-right: 0 !important; border-bottom: 0 !important; }
+    .dc-placed-signature-layer { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+    .dc-placed-signature { box-sizing: border-box; position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; text-align: center; color: #0f172a; font-size: 6.4pt; line-height: 1.15; overflow: hidden; }
+    .dc-placed-signature img { max-width: 100%; min-height: 0; max-height: 100%; object-fit: contain; flex: 1 1 auto; }
+    .dc-placed-signature-meta { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .dc-placed-signature-meta span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dc-endorsements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm; align-content: start; white-space: normal; }
     .dc-endorsements[data-columns="1"] { grid-template-columns: 1fr; }
     .dc-endorsement-card { border: 1px solid #cbd5e1; padding: 1.4mm; font-size: 7pt; line-height: 1.28; text-align: start; break-inside: avoid; background: rgba(255,255,255,.92); }

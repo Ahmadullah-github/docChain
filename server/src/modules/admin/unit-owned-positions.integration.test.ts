@@ -272,4 +272,133 @@ describe("unit-owned position administration", () => {
     expect(Number(selected!.unitId)).toBe(Number(rootUnit.id));
     expect(selected!.unitName).toBe(rootUnit.name);
   });
+
+  it("generates admin codes and returns code conflicts for duplicate manual codes", async () => {
+    if (!testServer) {
+      throw new Error("Integration server was not started.");
+    }
+
+    const admin = new TestClient(testServer.baseUrl);
+    await admin.login("admin", "Admin@12345");
+    const units = await admin.get<JsonRecord[]>("/api/admin/units");
+    const rootUnit = units.find((unit) => unit.code === "UNIVERSITY");
+    expect(rootUnit).toBeTruthy();
+
+    const organizationSuggestion = await admin.post<JsonRecord>("/api/admin/code-suggestions", {
+      entity_type: "organization",
+      name: "Generated Organization"
+    });
+    expect(organizationSuggestion.code).toMatch(/^GOR-\d{4}$/);
+
+    const generatedOrganization = await admin.post<JsonRecord>("/api/admin/organizations", {
+      name: "Generated Organization",
+      status: "active"
+    });
+    expect(generatedOrganization.code).toMatch(/^GOR-\d{4}$/);
+
+    const duplicateOrganization = await admin.postError("/api/admin/organizations", {
+      code: generatedOrganization.code,
+      name: "Duplicate Generated Organization",
+      status: "active"
+    });
+    expect(duplicateOrganization.status).toBe(409);
+    expect(duplicateOrganization.code).toBe("code_conflict");
+
+    const unitTypes = await admin.get<JsonRecord[]>("/api/admin/unit-types");
+    const departmentType = unitTypes.find((unitType) => unitType.code === "department") || unitTypes[0];
+    const generatedUnit = await admin.post<JsonRecord>("/api/admin/units", {
+      name: "Generated Unit",
+      organization_id: rootUnit.organization_id,
+      parent_unit_id: rootUnit.id,
+      status: "active",
+      unit_type_id: departmentType.id
+    });
+    expect(generatedUnit.code).toMatch(/^GUN-\d{4}$/);
+    const positionsAfterPlainUnit = await admin.get<JsonRecord[]>("/api/admin/positions");
+    expect(positionsAfterPlainUnit.filter((position) => Number(position.unit_id) === Number(generatedUnit.id))).toHaveLength(0);
+
+    const holderUnit = await admin.post<JsonRecord>("/api/admin/units", {
+      create_default_position: true,
+      name: "Auto Holder Unit",
+      name_local: "معاونیت امور علمی",
+      organization_id: rootUnit.organization_id,
+      parent_unit_id: rootUnit.id,
+      status: "active",
+      unit_type_id: departmentType.id
+    });
+    const positionsAfterHolderUnit = await admin.get<JsonRecord[]>("/api/admin/positions");
+    const holderPositions = positionsAfterHolderUnit.filter((position) => Number(position.unit_id) === Number(holderUnit.id));
+    expect(holderPositions).toHaveLength(1);
+    expect(holderPositions[0].title).toBe("Head of Auto Holder Unit");
+    expect(holderPositions[0].title_local).toBe("معاون امور علمی");
+    expect(holderPositions[0].code).toMatch(/^HAH-\d{4}$/);
+    expect(Number(holderPositions[0].authority_level)).toBe(20);
+    expect(Boolean(holderPositions[0].is_signing_authority)).toBe(true);
+    expect(Boolean(holderPositions[0].allows_multiple_active_assignments)).toBe(false);
+    expect(holderPositions[0].status).toBe("active");
+
+    const duplicateUnit = await admin.postError("/api/admin/units", {
+      code: holderUnit.code,
+      create_default_position: true,
+      name: "Rolled Back Holder Unit",
+      organization_id: rootUnit.organization_id,
+      parent_unit_id: rootUnit.id,
+      status: "active",
+      unit_type_id: departmentType.id
+    });
+    expect(duplicateUnit.status).toBe(409);
+    expect(duplicateUnit.code).toBe("code_conflict");
+    const unitsAfterDuplicate = await admin.get<JsonRecord[]>("/api/admin/units");
+    expect(unitsAfterDuplicate.some((unit) => unit.name === "Rolled Back Holder Unit")).toBe(false);
+
+    const generatedPosition = await admin.post<JsonRecord>("/api/admin/positions", {
+      status: "active",
+      title: "Generated Position",
+      unit_id: rootUnit.id
+    });
+    expect(generatedPosition.code).toMatch(/^GPO-\d{4}$/);
+
+    const generatedDocumentType = await admin.post<JsonRecord>("/api/admin/document-types", {
+      name: "Generated Document Type",
+      requires_serial: true,
+      status: "active"
+    });
+    expect(generatedDocumentType.code).toMatch(/^GDT-\d{4}$/);
+
+    const generatedPriority = await admin.post<JsonRecord>("/api/admin/priority-levels", {
+      name: "Generated Priority",
+      rank: 90,
+      status: "active"
+    });
+    expect(generatedPriority.code).toMatch(/^GPR-\d{4}$/);
+
+    const generatedConfidentiality = await admin.post<JsonRecord>("/api/admin/confidentiality-levels", {
+      name: "Generated Confidentiality",
+      rank: 90,
+      status: "active"
+    });
+    expect(generatedConfidentiality.code).toMatch(/^GCO-\d{4}$/);
+
+    const generatedSerialRule = await admin.post<JsonRecord>("/api/admin/serial-rules", {
+      format: "DOC-{YEAR}-{SEQUENCE}",
+      name: "Generated Serial",
+      reset_policy: "yearly",
+      scope: "global",
+      sequence_padding: 6,
+      status: "draft"
+    });
+    expect(generatedSerialRule.code).toMatch(/^GSE-\d{4}$/);
+
+    const duplicateSerialRule = await admin.postError("/api/admin/serial-rules", {
+      code: generatedSerialRule.code,
+      format: "DOC-{YEAR}-{SEQUENCE}",
+      name: "Duplicate Generated Serial",
+      reset_policy: "yearly",
+      scope: "global",
+      sequence_padding: 6,
+      status: "draft"
+    });
+    expect(duplicateSerialRule.status).toBe(409);
+    expect(duplicateSerialRule.code).toBe("code_conflict");
+  });
 });

@@ -23,6 +23,7 @@ export type AuthAssignment = {
   uuid: string;
   status: Status;
   isPrimary: boolean;
+  isSigningAuthority?: boolean | number;
   unitId: EntityId;
   unitName: string;
   unitCode: string;
@@ -695,15 +696,57 @@ export type EnrollSignatureProfileInput = {
 };
 
 export type SignTaskInput = {
+  pin?: string;
+  placement_token?: string;
+  expected_document_hash?: string;
+  expected_document_version_number?: number;
+  print_options?: SignaturePrintOptions;
+  response_note?: string | null;
+  render_page: number;
+  render_x: number;
+  render_y: number;
+  render_width: number;
+  render_height: number;
+};
+
+export type SignaturePrintOptions = {
+  show_name_position: boolean;
+  show_date: boolean;
+  show_comment: boolean;
+};
+
+export type SignaturePlacement = {
+  render_page: number;
+  render_x: number;
+  render_y: number;
+  render_width: number;
+  render_height: number;
+};
+
+export type SigningSessionInput = {
   pin: string;
   expected_document_hash?: string;
   expected_document_version_number?: number;
   response_note?: string | null;
-  render_page?: number | null;
-  render_x?: number | null;
-  render_y?: number | null;
-  render_width?: number | null;
-  render_height?: number | null;
+};
+
+export type SigningSession = {
+  expires_at: string;
+  placement: SignaturePlacement;
+  placement_token: string;
+  print_options: SignaturePrintOptions;
+  signature_image: SignatureAssetPreview;
+  signer?: {
+    name?: string | null;
+    position?: string | null;
+    unit?: string | null;
+  } | null;
+};
+
+export type SignDocumentInput = SignaturePlacement & {
+  placement_token: string;
+  print_options?: SignaturePrintOptions;
+  response_note?: string | null;
 };
 
 export type SignatureUploadSession = {
@@ -736,6 +779,7 @@ export type VerificationResult = {
   signedBy?: Array<{
     name?: string | null;
     position?: string | null;
+    signedAt?: string | null;
     unit?: string | null;
   }>;
   documentHash?: {

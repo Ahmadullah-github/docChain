@@ -149,6 +149,7 @@ export function AdminPositionsPage() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [positionForm, setPositionForm] = useState<PositionForm>(positionFormDefaults);
+  const [positionCodeManuallyEdited, setPositionCodeManuallyEdited] = useState(false);
   const [assignmentForm, setAssignmentForm] = useState<HolderAssignmentForm>(() => assignmentFormFor(null, [], []));
 
   const refreshPositions = useCallback(async (nextSelectedPositionId?: EntityId | null) => {
@@ -179,6 +180,38 @@ export function AdminPositionsPage() {
       setSelectedPositionId(chooseDefaultPosition(rows)?.id || null);
     }
   }, [rows, selectedPositionId]);
+
+  useEffect(() => {
+    if (
+      activeModal !== "create" ||
+      positionCodeManuallyEdited ||
+      !positionForm.title.trim() ||
+      !positionForm.unit_id
+    ) {
+      return;
+    }
+
+    let alive = true;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const suggestion = await adminApi.codeSuggestions.create({
+          entity_type: "position",
+          title: positionForm.title,
+          unit_id: Number(positionForm.unit_id)
+        });
+        if (alive) {
+          setPositionForm((form) => ({ ...form, code: suggestion.code }));
+        }
+      } catch {
+        // Code generation is a convenience; final create can still ask the server to generate.
+      }
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeModal, positionCodeManuallyEdited, positionForm.title, positionForm.unit_id]);
 
   const selectedPosition = rows.find((row) => row.id === selectedPositionId) || null;
   const modalPosition = modalPositionId ? rows.find((row) => row.id === modalPositionId) || null : null;
@@ -212,10 +245,12 @@ export function AdminPositionsPage() {
     setModalPositionId(null);
     setFormError(null);
     setBusy(false);
+    setPositionCodeManuallyEdited(false);
   }
 
   function openCreatePositionModal() {
     setPositionForm(positionFormDefaults(String(firstActiveUnit(data.units)?.id || "")));
+    setPositionCodeManuallyEdited(false);
     setModalPositionId(null);
     setFormError(null);
     setActiveModal("create");
@@ -224,6 +259,7 @@ export function AdminPositionsPage() {
   function openClonePositionModal(row: PositionAdminRow) {
     setSelectedPositionId(row.id);
     setPositionForm(clonedPositionFormFor(row));
+    setPositionCodeManuallyEdited(false);
     setModalPositionId(row.id);
     setFormError(null);
     setActiveModal("create");
@@ -233,8 +269,28 @@ export function AdminPositionsPage() {
     setSelectedPositionId(row.id);
     setModalPositionId(row.id);
     setPositionForm(positionFormFor(row));
+    setPositionCodeManuallyEdited(true);
     setFormError(null);
     setActiveModal("edit");
+  }
+
+  async function regeneratePositionCode() {
+    if (!positionForm.title.trim() || !positionForm.unit_id) {
+      return;
+    }
+
+    try {
+      const suggestion = await adminApi.codeSuggestions.create({
+        entity_type: "position",
+        exclude_id: modalPositionId || undefined,
+        title: positionForm.title,
+        unit_id: Number(positionForm.unit_id)
+      });
+      setPositionForm((form) => ({ ...form, code: suggestion.code }));
+      setPositionCodeManuallyEdited(false);
+    } catch (error) {
+      setFormError(errorMessage(error));
+    }
   }
 
   function openAssignPositionModal(row?: PositionAdminRow | null) {
@@ -405,10 +461,6 @@ export function AdminPositionsPage() {
     return (
       <>
         <label className={labelClassName}>
-          {t("admin.positions.form.code")}
-          <input className={`${fieldClassName} force-ltr text-start`} maxLength={80} onChange={(event) => onChange({ ...value, code: event.target.value })} required value={value.code} />
-        </label>
-        <label className={labelClassName}>
           {t("admin.positions.form.title")}
           <input className={fieldClassName} maxLength={140} onChange={(event) => onChange({ ...value, title: event.target.value })} required value={value.title} />
         </label>
@@ -424,6 +476,16 @@ export function AdminPositionsPage() {
               <option key={unit.id} value={unit.id}>{unitLabel(unit)}</option>
             ))}
           </select>
+        </label>
+        <label className={labelClassName}>
+          {t("admin.positions.form.code")}
+          <div className="flex gap-2">
+            <input className={`${fieldClassName} force-ltr text-start uppercase`} maxLength={80} onChange={(event) => {
+              setPositionCodeManuallyEdited(true);
+              onChange({ ...value, code: event.target.value.toUpperCase() });
+            }} required value={value.code} />
+            <Button className="mt-1 min-h-10 px-3" disabled={!value.title.trim() || !value.unit_id} icon="reset" onClick={() => void regeneratePositionCode()}>{t("admin.code.generate")}</Button>
+          </div>
         </label>
         <label className={labelClassName}>
           {t("admin.positions.form.authorityLevel")}

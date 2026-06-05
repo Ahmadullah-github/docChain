@@ -230,10 +230,9 @@ export function AdminSerialSettingsPage() {
   }
 
   function stagePreset(preset: SerialRulePreset) {
-    const uniquePart = Date.now().toString(36).toUpperCase();
     openRuleEditor({
       ...serialRuleFormDefaults(hasDefaultRule),
-      code: `${preset.codePrefix}-${uniquePart}`,
+      code: "",
       format: preset.format,
       name: preset.label,
       reset_policy: preset.resetPolicy,
@@ -243,7 +242,7 @@ export function AdminSerialSettingsPage() {
   }
 
   function validateSerialForm(form: SerialRuleForm, reportError: (message: string) => void) {
-    if (!form.code.trim() || !form.name.trim() || !form.format.trim()) {
+    if (!form.name.trim() || !form.format.trim()) {
       reportError(t("admin.serialSettings.form.requiredFields"));
       return false;
     }
