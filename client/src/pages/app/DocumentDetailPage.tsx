@@ -176,12 +176,16 @@ function defaultPermissionSet(): DocumentRequestPermissions {
     can_edit: false,
     can_finalize: false,
     can_forward: false,
+    can_review: false,
     can_sign: false
   };
 }
 
 function fallbackPermissionsForAction(action: DocumentRequestAction): DocumentRequestPermissions {
   const permissions = defaultPermissionSet();
+  if (action === "review") {
+    return { ...permissions, can_edit: true, can_forward: true, can_review: true };
+  }
   if (action === "edit") {
     return { ...permissions, can_edit: true, can_forward: true };
   }
@@ -316,6 +320,21 @@ function SendRequestsBuilder({
     });
   }
 
+  function updateRecipientPermission(
+    recipient: DraftRecipient,
+    permission: "can_edit" | "can_forward" | "can_review" | "can_sign",
+    checked: boolean
+  ) {
+    const permissions = { ...recipient.permissions, [permission]: checked };
+    if (permission === "can_review" && checked) {
+      permissions.can_edit = true;
+    }
+    if (permission === "can_edit" && !checked) {
+      permissions.can_review = false;
+    }
+    updateRecipient(recipient.localId, { permissions });
+  }
+
   function removeRecipient(localId: string) {
     setRecipients((current) => current.filter((recipient) => recipient.localId !== localId));
   }
@@ -423,7 +442,7 @@ function SendRequestsBuilder({
               <section className="space-y-4">
                 <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <label className="block text-sm font-bold text-slate-700">
-                    Default action
+                    Default primary request
                     <select
                       className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
                       onChange={(event) => setSelectedAction(event.target.value as DocumentRequestAction)}
@@ -498,7 +517,7 @@ function SendRequestsBuilder({
 
                         <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                           <label className="block text-sm font-bold text-slate-700">
-                            Required action
+                            Primary request
                             <select
                               className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
                               onChange={(event) => updateRecipientAction(recipient, event.target.value as DocumentRequestAction)}
@@ -513,6 +532,27 @@ function SendRequestsBuilder({
                             Due date
                             <input className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10" onChange={(event) => updateRecipient(recipient.localId, { due_at: event.target.value })} type="datetime-local" value={recipient.due_at} />
                           </label>
+                        </div>
+
+                        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-500">Allowed actions</p>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {([
+                              ["can_review", "Review / approve"],
+                              ["can_edit", "Edit"],
+                              ["can_sign", "Sign"],
+                              ["can_forward", "Forward"]
+                            ] as const).map(([permission, label]) => (
+                              <label className="flex min-h-10 items-center gap-2 rounded-md bg-white px-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200" key={permission}>
+                                <input
+                                  checked={Boolean(recipient.permissions[permission])}
+                                  onChange={(event) => updateRecipientPermission(recipient, permission, event.target.checked)}
+                                  type="checkbox"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
                         </div>
 
                         <label className="mt-3 block text-sm font-bold text-slate-700">
@@ -643,6 +683,131 @@ function normalizePlacement(value: SignaturePlacement): SignaturePlacement {
   };
 }
 
+function formatPlacementNumber(value: number, precision = 0) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+  if (precision <= 0) {
+    return String(Math.round(value));
+  }
+  return value.toFixed(precision).replace(/\.0$/, "");
+}
+
+function PlacementNumberInput({
+  integer = false,
+  label,
+  max,
+  min,
+  onCommit,
+  precision = 0,
+  step = 1,
+  unit,
+  value
+}: {
+  integer?: boolean;
+  label: string;
+  max: number;
+  min: number;
+  onCommit: (value: number) => void;
+  precision?: number;
+  step?: number;
+  unit?: string;
+  value: number;
+}) {
+  const [draft, setDraft] = useState(formatPlacementNumber(value, precision));
+  const [focused, setFocused] = useState(false);
+  const normalizedMax = Math.max(min, max);
+
+  useEffect(() => {
+    if (!focused) {
+      setDraft(formatPlacementNumber(value, precision));
+    }
+  }, [focused, precision, value]);
+
+  const normalizeInputValue = (next: number) => {
+    const clamped = clampNumber(next, min, normalizedMax);
+    return integer ? Math.round(clamped) : clamped;
+  };
+
+  const commitDraft = (raw: string) => {
+    const parsed = Number(raw);
+    const next = raw.trim() && Number.isFinite(parsed)
+      ? normalizeInputValue(parsed)
+      : normalizeInputValue(value);
+    onCommit(next);
+    setDraft(formatPlacementNumber(next, precision));
+  };
+
+  const nudgeValue = (direction: -1 | 1) => {
+    const next = normalizeInputValue(value + (step * direction));
+    onCommit(next);
+    setDraft(formatPlacementNumber(next, precision));
+  };
+
+  return (
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-2 shadow-sm shadow-slate-900/[0.03]">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</span>
+        {unit ? <span className="text-[11px] font-bold text-slate-400">{unit}</span> : null}
+      </div>
+      <div className="flex min-h-10 items-center gap-1 rounded-md bg-slate-50 px-1 ring-1 ring-slate-100 focus-within:bg-white focus-within:ring-[#061d49]/25">
+        <button
+          aria-label={`Decrease ${label}`}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-sm font-black text-[#061d49] shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={value <= min}
+          onClick={() => nudgeValue(-1)}
+          type="button"
+        >
+          -
+        </button>
+        <input
+          className="min-w-0 flex-1 border-0 bg-transparent px-1 text-center text-sm font-black text-slate-900 outline-none"
+          inputMode="decimal"
+          max={normalizedMax}
+          min={min}
+          onBlur={(event) => {
+            setFocused(false);
+            commitDraft(event.currentTarget.value);
+          }}
+          onChange={(event) => {
+            const raw = event.currentTarget.value;
+            setDraft(raw);
+            const parsed = Number(raw);
+            if (!raw.trim() || !Number.isFinite(parsed)) {
+              return;
+            }
+            const next = normalizeInputValue(parsed);
+            onCommit(next);
+            if (next !== parsed) {
+              setDraft(formatPlacementNumber(next, precision));
+            }
+          }}
+          onFocus={() => setFocused(true)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitDraft(event.currentTarget.value);
+              event.currentTarget.blur();
+            }
+          }}
+          step={step}
+          type="number"
+          value={draft}
+        />
+        <button
+          aria-label={`Increase ${label}`}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-sm font-black text-[#061d49] shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={value >= normalizedMax}
+          onClick={() => nudgeValue(1)}
+          type="button"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SignaturePlacementFrame({
   comment,
   html,
@@ -664,6 +829,7 @@ function SignaturePlacementFrame({
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const placementRef = useRef(placement);
+  const onPageCountRef = useRef(onPageCount);
   const onPlacementChangeRef = useRef(onPlacementChange);
   const [frameReady, setFrameReady] = useState(0);
 
@@ -684,6 +850,10 @@ function SignaturePlacementFrame({
   }, [onPlacementChange]);
 
   useEffect(() => {
+    onPageCountRef.current = onPageCount;
+  }, [onPageCount]);
+
+  useEffect(() => {
     const doc = iframeRef.current?.contentDocument;
     const win = iframeRef.current?.contentWindow;
     if (!doc || !win || !signatureImage) {
@@ -691,7 +861,7 @@ function SignaturePlacementFrame({
     }
 
     const pages = Array.from(doc.querySelectorAll<HTMLElement>(".dc-page, .dc-word-page"));
-    onPageCount(Math.max(1, pages.length));
+    onPageCountRef.current(Math.max(1, pages.length));
     doc.querySelectorAll(".dc-sign-placement-ui").forEach((item) => item.remove());
     const pageIndex = clampNumber(placementRef.current.render_page - 1, 0, Math.max(0, pages.length - 1));
     const page = pages[pageIndex];
@@ -713,12 +883,15 @@ function SignaturePlacementFrame({
       "align-items:center",
       "justify-content:flex-end",
       "border:1.5px solid #059669",
+      "box-shadow:0 0 0 2px rgba(5,150,105,.12)",
       "background:rgba(236,253,245,.34)",
       "cursor:move",
       "overflow:hidden",
       "color:#064e3b",
       "font:600 8px/1.15 Arial,sans-serif",
-      "text-align:center"
+      "text-align:center",
+      "touch-action:none",
+      "user-select:none"
     ].join(";");
 
     const image = doc.createElement("img");
@@ -735,13 +908,30 @@ function SignaturePlacementFrame({
     ].filter(Boolean);
     if (metaParts.length) {
       const meta = doc.createElement("div");
-      meta.style.cssText = "flex:0 0 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;";
-      meta.textContent = metaParts.join(" / ");
+      meta.style.cssText = "flex:0 0 auto;max-width:100%;overflow:hidden;pointer-events:none;";
+      metaParts.forEach((part) => {
+        const line = doc.createElement("div");
+        line.style.cssText = "max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        line.textContent = part;
+        meta.appendChild(line);
+      });
       overlay.appendChild(meta);
     }
 
     const handle = doc.createElement("span");
-    handle.style.cssText = "position:absolute;right:0;bottom:0;width:10px;height:10px;background:#059669;cursor:nwse-resize;";
+    handle.title = "Resize signature";
+    handle.style.cssText = [
+      "position:absolute",
+      "right:-1px",
+      "bottom:-1px",
+      "width:16px",
+      "height:16px",
+      "border:2px solid #ffffff",
+      "background:#059669",
+      "box-shadow:0 1px 4px rgba(15,23,42,.22)",
+      "cursor:nwse-resize",
+      "touch-action:none"
+    ].join(";");
     overlay.appendChild(handle);
     page.appendChild(overlay);
 
@@ -761,37 +951,45 @@ function SignaturePlacementFrame({
           mode: "move" | "resize";
           offsetX: number;
           offsetY: number;
+          pointerId: number;
           start: SignaturePlacement;
         }
       | null = null;
 
-    const pointInPageMm = (event: PointerEvent) => {
+    const pointInPageMm = (clientX: number, clientY: number) => {
       const rect = page.getBoundingClientRect();
       return {
-        x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * pageWidthMm,
-        y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * pageHeightMm
+        x: ((clientX - rect.left) / Math.max(1, rect.width)) * pageWidthMm,
+        y: ((clientY - rect.top) / Math.max(1, rect.height)) * pageHeightMm
       };
     };
 
-    const onPointerDown = (event: PointerEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const point = pointInPageMm(event);
+    const startDrag = (target: EventTarget | null, clientX: number, clientY: number, pointerId: number) => {
+      const point = pointInPageMm(clientX, clientY);
       const current = placementRef.current;
+      const mode = target === handle ? "resize" : "move";
       drag = {
-        mode: event.target === handle ? "resize" : "move",
-        offsetX: point.x - current.render_x,
-        offsetY: point.y - current.render_y,
+        mode,
+        offsetX: mode === "resize" ? current.render_width - (point.x - current.render_x) : point.x - current.render_x,
+        offsetY: mode === "resize" ? current.render_height - (point.y - current.render_y) : point.y - current.render_y,
+        pointerId,
         start: current
       };
+      try {
+        overlay.setPointerCapture(pointerId);
+      } catch {
+        // The iframe document listeners below keep dragging alive if pointer capture is unavailable.
+      }
+      overlay.style.cursor = target === handle ? "nwse-resize" : "grabbing";
+      doc.body.style.userSelect = "none";
+      doc.body.style.cursor = overlay.style.cursor;
     };
 
-    const onPointerMove = (event: PointerEvent) => {
+    const moveDrag = (clientX: number, clientY: number) => {
       if (!drag) {
         return;
       }
-      event.preventDefault();
-      const point = pointInPageMm(event);
+      const point = pointInPageMm(clientX, clientY);
       if (drag.mode === "move") {
         applyPlacement({
           ...drag.start,
@@ -801,27 +999,79 @@ function SignaturePlacementFrame({
       } else {
         applyPlacement({
           ...drag.start,
-          render_width: point.x - drag.start.render_x,
-          render_height: point.y - drag.start.render_y
+          render_width: point.x - drag.start.render_x + drag.offsetX,
+          render_height: point.y - drag.start.render_y + drag.offsetY
         });
       }
     };
 
-    const onPointerUp = () => {
+    const onPointerDown = (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      startDrag(event.target, event.clientX, event.clientY, event.pointerId);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag) {
+        return;
+      }
+      if (event.pointerId !== drag.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      moveDrag(event.clientX, event.clientY);
+    };
+
+    const endDrag = (event: PointerEvent) => {
+      if (!drag) {
+        return;
+      }
+      if (event.pointerId !== drag.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        if (overlay.hasPointerCapture(event.pointerId)) {
+          overlay.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // Nothing to release when pointer capture was not granted.
+      }
+      overlay.style.cursor = "move";
+      doc.body.style.userSelect = "";
+      doc.body.style.cursor = "";
       drag = null;
     };
 
     overlay.addEventListener("pointerdown", onPointerDown);
+    overlay.addEventListener("pointermove", onPointerMove);
+    overlay.addEventListener("pointerup", endDrag);
+    overlay.addEventListener("pointercancel", endDrag);
     doc.addEventListener("pointermove", onPointerMove);
-    doc.addEventListener("pointerup", onPointerUp);
+    doc.addEventListener("pointerup", endDrag);
+    doc.addEventListener("pointercancel", endDrag);
+    win.addEventListener("pointermove", onPointerMove);
+    win.addEventListener("pointerup", endDrag);
+    win.addEventListener("pointercancel", endDrag);
 
     return () => {
       overlay.removeEventListener("pointerdown", onPointerDown);
+      overlay.removeEventListener("pointermove", onPointerMove);
+      overlay.removeEventListener("pointerup", endDrag);
+      overlay.removeEventListener("pointercancel", endDrag);
       doc.removeEventListener("pointermove", onPointerMove);
-      doc.removeEventListener("pointerup", onPointerUp);
+      doc.removeEventListener("pointerup", endDrag);
+      doc.removeEventListener("pointercancel", endDrag);
+      win.removeEventListener("pointermove", onPointerMove);
+      win.removeEventListener("pointerup", endDrag);
+      win.removeEventListener("pointercancel", endDrag);
+      doc.body.style.userSelect = "";
+      doc.body.style.cursor = "";
       overlay.remove();
     };
-  }, [comment, frameReady, html, onPageCount, placement.render_page, printOptions, signatureImage, signer]);
+  }, [comment, frameReady, html, placement.render_page, printOptions, signatureImage, signer]);
 
   return (
     <iframe
@@ -991,7 +1241,7 @@ function SigningModal({
               <Button disabled={busy || !signatureProfile} type="submit" variant="primary">{busy ? "Unlocking..." : "Unlock signature"}</Button>
             </form>
           ) : session ? (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
               <SignaturePlacementFrame
                 comment={responseNote.trim()}
                 html={previewHtml}
@@ -1009,49 +1259,92 @@ function SigningModal({
                 signatureImage={session.signature_image.data_url}
                 signer={session.signer}
               />
-              <aside className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-sm font-bold text-slate-700">
-                    Page
-                    <input
-                      className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              <aside className="space-y-3">
+                <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-black text-slate-950">Placement</h3>
+                    <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-slate-500 ring-1 ring-slate-200">A4 mm</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <PlacementNumberInput
+                      integer
+                      label="Page"
                       max={pageCount}
                       min={1}
-                      onChange={(event) => setPlacement((current) => normalizePlacement({ ...current, render_page: Number(event.target.value) || 1 }))}
-                      type="number"
+                      onCommit={(value) => setPlacement((current) => normalizePlacement({ ...current, render_page: value }))}
                       value={placement.render_page}
                     />
-                  </label>
-                  <label className="block text-sm font-bold text-slate-700">
-                    Width
-                    <input
-                      className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+                    <PlacementNumberInput
+                      label="Width"
+                      max={pageWidthMm}
                       min={minSignatureWidthMm}
-                      onChange={(event) => setPlacement((current) => normalizePlacement({ ...current, render_width: Number(event.target.value) || current.render_width }))}
-                      type="number"
-                      value={Math.round(placement.render_width)}
+                      onCommit={(value) => setPlacement((current) => normalizePlacement({ ...current, render_width: value }))}
+                      unit="mm"
+                      value={placement.render_width}
                     />
-                  </label>
-                </div>
-                <div className="space-y-2 rounded-lg border border-slate-200 p-3 text-sm font-semibold text-slate-700">
-                  <label className="flex items-center gap-2">
-                    <input checked={printOptions.show_name_position} onChange={(event) => setPrintOptions((current) => ({ ...current, show_name_position: event.target.checked }))} type="checkbox" />
-                    Name / position
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input checked={printOptions.show_date} onChange={(event) => setPrintOptions((current) => ({ ...current, show_date: event.target.checked }))} type="checkbox" />
-                    Date
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input checked={printOptions.show_comment} disabled={!responseNote.trim()} onChange={(event) => setPrintOptions((current) => ({ ...current, show_comment: event.target.checked }))} type="checkbox" />
-                    Comment
-                  </label>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-600">
-                  <p>X {placement.render_x.toFixed(1)} mm</p>
-                  <p>Y {placement.render_y.toFixed(1)} mm</p>
-                  <p>H {placement.render_height.toFixed(1)} mm</p>
-                </div>
+                    <PlacementNumberInput
+                      label="Height"
+                      max={pageHeightMm}
+                      min={minSignatureHeightMm}
+                      onCommit={(value) => setPlacement((current) => normalizePlacement({ ...current, render_height: value }))}
+                      unit="mm"
+                      value={placement.render_height}
+                    />
+                    <PlacementNumberInput
+                      label="X"
+                      max={pageWidthMm - placement.render_width}
+                      min={0}
+                      onCommit={(value) => setPlacement((current) => normalizePlacement({ ...current, render_x: value }))}
+                      precision={1}
+                      step={0.5}
+                      unit="mm"
+                      value={placement.render_x}
+                    />
+                    <PlacementNumberInput
+                      label="Y"
+                      max={pageHeightMm - placement.render_height}
+                      min={0}
+                      onCommit={(value) => setPlacement((current) => normalizePlacement({ ...current, render_y: value }))}
+                      precision={1}
+                      step={0.5}
+                      unit="mm"
+                      value={placement.render_y}
+                    />
+                  </div>
+                </section>
+
+                <section className="rounded-lg border border-slate-200 bg-white p-3">
+                  <h3 className="mb-3 text-sm font-black text-slate-950">Printed details</h3>
+                  <div className="grid gap-2 text-sm font-semibold text-slate-700">
+                    <label className="flex min-h-10 items-center gap-2 rounded-md bg-slate-50 px-3 ring-1 ring-slate-100">
+                      <input checked={printOptions.show_name_position} onChange={(event) => setPrintOptions((current) => ({ ...current, show_name_position: event.target.checked }))} type="checkbox" />
+                      Name / position
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-md bg-slate-50 px-3 ring-1 ring-slate-100">
+                      <input checked={printOptions.show_date} onChange={(event) => setPrintOptions((current) => ({ ...current, show_date: event.target.checked }))} type="checkbox" />
+                      Date
+                    </label>
+                    <label className="flex min-h-10 items-center gap-2 rounded-md bg-slate-50 px-3 ring-1 ring-slate-100">
+                      <input checked={printOptions.show_comment} disabled={!responseNote.trim()} onChange={(event) => setPrintOptions((current) => ({ ...current, show_comment: event.target.checked }))} type="checkbox" />
+                      Comment
+                    </label>
+                  </div>
+                </section>
+
+                <section className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-[#061d49] p-3 text-white">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wide text-white/55">X</p>
+                    <p className="mt-1 text-sm font-black">{placement.render_x.toFixed(1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wide text-white/55">Y</p>
+                    <p className="mt-1 text-sm font-black">{placement.render_y.toFixed(1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wide text-white/55">Size</p>
+                    <p className="mt-1 text-sm font-black">{Math.round(placement.render_width)}x{Math.round(placement.render_height)}</p>
+                  </div>
+                </section>
               </aside>
             </div>
           ) : null}
@@ -1072,6 +1365,7 @@ function DocumentActionPanel({
   canFinalize,
   canSend,
   canSelfSign,
+  activePositionAlreadySigned,
   documentId,
   documentStatus,
   myOpenTasks,
@@ -1092,6 +1386,7 @@ function DocumentActionPanel({
   canFinalize: boolean;
   canSend: boolean;
   canSelfSign: boolean;
+  activePositionAlreadySigned: boolean;
   documentId: EntityId;
   documentStatus: string;
   myOpenTasks: DocumentTask[];
@@ -1107,11 +1402,15 @@ function DocumentActionPanel({
   signing: boolean;
   tasks: DocumentTask[];
 }) {
-  const signableTasks = myOpenTasks.filter((task) => taskAction(task) === "sign" || taskCan(task, "can_sign"));
+  const signableTasks = activePositionAlreadySigned ? [] : myOpenTasks.filter((task) => taskAction(task) === "sign" || taskCan(task, "can_sign"));
+  const primarySignTask = signableTasks[0] || null;
+  const canShowSignAction = Boolean(primarySignTask || canSelfSign);
   const completedTaskCount = tasks.filter((task) => task.status === "completed").length;
   const measuredTaskCount = openTasks.length + completedTaskCount;
   const progressPercent = measuredTaskCount ? Math.round((completedTaskCount / measuredTaskCount) * 100) : 0;
-  const primaryTask = signableTasks.length
+  const primaryTask = activePositionAlreadySigned
+    ? "This active position has already signed this document."
+    : primarySignTask
     ? "This document is waiting for your signature."
     : myOpenTasks.length
       ? `Your request: ${requestActionLabel(taskAction(myOpenTasks[0]))}.`
@@ -1128,7 +1427,7 @@ function DocumentActionPanel({
           <p className="text-sm leading-6 text-slate-700">{primaryTask}</p>
         </div>
 
-        {signableTasks.length ? (
+        {canShowSignAction ? (
           <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3" id="signature-duty">
             <div>
               <p className="text-base font-bold text-emerald-950">Ready for your signature</p>
@@ -1138,12 +1437,19 @@ function DocumentActionPanel({
                 </p>
               ) : null}
             </div>
-            {signableTasks.map((task) => (
-              <div className="grid gap-2" key={task.id}>
-                <p className="text-sm font-bold text-emerald-900">{taskTargetLabel(task)}</p>
-                <Button disabled={!signatureProfile || signing} icon="signature" onClick={() => onSignTask(task)} variant="primary">Place signature</Button>
-              </div>
-            ))}
+            <div className="grid gap-2">
+              <p className="text-sm font-bold text-emerald-900">
+                {primarySignTask ? taskTargetLabel(primarySignTask) : "Your active position can sign this document."}
+              </p>
+              <Button
+                disabled={!signatureProfile || signing}
+                icon="signature"
+                onClick={() => primarySignTask ? onSignTask(primarySignTask) : onOpenSelfSign()}
+                variant="primary"
+              >
+                Place signature
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -1166,6 +1472,14 @@ function DocumentActionPanel({
           <div className="space-y-2">
             {openTasks.slice(0, 5).map((task) => {
               const mine = myOpenTasks.some((item) => item.id === task.id);
+              const canApproveReview = taskCan(task, "can_review");
+              const canCompleteManually = taskAction(task) !== "sign" && taskAction(task) !== "information" && !canApproveReview;
+              const showTaskActions = mine && (
+                canApproveReview
+                || canCompleteManually
+                || taskCan(task, "can_edit")
+                || taskCan(task, "can_forward")
+              );
               return (
                 <div className={cx("rounded-lg border p-3", mine ? "border-[#061d49]/20 bg-[#061d49]/5" : "border-slate-200 bg-white")} key={task.id}>
                   <div className="flex items-start justify-between gap-2">
@@ -1175,7 +1489,7 @@ function DocumentActionPanel({
                     </div>
                     <StatusBadge tone={requestActionTone(taskAction(task))}>{requestActionLabel(taskAction(task))}</StatusBadge>
                   </div>
-                  {mine && taskAction(task) !== "sign" ? (
+                  {showTaskActions ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {taskCan(task, "can_edit") ? (
                         <Link to={`/app/documents/${documentId}/edit`}>
@@ -1183,7 +1497,8 @@ function DocumentActionPanel({
                         </Link>
                       ) : null}
                       {taskCan(task, "can_forward") ? <Button icon="export" onClick={onOpenSend}>Forward</Button> : null}
-                      <Button onClick={() => onCompleteTask(task)}>Complete</Button>
+                      {canApproveReview ? <Button icon="shield" onClick={() => onCompleteTask(task)} variant="primary">Approve review</Button> : null}
+                      {canCompleteManually ? <Button onClick={() => onCompleteTask(task)}>Complete</Button> : null}
                     </div>
                   ) : null}
                 </div>
@@ -1193,7 +1508,6 @@ function DocumentActionPanel({
         ) : null}
 
         <div className="grid gap-2">
-          {canSelfSign ? <Button className="min-h-12 w-full" disabled={!signatureProfile || signing} icon="signature" onClick={onOpenSelfSign} variant="primary">Sign document</Button> : null}
           {canSend ? <Button className="min-h-12 w-full" icon="export" onClick={onOpenSend} variant="primary">Send requests</Button> : null}
           {canEdit ? (
             <Link to={`/app/documents/${documentId}/edit`}>
@@ -1248,6 +1562,7 @@ export function DocumentDetailPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const informationSeenTaskIdsRef = useRef<Set<string>>(new Set());
 
   const documentRecord = detail?.document || null;
   const documentStatus = textField(documentRecord, "status", "draft");
@@ -1257,7 +1572,11 @@ export function DocumentDetailPage() {
   const isCreator = Boolean(active && numberField(documentRecord || {}, "creator_assignment_id") === active.id);
   const openTasks = useMemo(() => detail?.tasks.filter((task) => task.status === "open") || [], [detail]);
   const myOpenTasks = useMemo(() => openTasks.filter((task) => taskMatchesActiveAssignment(task, auth)), [auth, openTasks]);
-  const signableTasks = useMemo(() => myOpenTasks.filter((task) => taskAction(task) === "sign" || taskCan(task, "can_sign")), [myOpenTasks]);
+  const activePositionAlreadySigned = useMemo(() => Boolean(active && detail?.signatureEvents.some((event) => (
+    String(event.status || "completed") === "completed"
+      && numberField(event, "signerPositionId") === active.positionId
+  ))), [active, detail]);
+  const assignedSignTasks = useMemo(() => myOpenTasks.filter((task) => taskAction(task) === "sign" || taskCan(task, "can_sign")), [myOpenTasks]);
   const editTask = myOpenTasks.find((task) => taskCan(task, "can_edit")) || null;
   const finalTerminalStatus = ["archived", "closed", "finalized", "serial_assigned"].includes(documentStatus);
   const closedOrArchived = ["archived", "closed"].includes(documentStatus);
@@ -1265,10 +1584,10 @@ export function DocumentDetailPage() {
   const canSend = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_forward")) || (documentStatus === "draft" && documentWritePermission)));
   const canFinalize = Boolean(!finalTerminalStatus && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_finalize"))));
   const canArchive = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_archive"))));
-  const canSelfSign = Boolean(!finalTerminalStatus && active && (auth.isAdmin || booleanValue(active.isSigningAuthority)));
+  const canSelfSign = Boolean(!activePositionAlreadySigned && !assignedSignTasks.length && !finalTerminalStatus && active && (auth.isAdmin || booleanValue(active.isSigningAuthority)));
   const officialSerial = textField(documentRecord, "official_serial", "") || textField(documentRecord, "officialSerial", "");
   const latestVersion = detail?.versions[0] || null;
-  const expectedDocumentHash = typeof latestVersion?.content_hash === "string" ? latestVersion.content_hash : undefined;
+  const expectedDocumentHash = typeof documentRecord?.current_content_hash === "string" ? documentRecord.current_content_hash : undefined;
   const expectedDocumentVersion = Number(documentRecord?.current_version_number || latestVersion?.version_number || 0) || undefined;
 
   async function renderOfficialHtmlPreview() {
@@ -1361,6 +1680,46 @@ export function DocumentDetailPage() {
     }
   }, [documentId]);
 
+  useEffect(() => {
+    if (!documentId) {
+      return undefined;
+    }
+    const informationTasks = myOpenTasks.filter((task) => taskAction(task) === "information");
+    const pendingTasks = informationTasks.filter((task) => {
+      const key = String(task.id);
+      if (informationSeenTaskIdsRef.current.has(key)) {
+        return false;
+      }
+      informationSeenTaskIdsRef.current.add(key);
+      return true;
+    });
+    if (!pendingTasks.length) {
+      return undefined;
+    }
+
+    let alive = true;
+    void Promise.all(pendingTasks.map((task) => (
+      documentApi.markTaskSeen(documentId, task.id).catch((caught) => {
+        informationSeenTaskIdsRef.current.delete(String(task.id));
+        throw caught;
+      })
+    )))
+      .then(() => {
+        if (alive) {
+          void load();
+        }
+      })
+      .catch((caught) => {
+        if (alive) {
+          setError(caught instanceof Error ? caught.message : "Could not mark information request as seen.");
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [documentId, myOpenTasks]);
+
   function recipientsForTransmission(transmissionId: EntityId) {
     return transmissionRecipientRows.filter((recipient) => numberField(recipient, "transmission_id") === transmissionId);
   }
@@ -1395,7 +1754,7 @@ export function DocumentDetailPage() {
     await load({ regeneratePreview: true });
   }
 
-  async function completeTask(task: DocumentTask, note: string) {
+  async function completeTask(task: DocumentTask, note: string, options: { openSendAfterComplete?: boolean } = {}) {
     const responseNote = note.trim();
     if (taskRequiresComment(task) && !responseNote) {
       setError("Enter the required response comment before completing this request.");
@@ -1409,10 +1768,13 @@ export function DocumentDetailPage() {
     setError(null);
     try {
       await documentApi.completeTask(documentId, task.id, responseNote || null);
-      setNotice("Request completed.");
+      setNotice(taskCan(task, "can_review") ? "Review approved." : "Request completed.");
       setCompletionTask(null);
       setCompletionNote("");
       await load();
+      if (options.openSendAfterComplete) {
+        setSendWizardOpen(true);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not complete the request.");
     } finally {
@@ -1568,20 +1930,11 @@ export function DocumentDetailPage() {
   }
 
   const subject = textField(documentRecord, "subject", "Untitled document");
-  const primaryAction = signableTasks.length
-    ? { label: "Sign document", action: () => setSigningTarget({ task: signableTasks[0], type: "task" as const }) }
-    : canSelfSign
-      ? { label: "Sign document", action: () => setSigningTarget({ type: "self" as const }) }
-    : documentStatus === "draft" && canEdit
+  const primaryAction = documentStatus === "draft" && canEdit
       ? null
       : canSend
         ? { label: "Send requests", action: () => setSendWizardOpen(true) }
         : null;
-  const headerSignAction = signableTasks.length
-    ? () => setSigningTarget({ task: signableTasks[0], type: "task" as const })
-    : canSelfSign
-      ? () => setSigningTarget({ type: "self" as const })
-      : null;
 
   return (
     <section className="mx-auto max-w-[108rem] space-y-4">
@@ -1598,15 +1951,12 @@ export function DocumentDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {headerSignAction ? (
-              <Button className="min-h-12" disabled={!signatureProfile} icon="signature" onClick={headerSignAction} variant="primary">Sign document</Button>
-            ) : null}
             {documentStatus === "draft" && canEdit ? (
               <Link to={`/app/documents/${documentId}/edit`}>
                 <Button className="min-h-12" icon="edit" variant="primary">Edit document</Button>
               </Link>
-            ) : primaryAction && !headerSignAction ? (
-              <Button className="min-h-12" icon={signableTasks.length ? "signature" : "export"} onClick={primaryAction.action} variant="primary">{primaryAction.label}</Button>
+            ) : primaryAction ? (
+              <Button className="min-h-12" icon="export" onClick={primaryAction.action} variant="primary">{primaryAction.label}</Button>
             ) : null}
           </div>
         </div>
@@ -1657,11 +2007,13 @@ export function DocumentDetailPage() {
             className="w-full max-w-lg rounded-xl bg-white shadow-2xl"
             onSubmit={(event) => {
               event.preventDefault();
-              void completeTask(completionTask, completionNote);
+              void completeTask(completionTask, completionNote, {
+                openSendAfterComplete: taskCan(completionTask, "can_review") && taskCan(completionTask, "can_forward")
+              });
             }}
           >
             <header className="border-b border-slate-200 px-5 py-4">
-              <h2 className="text-lg font-black text-slate-950">Complete request</h2>
+              <h2 className="text-lg font-black text-slate-950">{taskCan(completionTask, "can_review") ? "Approve review" : "Complete request"}</h2>
               <p className="mt-1 text-sm text-slate-500">{taskTargetLabel(completionTask)}</p>
             </header>
             <div className="p-5">
@@ -1673,7 +2025,7 @@ export function DocumentDetailPage() {
             </div>
             <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-5 py-4">
               <Button disabled={lifecycleBusy} onClick={() => setCompletionTask(null)}>Cancel</Button>
-              <Button disabled={lifecycleBusy} type="submit" variant="primary">{lifecycleBusy ? "Completing..." : "Complete"}</Button>
+              <Button disabled={lifecycleBusy} type="submit" variant="primary">{lifecycleBusy ? "Saving..." : taskCan(completionTask, "can_review") ? "Approve" : "Complete"}</Button>
             </footer>
           </form>
         </div>
@@ -1732,6 +2084,7 @@ export function DocumentDetailPage() {
           canFinalize={canFinalize && !lifecycleBusy}
           canSend={canSend}
           canSelfSign={canSelfSign}
+          activePositionAlreadySigned={activePositionAlreadySigned}
           documentId={documentId}
           documentStatus={documentStatus}
           myOpenTasks={myOpenTasks}

@@ -708,11 +708,53 @@ describe("template renderer rich staff document content", () => {
     expect(html).not.toContain("Sender routing note that should not print here.");
   });
 
-  it("renders final QR verification blocks with serial and QR image", () => {
+  it("removes dashed helper borders while preserving solid line blocks", () => {
     const html = renderTemplateHtml({
       page: { direction: "ltr" },
       blocks: [
-        { id: "qr", type: "qr", x: 10, y: 10, width: 60, height: 24 }
+        {
+          id: "helper",
+          type: "text",
+          x: 10,
+          y: 10,
+          width: 60,
+          height: 12,
+          content: "Helper border should not print",
+          style: { borderColor: "#bfdbfe", borderStyle: "dashed", borderWidth: 1 }
+        },
+        {
+          id: "line",
+          type: "line",
+          x: 10,
+          y: 28,
+          width: 80,
+          height: 1,
+          style: { borderColor: "#0f172a", borderStyle: "solid", borderWidth: 1 }
+        },
+        {
+          id: "dashed-line",
+          type: "line",
+          x: 10,
+          y: 34,
+          width: 80,
+          height: 1,
+          style: { borderColor: "#bfdbfe", borderStyle: "dashed", borderWidth: 1 }
+        }
+      ]
+    }, emptyContext);
+
+    expect(html).toContain("Helper border should not print");
+    expect(html).toContain("border:0px none #bfdbfe");
+    expect(html).toContain("border-top:1px solid #0f172a");
+    expect(html).toContain("border-top:0");
+    expect(html).not.toContain("dashed #bfdbfe");
+  });
+
+  it("renders final QR verification blocks as QR images only", () => {
+    const html = renderTemplateHtml({
+      page: { direction: "ltr" },
+      blocks: [
+        { id: "qr", type: "qr", x: 10, y: 10, width: 24, height: 24, style: { borderColor: "#475569", borderStyle: "dashed", borderWidth: 1 } }
       ]
     }, {
       ...emptyContext,
@@ -724,7 +766,11 @@ describe("template renderer rich staff document content", () => {
     });
 
     expect(html).toContain("data:image/png;base64,qr123");
-    expect(html).toContain("Official Serial: BU-1405-000231");
-    expect(html).toContain("Verify this document in DocChain");
+    expect(occurrenceCount(html, '<img src="data:image/png;base64,qr123"')).toBe(1);
+    expect(html).not.toContain("Official Serial");
+    expect(html).not.toContain("Verify this document");
+    expect(html).not.toContain("https://docchain.example/verify/token");
+    expect(html).not.toContain("VERIFY<br />DOCCHAIN");
+    expect(html).not.toContain("1px dashed #475569");
   });
 });

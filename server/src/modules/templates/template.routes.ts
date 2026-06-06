@@ -462,15 +462,59 @@ function tokenHash(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function verificationUrlForToken(token: string) {
-  return new URL(`/verify/${token}`, env.APP_ORIGIN).toString();
+function urlOrigin(value: string) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+
+function localOrigin(value: string) {
+  const origin = urlOrigin(value);
+  if (!origin) {
+    return false;
+  }
+  const hostname = new URL(origin).hostname.toLowerCase();
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function requestHeaderOrigin(request: Request) {
+  const origin = request.get("origin");
+  if (origin) {
+    return urlOrigin(origin);
+  }
+  const referer = request.get("referer");
+  if (referer) {
+    return urlOrigin(referer);
+  }
+  const host = request.get("host");
+  return host ? urlOrigin(`${request.protocol}://${host}`) : "";
+}
+
+export function verificationOriginForRequest(request: Request, configuredOrigin = env.APP_ORIGIN) {
+  const configured = urlOrigin(configuredOrigin) || urlOrigin(env.APP_ORIGIN);
+  if (configured && !localOrigin(configured)) {
+    return configured;
+  }
+
+  return requestHeaderOrigin(request) || configured || "http://localhost:5173";
+}
+
+export function verificationUrlForToken(token: string, origin: string) {
+  return new URL(`/verify/${token}`, origin).toString();
+}
+
+export function verificationUrlMatchesOrigin(url: string, origin: string) {
+  const expectedOrigin = urlOrigin(origin);
+  return Boolean(expectedOrigin && urlOrigin(url) === expectedOrigin);
 }
 
 function metadataRecord(value: unknown) {
   return parseJson<Record<string, unknown>>(value, {});
 }
 
-async function activePublicVerificationUrl(documentId: number, documentHash: string) {
+async function activePublicVerificationUrl(documentId: number, documentHash: string, origin: string) {
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT *
      FROM document_verification_tokens
@@ -487,7 +531,12 @@ async function activePublicVerificationUrl(documentId: number, documentHash: str
   for (const row of rows) {
     const metadata = metadataRecord(row.metadata);
     const url = typeof metadata.verificationUrl === "string" ? metadata.verificationUrl : "";
-    if (metadata.documentHash === documentHash && metadata.publicRouteEnabled === true && url) {
+    if (
+      metadata.documentHash === documentHash
+      && metadata.publicRouteEnabled === true
+      && url
+      && verificationUrlMatchesOrigin(url, origin)
+    ) {
       return url;
     }
   }
@@ -500,7 +549,8 @@ async function ensurePublicVerificationForPdf(request: Request, input: {
   documentHash: string;
   documentId: number;
 }) {
-  const existingUrl = await activePublicVerificationUrl(input.documentId, input.documentHash);
+  const verificationOrigin = verificationOriginForRequest(request);
+  const existingUrl = await activePublicVerificationUrl(input.documentId, input.documentHash, verificationOrigin);
   if (existingUrl) {
     return {
       qrDataUrl: await QRCode.toDataURL(existingUrl, { errorCorrectionLevel: "M", margin: 1, width: 180 }),
@@ -509,7 +559,7 @@ async function ensurePublicVerificationForPdf(request: Request, input: {
   }
 
   const rawToken = randomBytes(32).toString("hex");
-  const verificationUrl = verificationUrlForToken(rawToken);
+  const verificationUrl = verificationUrlForToken(rawToken, verificationOrigin);
   const [result] = await pool.execute<ResultSetHeader>(
     `INSERT INTO document_verification_tokens (
       uuid, document_id, document_render_id, token_hash, verification_scope,
@@ -527,6 +577,7 @@ async function ensurePublicVerificationForPdf(request: Request, input: {
       JSON.stringify({
         documentHash: input.documentHash,
         publicRouteEnabled: true,
+        verificationOrigin,
         verificationUrl
       })
     ]

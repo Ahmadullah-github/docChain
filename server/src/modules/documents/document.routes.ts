@@ -124,6 +124,7 @@ const sendRecipientSchema = z.object({
   to_position_id: z.coerce.number().int().positive().nullable().optional(),
   required_action: requiredActionSchema,
   requires_comment: z.boolean().optional(),
+  can_review: z.boolean().optional(),
   can_edit: z.boolean().optional(),
   can_sign: z.boolean().optional(),
   can_forward: z.boolean().optional(),
@@ -198,25 +199,30 @@ function requiredActionStatus(action: RequiredAction) {
 }
 
 function defaultPermissionsFor(action: RequiredAction) {
+  if (action === "review") {
+    return { can_review: true, can_edit: true, can_forward: true, can_sign: false, can_finalize: false, can_archive: false };
+  }
   if (action === "edit") {
-    return { can_edit: true, can_forward: true, can_sign: false, can_finalize: false, can_archive: false };
+    return { can_review: false, can_edit: true, can_forward: true, can_sign: false, can_finalize: false, can_archive: false };
   }
   if (action === "sign") {
-    return { can_edit: false, can_forward: false, can_sign: true, can_finalize: false, can_archive: false };
+    return { can_review: false, can_edit: false, can_forward: false, can_sign: true, can_finalize: false, can_archive: false };
   }
   if (action === "forward") {
-    return { can_edit: false, can_forward: true, can_sign: false, can_finalize: false, can_archive: false };
+    return { can_review: false, can_edit: false, can_forward: true, can_sign: false, can_finalize: false, can_archive: false };
   }
-  return { can_edit: false, can_forward: false, can_sign: false, can_finalize: false, can_archive: false };
+  return { can_review: false, can_edit: false, can_forward: false, can_sign: false, can_finalize: false, can_archive: false };
 }
 
 function permissionsForRecipient(recipient: SendRecipientInput) {
   const defaults = defaultPermissionsFor(recipient.required_action);
+  const canReview = recipient.can_review ?? defaults.can_review;
   return {
     can_archive: recipient.can_archive ?? defaults.can_archive,
-    can_edit: recipient.can_edit ?? defaults.can_edit,
+    can_edit: canReview || (recipient.can_edit ?? defaults.can_edit),
     can_finalize: recipient.can_finalize ?? defaults.can_finalize,
     can_forward: recipient.can_forward ?? defaults.can_forward,
+    can_review: canReview,
     can_sign: recipient.can_sign ?? defaults.can_sign
   };
 }
@@ -251,10 +257,11 @@ function normalizeSendRecipients(input: SendDocumentInput): SendRecipientInput[]
 
   return [{
     can_edit: undefined,
-    can_sign: undefined,
     can_forward: undefined,
     can_finalize: undefined,
     can_archive: undefined,
+    can_review: undefined,
+    can_sign: undefined,
     due_at: input.due_at || null,
     note: input.note || input.return_reason || null,
     required_action: legacyActionToRequiredAction(input.action),
@@ -610,6 +617,14 @@ async function hasAssignedOpenTask(documentId: number, assignment: Awaited<Retur
   return rows[0] || null;
 }
 
+function taskAssignedToActiveAssignment(task: RowDataPacket, assignment: Awaited<ReturnType<typeof getActiveAssignment>>) {
+  return Number(task.assigned_assignment_id || 0) === assignment.id
+    || Boolean(
+      Number(task.assigned_unit_id || 0) === assignment.unitId
+      && (!task.assigned_position_id || Number(task.assigned_position_id) === assignment.positionId)
+    );
+}
+
 async function documentEditPermission(
   document: RowDataPacket,
   assignment: Awaited<ReturnType<typeof getActiveAssignment>>,
@@ -863,6 +878,7 @@ async function getDocumentDetail(documentId: number) {
   if (!document) {
     throw notFound("Document");
   }
+  document.current_content_hash = calculateDocumentContentHash(document);
 
   const [versions, attachments, relations, workflowEvents, tasks, signatureEvents, serialAssignment, renders] = await Promise.all([
     pool.execute<RowDataPacket[]>(
@@ -919,6 +935,7 @@ async function getDocumentDetail(documentId: number) {
     pool.execute<RowDataPacket[]>(
       `SELECT
         signature_events.*,
+        positions.id AS signerPositionId,
         positions.title AS signerPositionTitle,
         units.name AS signerUnitName
       FROM signature_events
@@ -1131,18 +1148,6 @@ documentRouter.post("/", asyncHandler(async (request, response) => {
     });
     assertDocumentContentAllowedByWriteMode(writePermission, documentContent);
     const derivedBody = documentContentToPlainText(documentContent) || input.body;
-    const contentHash = calculateDocumentContentHash({
-      body: derivedBody,
-      confidentiality_level_id: input.confidentiality_level_id,
-      current_version_number: 1,
-      document_content: documentContent,
-      document_date: documentDate,
-      document_type_id: input.document_type_id,
-      priority_level_id: input.priority_level_id,
-      subject: input.subject,
-      summary: input.summary || null,
-      template_fields: templateFields
-    });
 
     const [documentResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO documents (
@@ -1172,6 +1177,15 @@ documentRouter.post("/", asyncHandler(async (request, response) => {
     );
     const documentId = documentResult.insertId;
     createdDocumentId = Number(documentId);
+    const [createdRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? LIMIT 1",
+      [documentId]
+    );
+    const createdDocument = createdRows[0];
+    if (!createdDocument) {
+      throw notFound("Document");
+    }
+    const contentHash = calculateDocumentContentHash(createdDocument);
 
     const snapshot = {
       documentId,
@@ -1317,6 +1331,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
         JSON.stringify({
           recipientCount: recipients.length,
           recipients: recipients.map((recipient, index) => ({
+            permissions: permissionsForRecipient(recipient),
             requiredAction: recipient.required_action,
             requiresComment: Boolean(recipient.requires_comment),
             targetId: targets[index]?.id || null,
@@ -1338,9 +1353,9 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
         `INSERT INTO document_tasks (
           uuid, document_id, workflow_event_id, created_by_assignment_id,
           assigned_unit_id, assigned_position_id, assigned_assignment_id,
-          task_type, required_action, requires_comment, can_edit, can_sign, can_forward,
+          task_type, required_action, requires_comment, can_review, can_edit, can_sign, can_forward,
           can_finalize, can_archive, status, title, description, due_at, payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           uuid(),
           documentId,
@@ -1352,6 +1367,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
           recipient.required_action,
           recipient.required_action,
           Boolean(recipient.requires_comment),
+          permissions.can_review,
           permissions.can_edit,
           permissions.can_sign,
           permissions.can_forward,
@@ -1362,6 +1378,7 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
           recipient.note || input.note || null,
           recipient.due_at || input.due_at || null,
           JSON.stringify({
+            permissions,
             requiredAction: recipient.required_action,
             requiresComment: Boolean(recipient.requires_comment),
             sendRenderId: null,
@@ -2058,11 +2075,7 @@ documentRouter.patch("/:documentId/tasks/:taskId/complete", asyncHandler(async (
   if (String(task.status) !== "open") {
     throw new AppError(409, "document_task_not_open", "Only open requests can be completed.");
   }
-  const assignedToActive = Number(task.assigned_assignment_id || 0) === assignment.id
-    || Boolean(
-      Number(task.assigned_unit_id || 0) === assignment.unitId
-      && (!task.assigned_position_id || Number(task.assigned_position_id) === assignment.positionId)
-    );
+  const assignedToActive = taskAssignedToActiveAssignment(task, assignment);
   if (!assignedToActive && !isAdmin(response)) {
     throw new AppError(403, "document_task_not_assigned", "This request is not assigned to your active position.");
   }
@@ -2085,6 +2098,97 @@ documentRouter.patch("/:documentId/tasks/:taskId/complete", asyncHandler(async (
   );
 
   await writeAuditLog(request, { action: "document.task.complete", entityType: "document_task", entityId: taskId });
+  const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [taskId]);
+  ok(response, rows[0] || null);
+}));
+
+documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (request, response) => {
+  const { documentId } = documentIdSchema.parse(request.params);
+  const { taskId } = z.object({ taskId: z.coerce.number().int().positive() }).parse(request.params);
+  const { document, assignment } = await assertDocumentAccess(documentId, request, response);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [taskRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT *
+       FROM document_tasks
+       WHERE id = ? AND document_id = ? AND deleted_at IS NULL
+       LIMIT 1
+       FOR UPDATE`,
+      [taskId, documentId]
+    );
+    const task = taskRows[0];
+    if (!task) {
+      throw notFound("Document task");
+    }
+    if (String(task.required_action || task.task_type) !== "information") {
+      throw new AppError(422, "document_task_not_information", "Only information requests can be marked as seen.");
+    }
+    if (!taskAssignedToActiveAssignment(task, assignment)) {
+      throw new AppError(403, "document_task_not_assigned", "This request is not assigned to your active position.");
+    }
+    if (String(task.status) === "completed") {
+      await connection.commit();
+      ok(response, task);
+      return;
+    }
+    if (String(task.status) !== "open") {
+      throw new AppError(409, "document_task_not_open", "Only open information requests can be marked as seen.");
+    }
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_tasks
+       SET status = 'completed',
+           completed_at = CURRENT_TIMESTAMP,
+           completed_by_assignment_id = ?,
+           responded_by_assignment_id = ?,
+           completion_note = COALESCE(completion_note, 'Seen.'),
+           response_note = COALESCE(response_note, 'Seen.'),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [assignment.id, assignment.id, taskId]
+    );
+
+    await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_workflow_events (
+        uuid, document_id, actor_assignment_id, action, required_action,
+        from_status, to_status, from_unit_id, to_unit_id, to_position_id,
+        note, payload, permissions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        documentId,
+        assignment.id,
+        "information_seen",
+        "information",
+        document.status,
+        document.status,
+        document.current_holder_unit_id || null,
+        assignment.unitId,
+        assignment.positionId,
+        "Information request seen.",
+        JSON.stringify({ documentTaskId: taskId, seenByAssignmentId: assignment.id }),
+        JSON.stringify({
+          canArchive: Boolean(task.can_archive),
+          canEdit: Boolean(task.can_edit),
+          canFinalize: Boolean(task.can_finalize),
+          canForward: Boolean(task.can_forward),
+          canReview: Boolean(task.can_review),
+          canSign: Boolean(task.can_sign)
+        })
+      ]
+    );
+
+    await writeAuditLog(request, { action: "document.task.seen", entityType: "document_task", entityId: taskId }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
   const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [taskId]);
   ok(response, rows[0] || null);
 }));

@@ -54,6 +54,7 @@ function requestActionTone(action?: string | null): "green" | "amber" | "red" | 
 
 function permissionLabels(item: WorkspaceWorkItem) {
   return [
+    booleanValue(item.canReview) ? "Review" : "",
     booleanValue(item.canEdit) ? "Edit" : "",
     booleanValue(item.canSign) ? "Sign" : "",
     booleanValue(item.canForward) ? "Forward" : "",

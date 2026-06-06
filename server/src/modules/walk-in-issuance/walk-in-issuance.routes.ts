@@ -554,18 +554,6 @@ async function createDraftDocumentForRequest(connection: PoolConnection, input: 
   const confidentialityId = input.documentInput.confidentiality_level_id || await defaultReferenceId(connection, "confidentiality_levels");
   const priorityId = input.documentInput.priority_level_id || await defaultReferenceId(connection, "priority_levels");
   const internalReference = makeInternalReference();
-  const contentHash = calculateDocumentContentHash({
-    body: derivedBody,
-    confidentiality_level_id: confidentialityId,
-    current_version_number: 1,
-    document_content: documentContent,
-    document_date: documentDate,
-    document_type_id: input.issuanceRequest.document_type_id,
-    priority_level_id: priorityId,
-    subject,
-    summary,
-    template_fields: templateFields
-  });
 
   const [documentResult] = await connection.execute<ResultSetHeader>(
     `INSERT INTO documents (
@@ -594,6 +582,15 @@ async function createDraftDocumentForRequest(connection: PoolConnection, input: 
     ]
   );
   const documentId = Number(documentResult.insertId);
+  const [createdRows] = await connection.execute<RowDataPacket[]>(
+    "SELECT * FROM documents WHERE id = ? LIMIT 1",
+    [documentId]
+  );
+  const createdDocument = createdRows[0];
+  if (!createdDocument) {
+    throw notFound("Document");
+  }
+  const contentHash = calculateDocumentContentHash(createdDocument);
   const snapshot = {
     documentContent,
     documentDate,

@@ -5,7 +5,7 @@ import type { Request, Response } from "express";
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { env } from "../../config/env";
-import { pool } from "../../db/mysql";
+import { pool, type Database } from "../../db/mysql";
 import { requireAnyRole, requireAuth } from "../../middleware/auth";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
@@ -500,6 +500,26 @@ async function assertPlacementTokenUnused(connection: PoolConnection, pinVerific
   }
 }
 
+async function hasCompletedSignatureForPosition(database: Database, documentId: number, positionId: number) {
+  const [rows] = await database.execute<RowDataPacket[]>(
+    `SELECT signature_events.id
+     FROM signature_events
+     INNER JOIN assignments ON signature_events.assignment_id = assignments.id
+     WHERE signature_events.document_id = ?
+       AND assignments.position_id = ?
+       AND signature_events.status = 'completed'
+     LIMIT 1`,
+    [documentId, positionId]
+  );
+  return Boolean(rows[0]);
+}
+
+async function assertPositionHasNotSigned(database: Database, documentId: number, positionId: number) {
+  if (await hasCompletedSignatureForPosition(database, documentId, positionId)) {
+    throw new AppError(409, "document_already_signed_by_position", "This active position has already signed this document.");
+  }
+}
+
 async function activeSignatureAssetPreview(signatureAssetId: number) {
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT file_assets.storage_path AS storagePath, file_assets.mime_type AS mimeType
@@ -899,6 +919,7 @@ signatureRouter.post("/documents/:documentId/signing-session", asyncHandler(asyn
 
   assertDocumentSignable(document);
   await assertSelfSigningAllowed(response, assignment.id);
+  await assertPositionHasNotSigned(pool, documentId, assignment.positionId);
   const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(document, input);
   const verification = await verifySigningPin(request, authUser.id, assignment.id, input.pin);
   const preview = await activeSignatureAssetPreview(verification.signatureAssetId);
@@ -951,6 +972,7 @@ signatureRouter.post("/documents/:documentId/sign", asyncHandler(async (request,
       throw notFound("Document");
     }
     assertDocumentSignable(lockedDocument);
+    await assertPositionHasNotSigned(connection, documentId, assignment.positionId);
     const { documentHash, documentVersionNumber } = assertDocumentVersionUnchanged(lockedDocument, {}, tokenPayload);
     await assertPlacementTokenUnused(connection, tokenPayload.pinVerificationEventId);
 
@@ -1055,6 +1077,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/signing-session", asy
   const { document, assignment } = await assertDocumentAccess(params.documentId, request, response);
 
   assertDocumentSignable(document);
+  await assertPositionHasNotSigned(pool, params.documentId, assignment.positionId);
   const [taskRows] = await pool.execute<RowDataPacket[]>(
     `SELECT *
      FROM document_tasks
@@ -1136,6 +1159,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
       throw notFound("Document");
     }
     assertDocumentSignable(lockedDocument);
+    await assertPositionHasNotSigned(connection, params.documentId, assignment.positionId);
 
     const [taskRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
@@ -1277,7 +1301,8 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
         JSON.stringify({
           canArchive: Boolean(task.can_archive),
           canFinalize: Boolean(task.can_finalize),
-          canForward: Boolean(task.can_forward)
+          canForward: Boolean(task.can_forward),
+          canReview: Boolean(task.can_review)
         })
       ]
     );

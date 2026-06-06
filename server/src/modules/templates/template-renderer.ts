@@ -460,7 +460,9 @@ function blockStyle(block: Record<string, unknown>, pageDirection: PageDirection
   const y = numberValue(block.y, 20);
   const width = numberValue(block.width, 60);
   const height = numberValue(block.height, 12);
-  const borderWidth = numberValue(style.borderWidth, 0);
+  const rawBorderWidth = numberValue(style.borderWidth, 0);
+  const rawBorderStyle = stringValue(style.borderStyle, "solid").toLowerCase();
+  const borderWidth = rawBorderStyle === "dashed" ? 0 : rawBorderWidth;
   const fontFamily = stringValue(style.fontFamily);
   const fontSize = numberValue(style.fontSize, 10);
   const lineHeight = numberValue(style.lineHeight, 1.65);
@@ -479,20 +481,21 @@ function blockStyle(block: Record<string, unknown>, pageDirection: PageDirection
   const borderStyle = borderWidth > 0 ? stringValue(style.borderStyle, "solid") : "none";
 
   if (type === "line") {
+    const lineBorderWidth = rawBorderStyle === "solid" ? Math.max(1, rawBorderWidth) : 0;
     return [
       "position:absolute",
       `left:${x}mm`,
       `top:${y}mm`,
       `width:${width}mm`,
       `height:${Math.max(0.5, height)}mm`,
-      `border-top:${Math.max(1, borderWidth)}px ${stringValue(style.borderStyle, "solid")} ${borderColor}`,
+      lineBorderWidth > 0 ? `border-top:${lineBorderWidth}px solid ${borderColor}` : "border-top:0",
       "box-sizing:border-box",
       "overflow:visible",
       "padding:0"
     ].join(";");
   }
 
-  const heightStyle = ["image", "logo", "table"].includes(type) ? `height:${height}mm` : `min-height:${height}mm`;
+  const heightStyle = ["image", "logo", "qr", "table"].includes(type) ? `height:${height}mm` : `min-height:${height}mm`;
 
   return [
     "position:absolute",
@@ -783,20 +786,11 @@ function renderWordSignature(_mode: string, context: RenderContext) {
 }
 
 function renderWordQr(context: RenderContext) {
-  const serial = stringValue(context.document.official_serial || context.serialAssignment?.serial_value);
   const qrDataUrl = stringValue(context.verification?.qrDataUrl);
-  const url = stringValue(context.verification?.url);
   if (!qrDataUrl) {
-    return `<div class="dc-word-qr">VERIFY<br />DOCCHAIN</div>`;
+    return `<div class="dc-word-qr"></div>`;
   }
-  return `<div class="dc-word-qr dc-word-qr-final">
-    <img src="${escapeHtml(qrDataUrl)}" alt="" />
-    <div>
-      ${serial ? `<strong>Official Serial: ${escapeHtml(serial)}</strong>` : ""}
-      <span>Verify this document in DocChain</span>
-      ${url ? `<small>${escapeHtml(url)}</small>` : ""}
-    </div>
-  </div>`;
+  return `<div class="dc-word-qr dc-word-qr-final"><img src="${escapeHtml(qrDataUrl)}" alt="" /></div>`;
 }
 
 function replaceWordTemplateTokens(html: string, context: RenderContext) {
@@ -915,9 +909,9 @@ function renderWordTemplateHtml(layout: TemplateLayout, context: RenderContext) 
     .dc-word-floating-layer .dc-endorsement-comment { margin: .8mm 0 0; color: #1f2937; }
     .dc-word-floating-layer .dc-endorsement-signature { margin-top: 1mm; min-height: 8mm; display: flex; align-items: flex-end; justify-content: center; border-top: 1px solid #cbd5e1; color: #94a3b8; font-size: 6.5pt; }
     .dc-word-floating-layer .dc-endorsement-signature img { max-width: 100%; max-height: 8mm; object-fit: contain; }
-    .dc-word-floating-layer .dc-qr { display: flex; align-items: center; justify-content: center; border: 1px dashed #475569 !important; text-align: center; font-size: 7pt; }
-    .dc-word-floating-layer .dc-qr-final { gap: 2mm; justify-content: flex-start; text-align: start; border: 0 !important; }
-    .dc-word-floating-layer .dc-qr-final img { width: 18mm; height: 18mm; object-fit: contain; flex: 0 0 auto; }
+    .dc-word-floating-layer .dc-qr { display: flex; align-items: center; justify-content: center; border: 0 !important; text-align: center; font-size: 7pt; }
+    .dc-word-floating-layer .dc-qr-final { border: 0 !important; }
+    .dc-word-floating-layer .dc-qr-final img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; flex: 0 0 auto; }
     .dc-word-body p { margin-bottom: 3mm; }
     .dc-word-endorsements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm; margin-top: 8mm; white-space: normal; }
     .dc-word-endorsement-card { border: 1px solid #cbd5e1; padding: 1.6mm; font-size: 7.2pt; line-height: 1.3; text-align: start; break-inside: avoid; }
@@ -928,11 +922,9 @@ function renderWordTemplateHtml(layout: TemplateLayout, context: RenderContext) 
     .dc-word-endorsement-comment { margin: .9mm 0 0; color: #1f2937; }
     .dc-word-endorsement-signature { margin-top: 1mm; min-height: 9mm; display: flex; align-items: flex-end; justify-content: center; border-top: 1px solid #cbd5e1; color: #94a3b8; font-size: 6.5pt; }
     .dc-word-endorsement-signature img { max-width: 100%; max-height: 9mm; object-fit: contain; }
-    .dc-word-qr { display: inline-flex; align-items: center; justify-content: center; min-width: 24mm; min-height: 18mm; border: 1px dashed #475569; text-align: center; font-size: 7pt; }
-    .dc-word-qr-final { gap: 2mm; justify-content: flex-start; text-align: start; border: 0; }
+    .dc-word-qr { display: inline-flex; align-items: center; justify-content: center; min-width: 18mm; min-height: 18mm; border: 0; text-align: center; font-size: 7pt; }
+    .dc-word-qr-final { border: 0; }
     .dc-word-qr-final img { width: 18mm; height: 18mm; object-fit: contain; flex: 0 0 auto; }
-    .dc-word-qr-final strong, .dc-word-qr-final span, .dc-word-qr-final small { display: block; line-height: 1.25; }
-    .dc-word-qr-final small { color: #64748b; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -1235,22 +1227,13 @@ function renderSignatureZone(block: Record<string, unknown>, context: RenderCont
 }
 
 function renderQrBlock(block: Record<string, unknown>, context: RenderContext, pageDirection: PageDirection) {
-  const serial = stringValue(context.document.official_serial || context.serialAssignment?.serial_value);
   const qrDataUrl = stringValue(context.verification?.qrDataUrl);
-  const url = stringValue(context.verification?.url);
 
   if (!qrDataUrl) {
-    return `<div class="dc-block dc-qr" style="${blockStyle(block, pageDirection)}">VERIFY<br />DOCCHAIN</div>`;
+    return `<div class="dc-block dc-qr" style="${blockStyle(block, pageDirection)}"></div>`;
   }
 
-  return `<div class="dc-block dc-qr dc-qr-final" style="${blockStyle(block, pageDirection)}">
-    <img src="${escapeHtml(qrDataUrl)}" alt="" />
-    <div>
-      ${serial ? `<strong>Official Serial: ${escapeHtml(serial)}</strong>` : ""}
-      <span>Verify this document in DocChain</span>
-      ${url ? `<small>${escapeHtml(url)}</small>` : ""}
-    </div>
-  </div>`;
+  return `<div class="dc-block dc-qr dc-qr-final" style="${blockStyle(block, pageDirection)}"><img src="${escapeHtml(qrDataUrl)}" alt="" /></div>`;
 }
 
 function renderCommentsZone(block: Record<string, unknown>, context: RenderContext, pageDirection: PageDirection) {
@@ -1437,11 +1420,9 @@ export function renderTemplateHtml(layout: TemplateLayout, context: RenderContex
     .dc-endorsement-signature { margin-top: 1mm; min-height: 8mm; display: flex; align-items: flex-end; justify-content: center; border-top: 1px solid #cbd5e1; color: #94a3b8; font-size: 6.5pt; }
     .dc-endorsement-signature img { max-width: 100%; max-height: 8mm; object-fit: contain; }
     .dc-comments ul { margin: 0; padding-inline-start: 4mm; }
-    .dc-qr { display: flex; align-items: center; justify-content: center; border: 1px dashed #475569 !important; text-align: center; font-size: 7pt; }
-    .dc-qr-final { gap: 2mm; justify-content: flex-start; text-align: start; border: 0 !important; }
-    .dc-qr-final img { width: 18mm; height: 18mm; object-fit: contain; flex: 0 0 auto; }
-    .dc-qr-final strong, .dc-qr-final span, .dc-qr-final small { display: block; line-height: 1.25; }
-    .dc-qr-final small { color: #64748b; overflow-wrap: anywhere; }
+    .dc-qr { display: flex; align-items: center; justify-content: center; border: 0 !important; text-align: center; font-size: 7pt; }
+    .dc-qr-final { border: 0 !important; }
+    .dc-qr-final img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; flex: 0 0 auto; }
     .dc-watermark { transform: rotate(-24deg); opacity: .12; font-size: 42pt !important; text-align: center; }
     table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
     th, td { border: 1px solid #cbd5e1; padding: 1.5mm; vertical-align: top; }

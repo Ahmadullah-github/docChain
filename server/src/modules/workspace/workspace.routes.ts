@@ -193,9 +193,63 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
   const limit = query.limit;
   const includeAll = query.type === "all";
 
+  if (includeAll) {
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT
+        CASE
+          WHEN document_tasks.required_action = 'sign' OR document_tasks.can_sign = TRUE THEN 'signature'
+          WHEN document_tasks.assigned_assignment_id IS NULL THEN 'unit_document'
+          ELSE 'task'
+        END AS itemType,
+        document_tasks.id AS id,
+        document_tasks.title AS title,
+        document_tasks.description AS subtitle,
+        document_tasks.status AS status,
+        document_tasks.required_action AS requiredAction,
+        document_tasks.can_review AS canReview,
+        document_tasks.can_edit AS canEdit,
+        document_tasks.can_sign AS canSign,
+        document_tasks.can_forward AS canForward,
+        document_tasks.can_finalize AS canFinalize,
+        document_tasks.can_archive AS canArchive,
+        document_tasks.due_at AS dueAt,
+        document_tasks.created_at AS createdAt,
+        documents.id AS documentId,
+        documents.subject AS documentSubject,
+        documents.internal_reference AS internalReference,
+        documents.official_serial AS officialSerial,
+        document_types.name AS documentTypeName,
+        priority_levels.name AS priorityName,
+        holder_units.name AS holderUnitName,
+        positions.title AS assignedPositionTitle
+       FROM document_tasks
+       INNER JOIN documents ON document_tasks.document_id = documents.id
+       INNER JOIN document_types ON documents.document_type_id = document_types.id
+       INNER JOIN priority_levels ON documents.priority_level_id = priority_levels.id
+       INNER JOIN units AS holder_units ON documents.current_holder_unit_id = holder_units.id
+       LEFT JOIN positions ON document_tasks.assigned_position_id = positions.id
+       WHERE document_tasks.status = 'open'
+         AND document_tasks.deleted_at IS NULL
+         AND documents.deleted_at IS NULL
+         AND (
+           document_tasks.assigned_assignment_id = ?
+           OR (
+             document_tasks.assigned_unit_id = ?
+             AND (document_tasks.assigned_position_id IS NULL OR document_tasks.assigned_position_id = ?)
+           )
+         )
+       ORDER BY COALESCE(document_tasks.due_at, document_tasks.created_at) ASC
+       LIMIT ?`,
+      [assignment.id, assignment.unitId, assignment.positionId, limit]
+    );
+
+    ok(response, rows);
+    return;
+  }
+
   const requests: Array<Promise<RowDataPacket[]>> = [];
 
-  if (includeAll || query.type === "tasks") {
+  if (query.type === "tasks") {
     requests.push(pool.execute<RowDataPacket[]>(
       `SELECT
         'task' AS itemType,
@@ -204,6 +258,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
         document_tasks.description AS subtitle,
         document_tasks.status AS status,
         document_tasks.required_action AS requiredAction,
+        document_tasks.can_review AS canReview,
         document_tasks.can_edit AS canEdit,
         document_tasks.can_sign AS canSign,
         document_tasks.can_forward AS canForward,
@@ -239,7 +294,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
     ).then(([rows]) => rows));
   }
 
-  if (includeAll || query.type === "unit") {
+  if (query.type === "unit") {
     requests.push(pool.execute<RowDataPacket[]>(
       `SELECT
         'unit_document' AS itemType,
@@ -248,6 +303,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
         document_tasks.description AS subtitle,
         document_tasks.status AS status,
         document_tasks.required_action AS requiredAction,
+        document_tasks.can_review AS canReview,
         document_tasks.can_edit AS canEdit,
         document_tasks.can_sign AS canSign,
         document_tasks.can_forward AS canForward,
@@ -281,7 +337,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
     ).then(([rows]) => rows));
   }
 
-  if (includeAll || query.type === "signatures") {
+  if (query.type === "signatures") {
     requests.push(pool.execute<RowDataPacket[]>(
       `SELECT
         'signature' AS itemType,
@@ -290,6 +346,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
         positions.title AS subtitle,
         document_tasks.status AS status,
         document_tasks.required_action AS requiredAction,
+        document_tasks.can_review AS canReview,
         document_tasks.can_edit AS canEdit,
         document_tasks.can_sign AS canSign,
         document_tasks.can_forward AS canForward,
@@ -328,7 +385,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
     ).then(([rows]) => rows));
   }
 
-  if (includeAll || query.type === "notifications") {
+  if (query.type === "notifications") {
     requests.push(pool.execute<RowDataPacket[]>(
       `SELECT
         'notification' AS itemType,
@@ -357,7 +414,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
     ).then(([rows]) => rows));
   }
 
-  if (includeAll || query.type === "activity") {
+  if (query.type === "activity") {
     requests.push(pool.execute<RowDataPacket[]>(
       `SELECT
         'activity' AS itemType,

@@ -364,6 +364,7 @@ export type WorkspaceWorkItem = {
   subtitle?: string | null;
   status?: string | null;
   requiredAction?: DocumentRequestAction | null;
+  canReview?: boolean | number;
   canEdit?: boolean | number;
   canSign?: boolean | number;
   canForward?: boolean | number;
@@ -547,6 +548,7 @@ export type DocumentWorkflowEvent = {
 export type DocumentRequestAction = "review" | "edit" | "sign" | "forward" | "information";
 
 export type DocumentRequestPermissions = {
+  can_review: boolean;
   can_edit: boolean;
   can_sign: boolean;
   can_forward: boolean;
@@ -566,6 +568,7 @@ export type DocumentTask = {
   task_type: string;
   required_action?: DocumentRequestAction | null;
   requires_comment?: boolean | number;
+  can_review?: boolean | number;
   can_edit?: boolean | number;
   can_sign?: boolean | number;
   can_forward?: boolean | number;
@@ -590,7 +593,14 @@ export type DocumentTask = {
 };
 
 export type DocumentDetail = {
-  document: JsonRecord & { id: EntityId; subject: string; status: Status; document_date?: string | null; document_content?: DocumentContent | string | null };
+  document: JsonRecord & {
+    current_content_hash?: string | null;
+    document_content?: DocumentContent | string | null;
+    document_date?: string | null;
+    id: EntityId;
+    subject: string;
+    status: Status;
+  };
   versions: JsonRecord[];
   attachments: JsonRecord[];
   relations: JsonRecord[];
@@ -659,6 +669,7 @@ export type SendDocumentRecipientInput = {
   to_position_id?: EntityId | null;
   required_action: DocumentRequestAction;
   requires_comment?: boolean;
+  can_review?: boolean;
   can_edit?: boolean;
   can_sign?: boolean;
   can_forward?: boolean;

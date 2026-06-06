@@ -140,5 +140,9 @@ export const documentApi = {
 
   completeTask(documentId: EntityId, taskId: EntityId, completion_note?: string | null) {
     return patchJson<DocumentTask>(`/api/documents/${documentId}/tasks/${taskId}/complete`, { completion_note });
+  },
+
+  markTaskSeen(documentId: EntityId, taskId: EntityId) {
+    return postJson<DocumentTask>(`/api/documents/${documentId}/tasks/${taskId}/seen`);
   }
 };

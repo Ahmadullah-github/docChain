@@ -294,6 +294,38 @@ describe("walk-in document issuance backend", () => {
     }
   });
 
+  it("returns live document hashes and stores matching initial version hashes", async () => {
+    const [documentType, confidentiality, priority] = await Promise.all([
+      one("SELECT id FROM document_types WHERE status = 'active' ORDER BY id ASC LIMIT 1"),
+      one("SELECT id FROM confidentiality_levels WHERE status = 'active' ORDER BY id ASC LIMIT 1"),
+      one("SELECT id FROM priority_levels WHERE status = 'active' ORDER BY id ASC LIMIT 1")
+    ]);
+    expect(documentType).toBeTruthy();
+    expect(confidentiality).toBeTruthy();
+    expect(priority).toBeTruthy();
+
+    const created = await admin.post<JsonRecord>("/api/documents", {
+      body: "Hash consistency body.",
+      confidentiality_level_id: Number(confidentiality.id),
+      document_type_id: Number(documentType.id),
+      priority_level_id: Number(priority.id),
+      subject: "Hash Consistency Document"
+    });
+    const documentId = Number(created.document.id);
+    const detail = await admin.get<JsonRecord>(`/api/documents/${documentId}`);
+    const liveHash = String(detail.document.current_content_hash || "");
+    const persistedDocument = await one("SELECT * FROM documents WHERE id = ? LIMIT 1", [documentId]);
+    const latestVersion = await one(
+      "SELECT * FROM document_versions WHERE document_id = ? ORDER BY version_number DESC LIMIT 1",
+      [documentId]
+    );
+    const { calculateDocumentContentHash } = await import("../../shared/document-hash");
+
+    expect(liveHash).toHaveLength(64);
+    expect(calculateDocumentContentHash(persistedDocument)).toBe(liveHash);
+    expect(latestVersion.content_hash).toBe(liveHash);
+  });
+
   it("tracks intake, finalization, print, handover, archive, and search identity", async () => {
     const documentTypes = await admin.get<JsonRecord[]>("/api/walk-in-issuance/document-types");
     expect(documentTypes.some((type) => Number(type.id) === referenceIds.documentTypeId)).toBe(true);
@@ -319,6 +351,13 @@ describe("walk-in document issuance backend", () => {
     const documentId = Number(withDocument.document.id);
     expect(withDocument.request.status).toBe("draft_created");
     expect(withDocument.document.official_serial).toBeFalsy();
+    const walkInDetail = await admin.get<JsonRecord>(`/api/documents/${documentId}`);
+    const walkInVersion = await one(
+      "SELECT * FROM document_versions WHERE document_id = ? ORDER BY version_number DESC LIMIT 1",
+      [documentId]
+    );
+    expect(walkInDetail.document.current_content_hash).toHaveLength(64);
+    expect(walkInVersion.content_hash).toBe(walkInDetail.document.current_content_hash);
 
     const earlyHandover = await admin.postError(`/api/walk-in-issuance/requests/${requestId}/handover`, {
       handover_method: "physical_original"
