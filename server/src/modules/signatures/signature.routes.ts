@@ -15,6 +15,8 @@ import { AppError, notFound } from "../../shared/errors";
 import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
 import { generateAdminCode } from "../admin/code-generator";
+import { notifyDocumentTaskOriginators } from "../documents/document-workflow-service";
+import { refreshSearchIndexForEntitySafe } from "../search/global-search.service";
 import { assignOfficialSerial as assignOfficialSerialForTask } from "./serial-assignment-service";
 import { decryptSignatureFile, encryptAndStoreSignature } from "./signature-assets";
 import {
@@ -1057,6 +1059,7 @@ signatureRouter.post("/documents/:documentId/sign", asyncHandler(async (request,
     connection.release();
   }
 
+  await refreshSearchIndexForEntitySafe("document", documentId);
   const [signatureEventRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_events WHERE id = ? LIMIT 1", [signatureEventId]);
   const [documentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM documents WHERE id = ? LIMIT 1", [documentId]);
   created(response, {
@@ -1242,6 +1245,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
            responded_by_assignment_id = ?,
            completion_note = COALESCE(completion_note, 'Signed.'),
            response_note = ?,
+           response_outcome = 'signed',
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [assignment.id, assignment.id, responseNote || null, params.taskId]
@@ -1307,6 +1311,20 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
       ]
     );
 
+    await notifyDocumentTaskOriginators(connection, {
+      actorAssignment: assignment,
+      body: responseNote || lockedDocument.subject || null,
+      document: lockedDocument,
+      notificationType: "document_signed",
+      payload: {
+        responseOutcome: "signed",
+        signatureEventId: eventId,
+        workflowEventAction: "sign"
+      },
+      task,
+      title: "Document signed"
+    });
+
     await writeAuditLog(request, { action: "signature.event.create", entityType: "signature_event", entityId: eventId }, connection);
     if (serialAssignmentAfterSign) {
       await writeAuditLog(request, {
@@ -1324,6 +1342,7 @@ signatureRouter.post("/documents/:documentId/tasks/:taskId/sign", asyncHandler(a
     connection.release();
   }
 
+  await refreshSearchIndexForEntitySafe("document", params.documentId);
   const [signatureEventRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM signature_events WHERE id = ? LIMIT 1", [signatureEventId]);
   const [documentRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM documents WHERE id = ? LIMIT 1", [params.documentId]);
   const [taskRows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [params.taskId]);

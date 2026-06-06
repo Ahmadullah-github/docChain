@@ -6,3 +6,4 @@ client/dist/
 npm-debug.log*
 coverage/
 storage/document-renders/
+storage/document-thumbnails/

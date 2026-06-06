@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
 import type { Server } from "node:http";
+import path from "node:path";
 import argon2 from "argon2";
 import type { RowDataPacket } from "mysql2/promise";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -44,8 +46,16 @@ class TestClient {
     return this.request<T>("GET", path);
   }
 
+  getRaw(path: string) {
+    return this.rawRequest("GET", path);
+  }
+
   patch<T>(path: string, body?: unknown, includeCsrf = true) {
     return this.request<T>("PATCH", path, body, includeCsrf);
+  }
+
+  patchError(path: string, body?: unknown, includeCsrf = true) {
+    return this.requestError("PATCH", path, body, includeCsrf);
   }
 
   post<T>(path: string, body?: unknown, includeCsrf = true) {
@@ -65,6 +75,21 @@ class TestClient {
     }
 
     return payload?.data as T;
+  }
+
+  private async rawRequest(method: string, path: string) {
+    const headers = new Headers();
+    headers.set("accept-language", "en");
+    if (this.cookie) {
+      headers.set("cookie", this.cookie);
+    }
+
+    const response = await fetch(`${this.baseUrl}${path}`, { headers, method });
+    const setCookie = response.headers.get("set-cookie");
+    if (setCookie) {
+      this.cookie = setCookie.split(";")[0] || this.cookie;
+    }
+    return response;
   }
 
   private async requestError(method: string, path: string, body?: unknown, includeCsrf = true) {
@@ -171,6 +196,11 @@ async function insert(sql: string, params: any[] = []) {
   return Number(result.insertId);
 }
 
+async function execute(sql: string, params: any[] = []) {
+  const { pool } = await import("../../db/mysql");
+  await pool.execute(sql, params);
+}
+
 async function createPositionUser(input: {
   employeeCode: string;
   positionCode: string;
@@ -208,9 +238,48 @@ async function createPositionUser(input: {
 }
 
 async function createDocumentType() {
+  const code = `request_permissions_${randomUUID().slice(0, 8)}`;
   return insert(
     "INSERT INTO document_types (uuid, code, name, description, requires_serial, status) VALUES (?, ?, ?, ?, ?, ?)",
-    [randomUUID(), "request_permissions_test_document", "Request Permissions Test Document", "Document type for request permission tests.", false, "active"]
+    [randomUUID(), code, "Request Permissions Test Document", "Document type for request permission tests.", false, "active"]
+  );
+}
+
+async function bindOfficialTemplate(documentTypeId: number) {
+  const adminAssignment = await one(
+    `SELECT users.id AS userId, assignments.id AS assignmentId
+     FROM users
+     INNER JOIN persons ON users.person_id = persons.id
+     INNER JOIN assignments ON assignments.person_id = persons.id
+     WHERE users.username = ?
+       AND assignments.status = 'active'
+       AND assignments.deleted_at IS NULL
+     LIMIT 1`,
+    ["admin"]
+  );
+  expect(adminAssignment).toBeTruthy();
+  const templateId = await insert(
+    "INSERT INTO document_templates (uuid, owner_user_id, owner_assignment_id, name, description, status, visibility) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), Number(adminAssignment.userId), Number(adminAssignment.assignmentId), `Thumbnail Template ${randomUUID()}`, "Integration thumbnail template.", "published", "public"]
+  );
+  const layout = {
+    blocks: [
+      { field: "document.subject", height: 20, id: "subject", locked: true, style: { fontSize: 16, fontWeight: "700", textAlign: "left" }, type: "dynamic_field", width: 170, x: 20, y: 30 },
+      { field: "document.body", height: 120, id: "body", locked: true, style: { fontSize: 12, textAlign: "left" }, type: "dynamic_field", width: 170, x: 20, y: 60 }
+    ],
+    page: { height: 297, margin: { bottom: 20, left: 20, right: 20, top: 20 }, width: 210 }
+  };
+  const versionId = await insert(
+    "INSERT INTO document_template_versions (uuid, template_id, version_number, status, layout_definition, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)",
+    [randomUUID(), templateId, 1, "active", JSON.stringify(layout), Number(adminAssignment.userId)]
+  );
+  await execute(
+    "UPDATE document_templates SET current_version_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    [versionId, templateId]
+  );
+  await insert(
+    "INSERT INTO document_template_bindings (uuid, document_type_id, locale, variant, template_id, template_version_id, status, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), documentTypeId, "all", "official", templateId, versionId, "active", Number(adminAssignment.userId)]
   );
 }
 
@@ -290,6 +359,13 @@ describe("document request permissions", () => {
 
     const reviewerClient = new TestClient(testServer!.baseUrl);
     await reviewerClient.login(reviewer.username, reviewer.password);
+    const reviewerUnreadAfterSend = await reviewerClient.get<JsonRecord>("/api/notifications/unread-count");
+    expect(Number(reviewerUnreadAfterSend.count)).toBeGreaterThanOrEqual(1);
+    const assignedNotifications = await all(
+      "SELECT * FROM notifications WHERE document_id = ? AND document_task_id = ? AND notification_type = ?",
+      [reviewDocumentId, Number(reviewTask.id), "document_task_assigned"]
+    );
+    expect(assignedNotifications).toHaveLength(1);
     const allWork = await reviewerClient.get<JsonRecord[]>("/api/workspace/work-items?type=all&limit=40");
     expect(allWork).toContainEqual(expect.objectContaining({
       canEdit: 1,
@@ -307,9 +383,22 @@ describe("document request permissions", () => {
     );
     expect(completedReview).toMatchObject({
       completed_by_assignment_id: reviewer.assignmentId,
+      response_outcome: "approved",
       response_note: "Reviewed and approved.",
       status: "completed"
     });
+    const reviewDetail = await admin.get<JsonRecord>(`/api/documents/${reviewDocumentId}`);
+    expect(reviewDetail.document.status).toBe("review_approved");
+    const reviewApprovedEvents = await all(
+      "SELECT * FROM document_workflow_events WHERE document_id = ? AND action = ?",
+      [reviewDocumentId, "review_approved"]
+    );
+    expect(reviewApprovedEvents).toHaveLength(1);
+    const reviewApprovedNotifications = await all(
+      "SELECT * FROM notifications WHERE document_id = ? AND document_task_id = ? AND notification_type = ?",
+      [reviewDocumentId, Number(reviewTask.id), "document_review_approved"]
+    );
+    expect(reviewApprovedNotifications).toHaveLength(1);
 
     const informationDocumentId = await createDocument(admin, documentTypeId, "Information Seen Tracking");
     const informationSent = await admin.post<JsonRecord>(`/api/documents/${informationDocumentId}/send`, {
@@ -347,5 +436,187 @@ describe("document request permissions", () => {
     await outsiderClient.login(outsider.username, outsider.password);
     const denied = await outsiderClient.postError(`/api/documents/${informationDocumentId}/tasks/${informationTask.id}/seen`);
     expect(denied.status).toBe(403);
+  });
+
+  it("aggregates task outcomes without turning non-review work into approval", async () => {
+    const firstReviewer = await createPositionUser({
+      employeeCode: "REQ-PERM-FIRST-REVIEWER",
+      positionCode: "req_perm_first_reviewer",
+      positionTitle: "Request Permission First Reviewer",
+      username: "req-perm-first-reviewer"
+    });
+    const secondReviewer = await createPositionUser({
+      employeeCode: "REQ-PERM-SECOND-REVIEWER",
+      positionCode: "req_perm_second_reviewer",
+      positionTitle: "Request Permission Second Reviewer",
+      username: "req-perm-second-reviewer"
+    });
+    const forwarder = await createPositionUser({
+      employeeCode: "REQ-PERM-FORWARDER",
+      positionCode: "req_perm_forwarder",
+      positionTitle: "Request Permission Forwarder",
+      username: "req-perm-forwarder"
+    });
+    const documentTypeId = await createDocumentType();
+    const multiReviewDocumentId = await createDocument(admin, documentTypeId, "Multi Review Aggregate");
+
+    const sent = await admin.post<JsonRecord>(`/api/documents/${multiReviewDocumentId}/send`, {
+      recipients: [
+        {
+          required_action: "review",
+          to_position_id: firstReviewer.positionId,
+          to_unit_id: firstReviewer.unitId
+        },
+        {
+          required_action: "review",
+          to_position_id: secondReviewer.positionId,
+          to_unit_id: secondReviewer.unitId
+        }
+      ]
+    });
+    expect(sent.tasks).toHaveLength(2);
+    const firstTask = sent.tasks.find((task: JsonRecord) => Number(task.assigned_position_id) === firstReviewer.positionId);
+    const secondTask = sent.tasks.find((task: JsonRecord) => Number(task.assigned_position_id) === secondReviewer.positionId);
+    expect(firstTask).toBeTruthy();
+    expect(secondTask).toBeTruthy();
+
+    const firstClient = new TestClient(testServer!.baseUrl);
+    await firstClient.login(firstReviewer.username, firstReviewer.password);
+    await firstClient.patch<JsonRecord>(`/api/documents/${multiReviewDocumentId}/tasks/${firstTask.id}/complete`, {
+      completion_note: "First approval."
+    });
+    const afterFirstApproval = await admin.get<JsonRecord>(`/api/documents/${multiReviewDocumentId}`);
+    expect(afterFirstApproval.document.status).toBe("under_review");
+
+    const secondClient = new TestClient(testServer!.baseUrl);
+    await secondClient.login(secondReviewer.username, secondReviewer.password);
+    await secondClient.patch<JsonRecord>(`/api/documents/${multiReviewDocumentId}/tasks/${secondTask.id}/complete`, {
+      completion_note: "Second approval."
+    });
+    const afterSecondApproval = await admin.get<JsonRecord>(`/api/documents/${multiReviewDocumentId}`);
+    expect(afterSecondApproval.document.status).toBe("review_approved");
+
+    const forwardDocumentId = await createDocument(admin, documentTypeId, "Forward Completion Is Not Approval");
+    const forwardSent = await admin.post<JsonRecord>(`/api/documents/${forwardDocumentId}/send`, {
+      recipients: [{
+        required_action: "forward",
+        to_position_id: forwarder.positionId,
+        to_unit_id: forwarder.unitId
+      }]
+    });
+    const forwardTask = forwardSent.tasks[0];
+    const forwarderClient = new TestClient(testServer!.baseUrl);
+    await forwarderClient.login(forwarder.username, forwarder.password);
+    const completedForward = await forwarderClient.patch<JsonRecord>(`/api/documents/${forwardDocumentId}/tasks/${forwardTask.id}/complete`, {
+      completion_note: "Forward action completed."
+    });
+    expect(completedForward.response_outcome).toBe("completed");
+    const forwardDetail = await admin.get<JsonRecord>(`/api/documents/${forwardDocumentId}`);
+    expect(forwardDetail.document.status).not.toBe("review_approved");
+    const taskCompletedEvents = await all(
+      "SELECT * FROM document_workflow_events WHERE document_id = ? AND action = ?",
+      [forwardDocumentId, "task_completed"]
+    );
+    expect(taskCompletedEvents).toHaveLength(1);
+
+    const terminalDocumentId = await createDocument(admin, documentTypeId, "Closed Task Rejection");
+    const terminalSent = await admin.post<JsonRecord>(`/api/documents/${terminalDocumentId}/send`, {
+      recipients: [{
+        required_action: "review",
+        to_position_id: firstReviewer.positionId,
+        to_unit_id: firstReviewer.unitId
+      }]
+    });
+    await execute(
+      "UPDATE documents SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [terminalDocumentId]
+    );
+    const closedAttempt = await firstClient.patchError(
+      `/api/documents/${terminalDocumentId}/tasks/${terminalSent.tasks[0].id}/complete`,
+      { completion_note: "Should be rejected." }
+    );
+    expect(closedAttempt.status).toBe(409);
+    expect(closedAttempt.code).toBe("document_terminal_status");
+  });
+
+  it("returns workflow summaries for UI cards and caches official thumbnails", async () => {
+    const reviewer = await createPositionUser({
+      employeeCode: "REQ-PERM-UI-REVIEWER",
+      positionCode: "req_perm_ui_reviewer",
+      positionTitle: "UI Workflow Reviewer",
+      username: "req-perm-ui-reviewer"
+    });
+    const documentTypeId = await createDocumentType();
+    await bindOfficialTemplate(documentTypeId);
+    const documentId = await createDocument(admin, documentTypeId, "Workflow Summary Card");
+    const sent = await admin.post<JsonRecord>(`/api/documents/${documentId}/send`, {
+      recipients: [{
+        required_action: "review",
+        to_position_id: reviewer.positionId,
+        to_unit_id: reviewer.unitId
+      }]
+    });
+    expect(sent.tasks).toHaveLength(1);
+
+    const list = await admin.get<JsonRecord[]>("/api/documents?status=under_review&limit=20");
+    const listItem = list.find((item) => Number(item.id) === documentId);
+    expect(listItem?.workflowSummary).toMatchObject({
+      activeAction: "review",
+      openTaskCount: 1
+    });
+    expect(String(listItem?.workflowSummary?.thumbnailUrl || "")).toMatch(new RegExp(`^/api/documents/${documentId}/thumbnail\\?v=`));
+    expect(listItem?.workflowSummary?.routeSteps.some((step: JsonRecord) => (
+      Number(step.positionId || 0) === reviewer.positionId || Number(step.unitId || 0) === reviewer.unitId
+    ))).toBe(true);
+
+    const detail = await admin.get<JsonRecord>(`/api/documents/${documentId}`);
+    expect(detail.workflowSummary).toMatchObject({
+      activeAction: "review",
+      completedTaskCount: 0,
+      openTaskCount: 1
+    });
+
+    const reviewerClient = new TestClient(testServer!.baseUrl);
+    await reviewerClient.login(reviewer.username, reviewer.password);
+    const workItems = await reviewerClient.get<JsonRecord[]>("/api/workspace/work-items?type=all&limit=20");
+    const workItem = workItems.find((item) => Number(item.documentId) === documentId);
+    expect(workItem?.workflowSummary).toMatchObject({
+      activeAction: "review",
+      openTaskCount: 1
+    });
+
+    const firstThumbnail = await admin.getRaw(`/api/documents/${documentId}/thumbnail`);
+    expect(firstThumbnail.status).toBe(200);
+    expect(firstThumbnail.headers.get("content-type")).toContain("image/png");
+    const firstThumbnailBuffer = Buffer.from(await firstThumbnail.arrayBuffer());
+    expect(firstThumbnailBuffer.byteLength).toBeGreaterThan(3000);
+    expect(firstThumbnailBuffer.readUInt32BE(16)).toBeGreaterThan(700);
+    expect(firstThumbnailBuffer.readUInt32BE(20)).toBeGreaterThan(1000);
+    const thumbnailRows = await all(
+      `SELECT file_assets.storage_path
+       FROM document_renders
+       INNER JOIN file_assets ON document_renders.file_asset_id = file_assets.id
+       WHERE document_renders.document_id = ?
+         AND document_renders.render_type = 'thumbnail_png'`,
+      [documentId]
+    );
+    expect(thumbnailRows).toHaveLength(1);
+
+    const secondThumbnail = await admin.getRaw(`/api/documents/${documentId}/thumbnail`);
+    expect(secondThumbnail.status).toBe(200);
+    expect((await secondThumbnail.arrayBuffer()).byteLength).toBe(firstThumbnailBuffer.byteLength);
+    const thumbnailRowsAfterSecondRequest = await all(
+      "SELECT id FROM document_renders WHERE document_id = ? AND render_type = 'thumbnail_png'",
+      [documentId]
+    );
+    expect(thumbnailRowsAfterSecondRequest).toHaveLength(1);
+
+    const anonymous = new TestClient(testServer!.baseUrl);
+    const anonymousThumbnail = await anonymous.getRaw(`/api/documents/${documentId}/thumbnail`);
+    expect(anonymousThumbnail.status).toBe(401);
+
+    for (const row of thumbnailRows) {
+      await fs.rm(path.resolve(process.cwd(), String(row.storage_path)), { force: true });
+    }
   });
 });

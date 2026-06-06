@@ -4,6 +4,7 @@ import type {
   DocumentDetail,
   DocumentListItem,
   DocumentRegistryStats,
+  DocumentRegistrySort,
   DocumentSendOptions,
   DocumentScope,
   DocumentTask,
@@ -19,9 +20,11 @@ export type DocumentListQuery = {
   document_type_id?: EntityId;
   priority_level_id?: EntityId;
   confidentiality_level_id?: EntityId;
+  current_holder_unit_id?: EntityId;
   date_from?: string;
   date_to?: string;
   scope?: DocumentScope;
+  sort?: DocumentRegistrySort;
   limit?: number;
   offset?: number;
 };
@@ -106,6 +109,10 @@ export const documentApi = {
     return `/api/document-renders/${renderId}/file${options?.download ? "?download=1" : ""}`;
   },
 
+  attachmentFileUrl(documentId: EntityId, attachmentId: EntityId, options?: { download?: boolean }) {
+    return `/api/documents/${documentId}/attachments/${attachmentId}/file${options?.download ? "?download=1" : ""}`;
+  },
+
   addRelation(documentId: EntityId, input: CreateRelationInput) {
     return postJson<JsonRecord>(`/api/documents/${documentId}/relations`, input);
   },
@@ -138,8 +145,8 @@ export const documentApi = {
     return postJson<DocumentTask>(`/api/documents/${documentId}/tasks`, input);
   },
 
-  completeTask(documentId: EntityId, taskId: EntityId, completion_note?: string | null) {
-    return patchJson<DocumentTask>(`/api/documents/${documentId}/tasks/${taskId}/complete`, { completion_note });
+  completeTask(documentId: EntityId, taskId: EntityId, input?: { completion_note?: string | null; outcome?: "approved" | "completed" | "changes_requested" }) {
+    return patchJson<DocumentTask>(`/api/documents/${documentId}/tasks/${taskId}/complete`, input || {});
   },
 
   markTaskSeen(documentId: EntityId, taskId: EntityId) {

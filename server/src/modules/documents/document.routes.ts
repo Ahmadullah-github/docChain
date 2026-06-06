@@ -10,7 +10,7 @@ import { pool } from "../../db/mysql";
 import { requireAuth } from "../../middleware/auth";
 import { asyncHandler } from "../../shared/async-handler";
 import { writeAuditLog } from "../../shared/audit";
-import { assertDocumentAccess, getActiveAssignment, isAdmin } from "../../shared/document-access";
+import { assertDocumentAccess, getActiveAssignment, isAdmin, type ActiveAssignment } from "../../shared/document-access";
 import { calculateDocumentContentHash } from "../../shared/document-hash";
 import { assertDocumentWritePermission, listDocumentWritePermissions, type DocumentWritePermission } from "../../shared/document-write-rules";
 import { AppError, notFound } from "../../shared/errors";
@@ -18,8 +18,20 @@ import { created, ok } from "../../shared/http";
 import { uuid } from "../../shared/ids";
 import { refreshSearchIndexForEntitySafe } from "../search/global-search.service";
 import { assignOfficialSerial } from "../signatures/serial-assignment-service";
+import { renderHtmlToPngThumbnail } from "../templates/pdf-renderer";
+import { renderOfficialDocumentHtml } from "../templates/template.routes";
 import { assertWalkInArchiveAllowedForDocument, markWalkInRequestArchivedForDocument, markWalkInRequestFinalizedForDocument } from "../walk-in-issuance/walk-in-issuance.service";
 import { documentContentToPlainText, normalizeDocumentContent, normalizeTemplateFieldRecord } from "./document-content";
+import { attachWorkflowSummaries, workflowSummariesForDocuments } from "./document-workflow-summary";
+import {
+  documentStatusAfterTaskChange,
+  documentTaskAction,
+  documentTaskIsReview,
+  notifyDocumentTaskAssigned,
+  notifyDocumentTaskOriginators,
+  terminalDocumentStatuses,
+  workflowReturnHolderUnitId
+} from "./document-workflow-service";
 
 export const documentRouter = Router();
 
@@ -100,7 +112,8 @@ const createTaskSchema = z.object({
 const endorsementCommentMaxLength = 300;
 
 const completeTaskSchema = z.object({
-  completion_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional()
+  completion_note: z.string().trim().max(endorsementCommentMaxLength).nullable().optional(),
+  outcome: z.enum(["approved", "completed", "changes_requested"]).optional()
 });
 
 const finalizeDocumentSchema = z.object({
@@ -150,9 +163,11 @@ const documentFilterQuerySchema = z.object({
   document_type_id: z.coerce.number().int().positive().optional(),
   priority_level_id: z.coerce.number().int().positive().optional(),
   confidentiality_level_id: z.coerce.number().int().positive().optional(),
+  current_holder_unit_id: z.coerce.number().int().positive().optional(),
   date_from: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   date_to: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  scope: z.enum(["accessible", "created_by_me", "current_holder", "origin_unit", "owner_unit", "my_tasks", "signature_queue"]).default("accessible")
+  scope: z.enum(["accessible", "created_by_me", "current_holder", "origin_unit", "owner_unit", "my_tasks", "signature_queue"]).default("accessible"),
+  sort: z.enum(["updated_desc", "updated_asc", "document_date_desc", "priority_desc"]).default("updated_desc")
 });
 
 type RequiredAction = z.infer<typeof requiredActionSchema>;
@@ -482,6 +497,7 @@ const uploadAttachmentSchema = z.object({
 
 const maxAttachmentBytes = 20 * 1024 * 1024;
 const documentAttachmentStorageDir = "storage/document-attachments";
+const documentThumbnailStorageDir = "storage/document-thumbnails";
 const allowedAttachmentMimeTypes = new Set([
   "application/pdf",
   "image/jpeg",
@@ -496,6 +512,15 @@ const allowedAttachmentMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+]);
+const previewableAttachmentMimeTypes = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "text/plain",
+  "text/csv"
 ]);
 
 const upload = multer({
@@ -550,6 +575,205 @@ function safeUploadExtension(file: Express.Multer.File) {
   };
 
   return fallbackByMimeType[file.mimetype] || ".bin";
+}
+
+function isPreviewableAttachmentMimeType(mimeType: string) {
+  return previewableAttachmentMimeTypes.has(mimeType);
+}
+
+function safeContentDispositionFilename(value: string) {
+  return value.replace(/[\\/\r\n"]/g, "").trim() || "attachment";
+}
+
+function attachmentAbsolutePath(storagePath: string) {
+  const storageRoot = path.resolve(process.cwd(), documentAttachmentStorageDir);
+  const absolutePath = path.resolve(process.cwd(), storagePath);
+  if (absolutePath !== storageRoot && !absolutePath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new AppError(403, "invalid_attachment_storage_path", "Attachment storage path is not allowed.");
+  }
+  return absolutePath;
+}
+
+function thumbnailAbsolutePath(storagePath: string) {
+  const storageRoot = path.resolve(process.cwd(), documentThumbnailStorageDir);
+  const absolutePath = path.resolve(process.cwd(), storagePath);
+  if (absolutePath !== storageRoot && !absolutePath.startsWith(`${storageRoot}${path.sep}`)) {
+    throw new AppError(403, "invalid_thumbnail_storage_path", "Thumbnail storage path is not allowed.");
+  }
+  return absolutePath;
+}
+
+async function thumbnailRenderKey(documentId: number, document: RowDataPacket) {
+  const [signatureRows, serialRows] = await Promise.all([
+    pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count, MAX(created_at) AS latestAt
+       FROM signature_events
+       WHERE document_id = ?`,
+      [documentId]
+    ).then(([rows]) => rows),
+    pool.execute<RowDataPacket[]>(
+      `SELECT COUNT(*) AS count, MAX(assigned_at) AS latestAt
+       FROM serial_assignments
+       WHERE document_id = ?`,
+      [documentId]
+    ).then(([rows]) => rows)
+  ]);
+  const signatureMeta = signatureRows[0] || {};
+  const serialMeta = serialRows[0] || {};
+  const digest = createHash("sha256").update(JSON.stringify({
+    contentHash: calculateDocumentContentHash(document),
+    currentVersionNumber: Number(document.current_version_number || 0),
+    documentId,
+    officialSerial: document.official_serial || null,
+    rendererVersion: 3,
+    serialCount: Number(serialMeta.count || 0),
+    serialLatest: serialMeta.latestAt || null,
+    signatureCount: Number(signatureMeta.count || 0),
+    signatureLatest: signatureMeta.latestAt || null,
+    status: String(document.status || "draft")
+  })).digest("hex").slice(0, 40);
+
+  return `document-thumbnail:${documentId}:${digest}`;
+}
+
+async function cachedThumbnail(renderKey: string) {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_renders.id,
+      document_renders.document_id AS documentId,
+      file_assets.storage_path AS storagePath,
+      file_assets.mime_type AS mimeType,
+      file_assets.byte_size AS byteSize
+     FROM document_renders
+     INNER JOIN file_assets ON document_renders.file_asset_id = file_assets.id
+     WHERE document_renders.render_key = ?
+       AND document_renders.render_type = 'thumbnail_png'
+       AND document_renders.status = 'generated'
+       AND file_assets.status = 'active'
+       AND file_assets.deleted_at IS NULL
+     LIMIT 1`,
+    [renderKey]
+  );
+
+  return rows[0] || null;
+}
+
+async function serveThumbnail(response: Response, thumbnail: RowDataPacket) {
+  const absolutePath = thumbnailAbsolutePath(String(thumbnail.storagePath));
+  const buffer = await fs.readFile(absolutePath);
+  response.setHeader("content-type", String(thumbnail.mimeType || "image/png"));
+  response.setHeader("content-length", String(buffer.length));
+  response.setHeader("cache-control", "private, max-age=3600");
+  response.send(buffer);
+}
+
+async function generateDocumentThumbnail(input: {
+  assignmentId: number;
+  document: RowDataPacket;
+  documentId: number;
+  renderKey: string;
+  userId: number | null;
+}) {
+  const rendered = await renderOfficialDocumentHtml(input.documentId, { locale: "all", variant: "official" });
+  const buffer = await renderHtmlToPngThumbnail(rendered.html);
+  const checksum = createHash("sha256").update(buffer).digest("hex");
+  const storageDir = path.resolve(process.cwd(), documentThumbnailStorageDir);
+  const storedFilename = `${uuid()}.png`;
+  const storagePath = path.join(documentThumbnailStorageDir, storedFilename);
+
+  await fs.mkdir(storageDir, { recursive: true });
+  await fs.writeFile(path.resolve(process.cwd(), storagePath), buffer);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [fileResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO file_assets (
+        uuid, uploaded_by_user_id, uploaded_by_assignment_id, purpose,
+        storage_disk, storage_path, original_filename, stored_filename,
+        mime_type, byte_size, checksum_sha256, encryption_status, status, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.userId,
+        input.assignmentId,
+        "document_thumbnail",
+        "local",
+        storagePath,
+        `document-${input.documentId}-thumbnail.png`,
+        storedFilename,
+        "image/png",
+        buffer.length,
+        checksum,
+        "not_encrypted",
+        "active",
+        JSON.stringify({ documentId: input.documentId, renderKey: input.renderKey })
+      ]
+    );
+    const [renderResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_renders (
+        uuid, document_id, file_asset_id, render_key, render_type,
+        visibility_policy, source_version_number, status, created_by_assignment_id,
+        render_definition, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        input.documentId,
+        Number(fileResult.insertId),
+        input.renderKey,
+        "thumbnail_png",
+        "show_all",
+        Number(input.document.current_version_number || 0) || null,
+        "generated",
+        input.assignmentId,
+        JSON.stringify(rendered.layout_definition),
+        JSON.stringify({ checksum, documentHash: calculateDocumentContentHash(input.document) })
+      ]
+    );
+    await connection.commit();
+    return {
+      byteSize: buffer.length,
+      documentId: input.documentId,
+      id: Number(renderResult.insertId),
+      mimeType: "image/png",
+      storagePath
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function writeAttachmentAccessLog(
+  request: Request,
+  assignment: ActiveAssignment,
+  attachment: RowDataPacket,
+  disposition: "attachment" | "inline"
+) {
+  await pool.execute<ResultSetHeader>(
+    `INSERT INTO access_logs (
+      user_id, assignment_id, action, resource_type, resource_id,
+      ip_address, user_agent, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      request.session.userId || null,
+      assignment.id,
+      disposition === "inline" ? "view" : "download",
+      "document_attachment",
+      String(attachment.id),
+      request.ip || null,
+      request.get("user-agent") || null,
+      JSON.stringify({
+        disposition,
+        documentId: Number(attachment.document_id),
+        fileAssetId: Number(attachment.fileAssetId),
+        mimeType: String(attachment.mimeType || ""),
+        originalFilename: String(attachment.originalFilename || "")
+      })
+    ]
+  );
 }
 
 function clean<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
@@ -617,6 +841,43 @@ async function hasAssignedOpenTask(documentId: number, assignment: Awaited<Retur
   return rows[0] || null;
 }
 
+async function canUploadAttachmentsForDocument(
+  document: RowDataPacket,
+  assignment: ActiveAssignment,
+  response: Response
+) {
+  const status = String(document.status || "draft");
+  if (["closed", "archived"].includes(status)) {
+    return false;
+  }
+  if (isAdmin(response) || Number(document.creator_assignment_id) === assignment.id) {
+    return true;
+  }
+
+  const task = await hasAssignedOpenTask(
+    Number(document.id),
+    assignment,
+    "(can_review = TRUE OR can_edit = TRUE OR can_forward = TRUE)"
+  );
+  return Boolean(task);
+}
+
+async function assertAttachmentUploadPermission(
+  document: RowDataPacket,
+  assignment: ActiveAssignment,
+  response: Response
+) {
+  const status = String(document.status || "draft");
+  if (["closed", "archived"].includes(status)) {
+    throw new AppError(409, "document_attachments_blocked", "Closed or archived documents cannot receive new attachments.");
+  }
+
+  const allowed = await canUploadAttachmentsForDocument(document, assignment, response);
+  if (!allowed) {
+    throw new AppError(403, "document_attachment_upload_not_allowed", "You need an active edit, review, or forward request before uploading attachments.");
+  }
+}
+
 function taskAssignedToActiveAssignment(task: RowDataPacket, assignment: Awaited<ReturnType<typeof getActiveAssignment>>) {
   return Number(task.assigned_assignment_id || 0) === assignment.id
     || Boolean(
@@ -668,7 +929,7 @@ async function assertLifecyclePermission(
 }
 
 type DocumentFilterQuery = z.infer<typeof documentFilterQuerySchema>;
-type DocumentFilterKey = "scope" | "status" | "document_type_id" | "priority_level_id" | "confidentiality_level_id" | "date_from" | "date_to" | "q";
+type DocumentFilterKey = "scope" | "status" | "document_type_id" | "priority_level_id" | "confidentiality_level_id" | "current_holder_unit_id" | "date_from" | "date_to" | "q" | "sort";
 type DocumentScope = DocumentFilterQuery["scope"];
 
 const registryScopes = ["accessible", "current_holder", "my_tasks", "signature_queue", "created_by_me"] as const;
@@ -810,6 +1071,11 @@ function buildDocumentWhere(
     params.push(query.priority_level_id);
   }
 
+  if (query.current_holder_unit_id && !skipped.has("current_holder_unit_id")) {
+    where.push("documents.current_holder_unit_id = ?");
+    params.push(query.current_holder_unit_id);
+  }
+
   if (query.confidentiality_level_id && !skipped.has("confidentiality_level_id")) {
     where.push("documents.confidentiality_level_id = ?");
     params.push(query.confidentiality_level_id);
@@ -838,6 +1104,19 @@ function buildDocumentWhere(
   return { params, where };
 }
 
+function documentRegistryOrderBy(sort: DocumentFilterQuery["sort"]) {
+  if (sort === "updated_asc") {
+    return "documents.updated_at ASC, documents.id ASC";
+  }
+  if (sort === "document_date_desc") {
+    return "documents.document_date DESC, documents.updated_at DESC, documents.id DESC";
+  }
+  if (sort === "priority_desc") {
+    return "priority_levels.rank DESC, documents.updated_at DESC, documents.id DESC";
+  }
+  return "documents.updated_at DESC, documents.id DESC";
+}
+
 async function countDocuments(where: string[], params: any[]) {
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT COUNT(*) AS count
@@ -849,7 +1128,104 @@ async function countDocuments(where: string[], params: any[]) {
   return Number(rows[0]?.count || 0);
 }
 
-async function getDocumentDetail(documentId: number) {
+type DocumentDetailContext = {
+  assignment: ActiveAssignment;
+  request: Request;
+  response: Response;
+};
+
+function latestAccessTime(rows: RowDataPacket[], action?: string) {
+  return rows.find((row) => !action || String(row.action) === action)?.createdAt || null;
+}
+
+async function decorateAttachmentsForDetail(
+  attachments: RowDataPacket[],
+  document: RowDataPacket,
+  context?: DocumentDetailContext
+) {
+  if (!attachments.length) {
+    return [];
+  }
+
+  const attachmentIds = attachments.map((attachment) => Number(attachment.id));
+  const placeholders = attachmentIds.map(() => "?").join(", ");
+  const [accessRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      access_logs.id,
+      access_logs.action,
+      access_logs.resource_id AS attachmentId,
+      access_logs.user_id AS userId,
+      access_logs.assignment_id AS assignmentId,
+      access_logs.created_at AS createdAt,
+      persons.display_name AS actorName,
+      positions.title AS actorPositionTitle,
+      units.name AS actorUnitName
+     FROM access_logs
+     LEFT JOIN assignments ON access_logs.assignment_id = assignments.id
+     LEFT JOIN persons ON assignments.person_id = persons.id
+     LEFT JOIN positions ON assignments.position_id = positions.id
+     LEFT JOIN units ON positions.unit_id = units.id
+     WHERE access_logs.resource_type = 'document_attachment'
+       AND access_logs.resource_id IN (${placeholders})
+     ORDER BY access_logs.created_at DESC, access_logs.id DESC`,
+    attachmentIds.map(String)
+  );
+
+  const accessRowsByAttachment = new Map<number, RowDataPacket[]>();
+  for (const row of accessRows) {
+    const attachmentId = Number(row.attachmentId);
+    accessRowsByAttachment.set(attachmentId, [...(accessRowsByAttachment.get(attachmentId) || []), row]);
+  }
+
+  return attachments.map((attachment) => {
+    const attachmentId = Number(attachment.id);
+    const rows = accessRowsByAttachment.get(attachmentId) || [];
+    const myRows = context
+      ? rows.filter((row) => Number(row.userId || 0) === Number(context.request.session.userId || 0)
+        || Number(row.assignmentId || 0) === context.assignment.id)
+      : [];
+    const canSeeReceiptSummary = Boolean(
+      context
+      && (
+        isAdmin(context.response)
+        || Number(document.creator_assignment_id) === context.assignment.id
+        || Number(attachment.uploaded_by_assignment_id || 0) === context.assignment.id
+      )
+    );
+    const latest = rows[0] || null;
+
+    return {
+      ...attachment,
+      byteSize: Number(attachment.byteSize || 0),
+      fileAssetId: Number(attachment.file_asset_id || 0),
+      isPreviewable: isPreviewableAttachmentMimeType(String(attachment.mimeType || "")),
+      myAccess: {
+        downloadedAt: latestAccessTime(myRows, "download"),
+        latestAt: latestAccessTime(myRows),
+        viewedAt: latestAccessTime(myRows, "view")
+      },
+      receiptSummary: canSeeReceiptSummary ? {
+        downloadCount: rows.filter((row) => String(row.action) === "download").length,
+        latestAccessedAt: latest?.createdAt || null,
+        latestAction: latest ? String(latest.action) : null,
+        latestActorName: latest?.actorName ? String(latest.actorName) : null,
+        recent: rows.slice(0, 8).map((row) => ({
+          action: String(row.action),
+          actorName: row.actorName ? String(row.actorName) : null,
+          actorPositionTitle: row.actorPositionTitle ? String(row.actorPositionTitle) : null,
+          actorUnitName: row.actorUnitName ? String(row.actorUnitName) : null,
+          assignmentId: row.assignmentId == null ? null : Number(row.assignmentId),
+          createdAt: row.createdAt,
+          id: Number(row.id),
+          userId: row.userId == null ? null : Number(row.userId)
+        })),
+        viewCount: rows.filter((row) => String(row.action) === "view").length
+      } : null
+    };
+  });
+}
+
+async function getDocumentDetail(documentId: number, context?: DocumentDetailContext) {
   const [documentRows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       documents.*,
@@ -894,7 +1270,10 @@ async function getDocumentDetail(documentId: number) {
       FROM document_attachments
       INNER JOIN file_assets ON document_attachments.file_asset_id = file_assets.id
       WHERE document_attachments.document_id = ?
+        AND document_attachments.status = 'active'
         AND document_attachments.deleted_at IS NULL
+        AND file_assets.status = 'active'
+        AND file_assets.deleted_at IS NULL
       ORDER BY document_attachments.id DESC`,
       [documentId]
     ).then(([rows]) => rows),
@@ -966,15 +1345,23 @@ async function getDocumentDetail(documentId: number) {
     ).then(([rows]) => rows)
   ]);
 
+  const canUploadAttachments = context
+    ? await canUploadAttachmentsForDocument(document, context.assignment, context.response)
+    : false;
+  const decoratedAttachments = await decorateAttachmentsForDetail(attachments, document, context);
+  const workflowSummary = (await workflowSummariesForDocuments([documentId])).get(documentId) || null;
+
   return {
+    canUploadAttachments,
     document,
     versions,
-    attachments,
+    attachments: decoratedAttachments,
     relations,
     workflowEvents,
     tasks,
     signatureEvents,
     renders,
+    workflowSummary,
     serialAssignment: serialAssignment || null
   };
 }
@@ -1008,18 +1395,19 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
       priority_levels.code AS priorityCode,
       priority_levels.name AS priorityName,
       priority_levels.color AS priorityColor,
+      holder_units.id AS currentHolderUnitId,
       holder_units.name AS currentHolderUnitName
     FROM documents
     INNER JOIN document_types ON documents.document_type_id = document_types.id
     INNER JOIN priority_levels ON documents.priority_level_id = priority_levels.id
     INNER JOIN units AS holder_units ON documents.current_holder_unit_id = holder_units.id
     WHERE ${where.join(" AND ")}
-    ORDER BY documents.updated_at DESC
+    ORDER BY ${documentRegistryOrderBy(query.sort)}
     LIMIT ? OFFSET ?`,
     [...params, query.limit, query.offset]
   );
 
-  ok(response, rows.map((row) => {
+  const decorated = rows.map((row) => {
     const status = String(row.status || "draft");
     const draft = status === "draft";
     const creator = Number(row.creatorAssignmentId) === context.assignment.id;
@@ -1032,7 +1420,9 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
       canEdit: draft && (admin || creatorCanWrite),
       canOpenPdf: true
     };
-  }));
+  });
+
+  ok(response, await attachWorkflowSummaries(decorated, (row) => Number((row as RowDataPacket).id)));
 }));
 
 documentRouter.get("/stats", asyncHandler(async (request, response) => {
@@ -1250,7 +1640,7 @@ documentRouter.post("/", asyncHandler(async (request, response) => {
   }
 
   await refreshSearchIndexForEntitySafe("document", createdDocumentId);
-  created(response, await getDocumentDetail(createdDocumentId));
+  created(response, await getDocumentDetail(createdDocumentId, { assignment, request, response }));
 }));
 
 documentRouter.get("/:documentId/send-options", asyncHandler(async (request, response) => {
@@ -1286,10 +1676,30 @@ documentRouter.get("/:documentId/send-options", asyncHandler(async (request, res
   });
 }));
 
+documentRouter.get("/:documentId/thumbnail", asyncHandler(async (request, response) => {
+  const { documentId } = documentIdSchema.parse(request.params);
+  const { assignment, document } = await assertDocumentAccess(documentId, request, response);
+  const renderKey = await thumbnailRenderKey(documentId, document);
+  const existing = await cachedThumbnail(renderKey);
+  if (existing) {
+    await serveThumbnail(response, existing);
+    return;
+  }
+
+  const generated = await generateDocumentThumbnail({
+    assignmentId: assignment.id,
+    document,
+    documentId,
+    renderKey,
+    userId: request.session.userId || null
+  });
+  await serveThumbnail(response, generated as unknown as RowDataPacket);
+}));
+
 documentRouter.get("/:documentId", asyncHandler(async (request, response) => {
   const { documentId } = documentIdSchema.parse(request.params);
-  await assertDocumentAccess(documentId, request, response);
-  ok(response, await getDocumentDetail(documentId));
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  ok(response, await getDocumentDetail(documentId, { assignment, request, response }));
 }));
 
 documentRouter.post("/:documentId/send", asyncHandler(async (request, response) => {
@@ -1388,6 +1798,22 @@ documentRouter.post("/:documentId/send", asyncHandler(async (request, response) 
         ]
       );
       taskIds.push(Number(taskResult.insertId));
+      await notifyDocumentTaskAssigned(connection, {
+        document,
+        task: {
+          assigned_assignment_id: null,
+          assigned_position_id: recipient.to_position_id || null,
+          assigned_unit_id: recipient.to_unit_id,
+          can_edit: permissions.can_edit,
+          can_review: permissions.can_review,
+          can_sign: permissions.can_sign,
+          created_by_assignment_id: assignment.id,
+          id: Number(taskResult.insertId),
+          required_action: recipient.required_action,
+          task_type: recipient.required_action,
+          workflow_event_id: eventId
+        }
+      });
     }
 
     await connection.execute<ResultSetHeader>(
@@ -1511,7 +1937,7 @@ documentRouter.post("/:documentId/finalize", asyncHandler(async (request, respon
 
   await refreshSearchIndexForEntitySafe("document", documentId);
   ok(response, {
-    detail: await getDocumentDetail(documentId),
+    detail: await getDocumentDetail(documentId, { assignment, request, response }),
     finalRender: null,
     serialAssignment
   });
@@ -1613,7 +2039,7 @@ documentRouter.post("/:documentId/archive", asyncHandler(async (request, respons
 
   await refreshSearchIndexForEntitySafe("document", documentId);
   ok(response, {
-    detail: await getDocumentDetail(documentId),
+    detail: await getDocumentDetail(documentId, { assignment, request, response }),
     finalRender: null,
     serialAssignment
   });
@@ -1813,7 +2239,7 @@ documentRouter.patch("/:documentId", asyncHandler(async (request, response) => {
   }
 
   await refreshSearchIndexForEntitySafe("document", documentId);
-  ok(response, await getDocumentDetail(documentId));
+  ok(response, await getDocumentDetail(documentId, { assignment, request, response }));
 }));
 
 documentRouter.post("/:documentId/relations", asyncHandler(async (request, response) => {
@@ -1836,6 +2262,55 @@ documentRouter.post("/:documentId/relations", asyncHandler(async (request, respo
   created(response, rows[0] || null);
 }));
 
+documentRouter.get("/:documentId/attachments/:attachmentId/file", asyncHandler(async (request, response) => {
+  const { attachmentId, documentId } = z.object({
+    attachmentId: z.coerce.number().int().positive(),
+    documentId: z.coerce.number().int().positive()
+  }).parse(request.params);
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      document_attachments.id,
+      document_attachments.document_id,
+      file_assets.id AS fileAssetId,
+      file_assets.storage_path AS storagePath,
+      file_assets.original_filename AS originalFilename,
+      file_assets.mime_type AS mimeType,
+      file_assets.byte_size AS byteSize
+     FROM document_attachments
+     INNER JOIN file_assets ON document_attachments.file_asset_id = file_assets.id
+     WHERE document_attachments.id = ?
+       AND document_attachments.document_id = ?
+       AND document_attachments.status = 'active'
+       AND document_attachments.deleted_at IS NULL
+       AND file_assets.status = 'active'
+       AND file_assets.deleted_at IS NULL
+     LIMIT 1`,
+    [attachmentId, documentId]
+  );
+  const attachment = rows[0];
+  if (!attachment) {
+    throw notFound("Attachment");
+  }
+
+  const absolutePath = attachmentAbsolutePath(String(attachment.storagePath));
+  await fs.access(absolutePath).catch(() => {
+    throw notFound("Attachment file");
+  });
+
+  const requestedDownload = request.query.download === "1" || request.query.download === "true";
+  const previewable = isPreviewableAttachmentMimeType(String(attachment.mimeType || ""));
+  const disposition: "attachment" | "inline" = requestedDownload || !previewable ? "attachment" : "inline";
+  const filename = safeContentDispositionFilename(String(attachment.originalFilename || `attachment-${attachmentId}`));
+
+  await writeAttachmentAccessLog(request, assignment, attachment, disposition);
+
+  response.setHeader("content-type", String(attachment.mimeType || "application/octet-stream"));
+  response.setHeader("content-disposition", `${disposition}; filename="${filename}"`);
+  response.setHeader("cache-control", "private, max-age=60");
+  response.sendFile(absolutePath);
+}));
+
 documentRouter.post("/:documentId/attachments/upload", upload.single("file"), asyncHandler(async (request, response) => {
   const { documentId } = documentIdSchema.parse(request.params);
   const input = uploadAttachmentSchema.parse(request.body);
@@ -1844,7 +2319,8 @@ documentRouter.post("/:documentId/attachments/upload", upload.single("file"), as
     throw new AppError(422, "attachment_file_required", "Upload a file to attach.");
   }
 
-  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  const { assignment, document } = await assertDocumentAccess(documentId, request, response);
+  await assertAttachmentUploadPermission(document, assignment, response);
   const checksum = createHash("sha256").update(file.buffer).digest("hex");
   const storedFilename = `${uuid()}${safeUploadExtension(file)}`;
   const storageDir = path.resolve(process.cwd(), documentAttachmentStorageDir);
@@ -1944,7 +2420,8 @@ documentRouter.post("/:documentId/attachments/upload", upload.single("file"), as
 documentRouter.post("/:documentId/attachments", asyncHandler(async (request, response) => {
   const { documentId } = documentIdSchema.parse(request.params);
   const input = createAttachmentSchema.parse(request.body);
-  const { assignment } = await assertDocumentAccess(documentId, request, response);
+  const { assignment, document } = await assertDocumentAccess(documentId, request, response);
+  await assertAttachmentUploadPermission(document, assignment, response);
 
   const connection = await pool.getConnection();
   try {
@@ -2060,44 +2537,154 @@ documentRouter.patch("/:documentId/tasks/:taskId/complete", asyncHandler(async (
   const input = completeTaskSchema.parse(request.body);
   const { assignment } = await assertDocumentAccess(documentId, request, response);
 
-  const [taskRows] = await pool.execute<RowDataPacket[]>(
-    `SELECT *
-     FROM document_tasks
-     WHERE id = ? AND document_id = ? AND deleted_at IS NULL
-     LIMIT 1`,
-    [taskId, documentId]
-  );
-  const task = taskRows[0];
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [documentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE",
+      [documentId]
+    );
+    const lockedDocument = documentRows[0];
+    if (!lockedDocument) {
+      throw notFound("Document");
+    }
+    if (terminalDocumentStatuses.has(String(lockedDocument.status || "draft"))) {
+      throw new AppError(409, "document_terminal_status", "Finalized, closed, or archived documents cannot receive task responses.");
+    }
 
-  if (!task) {
-    throw notFound("Document task");
-  }
-  if (String(task.status) !== "open") {
-    throw new AppError(409, "document_task_not_open", "Only open requests can be completed.");
-  }
-  const assignedToActive = taskAssignedToActiveAssignment(task, assignment);
-  if (!assignedToActive && !isAdmin(response)) {
-    throw new AppError(403, "document_task_not_assigned", "This request is not assigned to your active position.");
-  }
-  const completionNote = input.completion_note?.trim() || "";
-  if (task.requires_comment && !completionNote) {
-    throw new AppError(422, "comment_required", "A comment is required to complete this request.");
+    const [taskRows] = await connection.execute<RowDataPacket[]>(
+      `SELECT *
+       FROM document_tasks
+       WHERE id = ? AND document_id = ? AND deleted_at IS NULL
+       LIMIT 1
+       FOR UPDATE`,
+      [taskId, documentId]
+    );
+    const task = taskRows[0];
+
+    if (!task) {
+      throw notFound("Document task");
+    }
+    if (String(task.status) !== "open") {
+      throw new AppError(409, "document_task_not_open", "Only open requests can be completed.");
+    }
+    const assignedToActive = taskAssignedToActiveAssignment(task, assignment);
+    if (!assignedToActive && !isAdmin(response)) {
+      throw new AppError(403, "document_task_not_assigned", "This request is not assigned to your active position.");
+    }
+    const completionNote = input.completion_note?.trim() || "";
+    if (task.requires_comment && !completionNote) {
+      throw new AppError(422, "comment_required", "A comment is required to complete this request.");
+    }
+
+    const taskIsReview = documentTaskIsReview(task);
+    const responseOutcome = input.outcome || (taskIsReview ? "approved" : "completed");
+    await connection.execute<ResultSetHeader>(
+      `UPDATE document_tasks
+       SET status = 'completed',
+           completed_at = CURRENT_TIMESTAMP,
+           completed_by_assignment_id = ?,
+           responded_by_assignment_id = ?,
+           completion_note = ?,
+           response_note = ?,
+           response_outcome = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [assignment.id, assignment.id, completionNote || null, completionNote || null, responseOutcome, taskId]
+    );
+
+    const currentStatus = String(lockedDocument.status || "draft");
+    const eventAction = taskIsReview && responseOutcome === "approved"
+      ? "review_approved"
+      : responseOutcome === "changes_requested"
+        ? "changes_requested"
+        : "task_completed";
+    const nextStatus = responseOutcome === "changes_requested"
+      ? "changes_requested"
+      : await documentStatusAfterTaskChange(
+        connection,
+        documentId,
+        currentStatus,
+        taskIsReview && responseOutcome === "approved" ? "review_approved" : currentStatus
+      );
+    const returnHolderUnitId = await workflowReturnHolderUnitId(connection, {
+      currentHolderUnitId: Number(lockedDocument.current_holder_unit_id || 0),
+      documentId,
+      workflowEventId: task.workflow_event_id ? Number(task.workflow_event_id) : null
+    });
+    const nextHolderUnitId = returnHolderUnitId || Number(lockedDocument.current_holder_unit_id);
+
+    await connection.execute<ResultSetHeader>(
+      `UPDATE documents
+       SET status = ?,
+           current_holder_unit_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [nextStatus, nextHolderUnitId, documentId]
+    );
+
+    const [eventResult] = await connection.execute<ResultSetHeader>(
+      `INSERT INTO document_workflow_events (
+        uuid, document_id, actor_assignment_id, action, required_action,
+        from_status, to_status, from_unit_id, to_unit_id, to_position_id,
+        note, payload, permissions
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uuid(),
+        documentId,
+        assignment.id,
+        eventAction,
+        documentTaskAction(task),
+        currentStatus,
+        nextStatus,
+        lockedDocument.current_holder_unit_id,
+        nextHolderUnitId,
+        assignment.positionId,
+        completionNote || (eventAction === "review_approved" ? "Review approved." : "Request completed."),
+        JSON.stringify({
+          documentTaskId: taskId,
+          responseOutcome,
+          returnedToUnitId: returnHolderUnitId || null
+        }),
+        JSON.stringify({
+          canArchive: Boolean(task.can_archive),
+          canEdit: Boolean(task.can_edit),
+          canFinalize: Boolean(task.can_finalize),
+          canForward: Boolean(task.can_forward),
+          canReview: Boolean(task.can_review),
+          canSign: Boolean(task.can_sign)
+        })
+      ]
+    );
+
+    await notifyDocumentTaskOriginators(connection, {
+      actorAssignment: assignment,
+      body: completionNote || lockedDocument.subject || null,
+      document: lockedDocument,
+      notificationType: eventAction === "review_approved" ? "document_review_approved" : "document_task_completed",
+      payload: {
+        responseOutcome,
+        workflowEventId: Number(eventResult.insertId)
+      },
+      task,
+      title: eventAction === "review_approved" ? "Review approved" : "Document request completed"
+    });
+
+    await writeAuditLog(request, {
+      action: "document.task.complete",
+      entityType: "document_task",
+      entityId: taskId,
+      metadata: { outcome: responseOutcome, workflowEventId: Number(eventResult.insertId) }
+    }, connection);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
 
-  await pool.execute<ResultSetHeader>(
-    `UPDATE document_tasks
-     SET status = 'completed',
-         completed_at = CURRENT_TIMESTAMP,
-         completed_by_assignment_id = ?,
-         responded_by_assignment_id = ?,
-         completion_note = ?,
-         response_note = ?,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = ?`,
-    [assignment.id, assignment.id, completionNote || null, completionNote || null, taskId]
-  );
-
-  await writeAuditLog(request, { action: "document.task.complete", entityType: "document_task", entityId: taskId });
+  await refreshSearchIndexForEntitySafe("document", documentId);
   const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [taskId]);
   ok(response, rows[0] || null);
 }));
@@ -2105,11 +2692,19 @@ documentRouter.patch("/:documentId/tasks/:taskId/complete", asyncHandler(async (
 documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (request, response) => {
   const { documentId } = documentIdSchema.parse(request.params);
   const { taskId } = z.object({ taskId: z.coerce.number().int().positive() }).parse(request.params);
-  const { document, assignment } = await assertDocumentAccess(documentId, request, response);
+  const { assignment } = await assertDocumentAccess(documentId, request, response);
 
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const [documentRows] = await connection.execute<RowDataPacket[]>(
+      "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL LIMIT 1 FOR UPDATE",
+      [documentId]
+    );
+    const lockedDocument = documentRows[0];
+    if (!lockedDocument) {
+      throw notFound("Document");
+    }
     const [taskRows] = await connection.execute<RowDataPacket[]>(
       `SELECT *
        FROM document_tasks
@@ -2133,6 +2728,9 @@ documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (reque
       ok(response, task);
       return;
     }
+    if (terminalDocumentStatuses.has(String(lockedDocument.status || "draft"))) {
+      throw new AppError(409, "document_terminal_status", "Finalized, closed, or archived documents cannot receive task responses.");
+    }
     if (String(task.status) !== "open") {
       throw new AppError(409, "document_task_not_open", "Only open information requests can be marked as seen.");
     }
@@ -2145,12 +2743,30 @@ documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (reque
            responded_by_assignment_id = ?,
            completion_note = COALESCE(completion_note, 'Seen.'),
            response_note = COALESCE(response_note, 'Seen.'),
+           response_outcome = 'seen',
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [assignment.id, assignment.id, taskId]
     );
 
+    const currentStatus = String(lockedDocument.status || "draft");
+    const nextStatus = await documentStatusAfterTaskChange(connection, documentId, currentStatus, currentStatus);
+    const returnHolderUnitId = await workflowReturnHolderUnitId(connection, {
+      currentHolderUnitId: Number(lockedDocument.current_holder_unit_id || 0),
+      documentId,
+      workflowEventId: task.workflow_event_id ? Number(task.workflow_event_id) : null
+    });
+    const nextHolderUnitId = returnHolderUnitId || Number(lockedDocument.current_holder_unit_id);
     await connection.execute<ResultSetHeader>(
+      `UPDATE documents
+       SET status = ?,
+           current_holder_unit_id = ?,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [nextStatus, nextHolderUnitId, documentId]
+    );
+
+    const [eventResult] = await connection.execute<ResultSetHeader>(
       `INSERT INTO document_workflow_events (
         uuid, document_id, actor_assignment_id, action, required_action,
         from_status, to_status, from_unit_id, to_unit_id, to_position_id,
@@ -2162,13 +2778,13 @@ documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (reque
         assignment.id,
         "information_seen",
         "information",
-        document.status,
-        document.status,
-        document.current_holder_unit_id || null,
-        assignment.unitId,
+        currentStatus,
+        nextStatus,
+        lockedDocument.current_holder_unit_id || null,
+        nextHolderUnitId,
         assignment.positionId,
         "Information request seen.",
-        JSON.stringify({ documentTaskId: taskId, seenByAssignmentId: assignment.id }),
+        JSON.stringify({ documentTaskId: taskId, returnedToUnitId: returnHolderUnitId || null, seenByAssignmentId: assignment.id }),
         JSON.stringify({
           canArchive: Boolean(task.can_archive),
           canEdit: Boolean(task.can_edit),
@@ -2180,6 +2796,19 @@ documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (reque
       ]
     );
 
+    await notifyDocumentTaskOriginators(connection, {
+      actorAssignment: assignment,
+      body: lockedDocument.subject || "Information request seen.",
+      document: lockedDocument,
+      notificationType: "document_task_completed",
+      payload: {
+        responseOutcome: "seen",
+        workflowEventId: Number(eventResult.insertId)
+      },
+      task,
+      title: "Information request seen"
+    });
+
     await writeAuditLog(request, { action: "document.task.seen", entityType: "document_task", entityId: taskId }, connection);
     await connection.commit();
   } catch (error) {
@@ -2189,6 +2818,7 @@ documentRouter.post("/:documentId/tasks/:taskId/seen", asyncHandler(async (reque
     connection.release();
   }
 
+  await refreshSearchIndexForEntitySafe("document", documentId);
   const [rows] = await pool.execute<RowDataPacket[]>("SELECT * FROM document_tasks WHERE id = ? LIMIT 1", [taskId]);
   ok(response, rows[0] || null);
 }));

@@ -669,6 +669,31 @@ async function documentRenderContext(documentId: number, signatureVisibility: Re
   };
 }
 
+export async function renderOfficialDocumentHtml(documentId: number, options: {
+  locale?: z.infer<typeof localeSchema>;
+  signatureVisibility?: RenderSignatureVisibilityInput;
+  variant?: z.infer<typeof variantSchema>;
+} = {}) {
+  const signatureVisibility = options.signatureVisibility || [];
+  const context = await documentRenderContext(documentId, signatureVisibility);
+  const renderInput: z.infer<typeof renderSchema> = {
+    layout_draft_id: null,
+    locale: options.locale || "all",
+    output: "html",
+    signature_visibility: signatureVisibility,
+    template_id: null,
+    template_version_id: null,
+    variant: options.variant || "official"
+  };
+  const renderable = await getRenderableLayout(renderInput, {
+    documentId,
+    documentTypeId: Number(context.document.document_type_id) || null
+  });
+  const html = renderTemplateHtml(renderable.layout, context);
+
+  return { context, html, layout_definition: renderable.layout };
+}
+
 async function lookupReferenceName(table: string, id: number | null | undefined) {
   if (!id) {
     return null;

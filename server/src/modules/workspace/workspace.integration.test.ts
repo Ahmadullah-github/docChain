@@ -233,8 +233,16 @@ describe("workspace work items", () => {
       documentId,
       id: taskId,
       itemType: "signature",
-      requiredAction: "sign"
+      requiredAction: "sign",
+      workflowSummary: {
+        activeAction: "sign",
+        openTaskCount: 1
+      }
     });
+    expect(String(allWork[0].workflowSummary.thumbnailUrl || "")).toMatch(new RegExp(`^/api/documents/${documentId}/thumbnail\\?v=`));
+    expect(allWork[0].workflowSummary.routeSteps.some((step: JsonRecord) => (
+      Number(step.positionId || 0) === recipient.positionId || Number(step.unitId || 0) === recipient.unitId
+    ))).toBe(true);
     expect(allWork.some((item) => item.itemType === "activity")).toBe(false);
 
     const signatures = await recipientClient.get<JsonRecord[]>("/api/workspace/work-items?type=signatures&limit=40");

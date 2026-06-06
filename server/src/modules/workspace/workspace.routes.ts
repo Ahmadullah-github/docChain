@@ -7,6 +7,7 @@ import { asyncHandler } from "../../shared/async-handler";
 import { getActiveAssignment, isAdmin } from "../../shared/document-access";
 import { listDocumentWritePermissions } from "../../shared/document-write-rules";
 import { ok } from "../../shared/http";
+import { attachWorkflowSummaries } from "../documents/document-workflow-summary";
 
 export const workspaceRouter = Router();
 
@@ -56,7 +57,7 @@ async function assignmentIdsForPerson(personId: number) {
 workspaceRouter.get("/reference", asyncHandler(async (request, response) => {
   const authUser = response.locals.authUser!;
   const assignment = await getActiveAssignment(request, "loading document reference data");
-  const [documentTypes, confidentialityLevels, priorityLevels] = await Promise.all([
+  const [documentTypes, confidentialityLevels, priorityLevels, units] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT id, uuid, code, name, description, requires_serial, status
        FROM document_types
@@ -74,6 +75,21 @@ workspaceRouter.get("/reference", asyncHandler(async (request, response) => {
        FROM priority_levels
        WHERE status = 'active'
        ORDER BY rank ASC, name ASC`
+    ).then(([rows]) => rows),
+    pool.execute<RowDataPacket[]>(
+      `SELECT
+        units.id,
+        units.uuid,
+        units.code,
+        units.name,
+        unit_types.code AS unitTypeCode,
+        unit_types.name AS unitTypeName
+       FROM units
+       INNER JOIN unit_types ON units.unit_type_id = unit_types.id
+       WHERE units.status = 'active'
+         AND units.deleted_at IS NULL
+       ORDER BY unit_types.hierarchy_level ASC, units.name ASC
+       LIMIT 500`
     ).then(([rows]) => rows)
   ]);
   const permissions = isAdmin(response)
@@ -99,6 +115,7 @@ workspaceRouter.get("/reference", asyncHandler(async (request, response) => {
     confidentialityLevels,
     documentWritePermissions: permissions,
     priorityLevels,
+    units,
     templateFieldDefaults: {
       header_unit: headerLines
     }
@@ -243,7 +260,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
       [assignment.id, assignment.unitId, assignment.positionId, limit]
     );
 
-    ok(response, rows);
+    ok(response, await attachWorkflowSummaries(rows, (row) => Number(row.documentId)));
     return;
   }
 
@@ -449,7 +466,7 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
     .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime())
     .slice(0, limit);
 
-  ok(response, rows);
+  ok(response, await attachWorkflowSummaries(rows, (row) => Number(row.documentId || 0)));
 }));
 
 workspaceRouter.get("/transmission-targets", asyncHandler(async (request, response) => {

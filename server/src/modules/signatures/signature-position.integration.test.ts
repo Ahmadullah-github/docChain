@@ -208,9 +208,10 @@ async function createUser(input: {
 }
 
 async function createDocumentType() {
+  const code = `signature_position_${randomUUID().slice(0, 8)}`;
   return insert(
     "INSERT INTO document_types (uuid, code, name, description, requires_serial, status) VALUES (?, ?, ?, ?, ?, ?)",
-    [randomUUID(), "signature_position_test_document", "Signature Position Test Document", "Document type for signature position tests.", false, "active"]
+    [randomUUID(), code, "Signature Position Test Document", "Document type for signature position tests.", false, "active"]
   );
 }
 
@@ -225,6 +226,15 @@ async function enrollProfile(client: TestClient, pin = "1234") {
 async function signDocument(client: TestClient, documentId: number, pin = "1234") {
   const session = await client.post<JsonRecord>(`/api/signatures/documents/${documentId}/signing-session`, { pin });
   return client.post<JsonRecord>(`/api/signatures/documents/${documentId}/sign`, {
+    ...session.placement,
+    placement_token: session.placement_token,
+    print_options: session.print_options
+  });
+}
+
+async function signDocumentTask(client: TestClient, documentId: number, taskId: number, pin = "1234") {
+  const session = await client.post<JsonRecord>(`/api/signatures/documents/${documentId}/tasks/${taskId}/signing-session`, { pin });
+  return client.post<JsonRecord>(`/api/signatures/documents/${documentId}/tasks/${taskId}/sign`, {
     ...session.placement,
     placement_token: session.placement_token,
     print_options: session.print_options
@@ -249,7 +259,7 @@ describe("position-level document signing", () => {
     }
   });
 
-  it("allows one signature per position while allowing other positions to sign", async () => {
+	  it("allows one signature per position while allowing other positions to sign", async () => {
     const positionA = await createSigningPosition("sig_position_a", "Signature Position A");
     const positionB = await createSigningPosition("sig_position_b", "Signature Position B");
     const positionC = await createSigningPosition("sig_position_c", "Signature Position C");
@@ -321,10 +331,56 @@ describe("position-level document signing", () => {
        ORDER BY signature_events.id ASC`,
       [documentId]
     );
-    expect(signatures.map((row) => Number(row.positionId))).toEqual([
-      positionA.positionId,
-      positionB.positionId,
-      positionC.positionId
-    ]);
-  });
-});
+	    expect(signatures.map((row) => Number(row.positionId))).toEqual([
+	      positionA.positionId,
+	      positionB.positionId,
+	      positionC.positionId
+	    ]);
+	  });
+
+	  it("notifies document originators when an assigned signature task is signed", async () => {
+	    const signPosition = await createSigningPosition("sig_task_notify", "Signature Task Notify");
+	    const signer = await createUser({
+	      assignmentPositionIds: [signPosition.positionId],
+	      employeeCode: "SIGNER-TASK-NOTIFY",
+	      name: "Task Notify",
+	      username: "task-notify-signer"
+	    });
+	    const documentTypeId = await createDocumentType();
+	    const [confidentiality, priority] = await Promise.all([
+	      one("SELECT id FROM confidentiality_levels WHERE status = 'active' ORDER BY id ASC LIMIT 1"),
+	      one("SELECT id FROM priority_levels WHERE status = 'active' ORDER BY id ASC LIMIT 1")
+	    ]);
+	    expect(confidentiality).toBeTruthy();
+	    expect(priority).toBeTruthy();
+
+	    const created = await admin.post<JsonRecord>("/api/documents", {
+	      body: "This document is used to test signature task notifications.",
+	      confidentiality_level_id: Number(confidentiality.id),
+	      document_type_id: documentTypeId,
+	      priority_level_id: Number(priority.id),
+	      subject: "Signature Task Notification Test"
+	    });
+	    const documentId = Number(created.document.id);
+	    const sent = await admin.post<JsonRecord>(`/api/documents/${documentId}/send`, {
+	      recipients: [{
+	        required_action: "sign",
+	        to_position_id: signPosition.positionId,
+	        to_unit_id: signPosition.unitId
+	      }]
+	    });
+	    const taskId = Number(sent.tasks[0].id);
+
+	    const signerClient = new TestClient(testServer!.baseUrl);
+	    await signerClient.login(signer.username, signer.password);
+	    await enrollProfile(signerClient);
+	    const signed = await signDocumentTask(signerClient, documentId, taskId);
+	    expect(signed.task.response_outcome).toBe("signed");
+
+	    const signedNotifications = await all(
+	      "SELECT * FROM notifications WHERE document_id = ? AND document_task_id = ? AND notification_type = ?",
+	      [documentId, taskId, "document_signed"]
+	    );
+	    expect(signedNotifications).toHaveLength(1);
+	  });
+	});

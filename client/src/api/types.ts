@@ -380,6 +380,7 @@ export type WorkspaceWorkItem = {
   priorityName?: string | null;
   holderUnitName?: string | null;
   assignedPositionTitle?: string | null;
+  workflowSummary?: DocumentWorkflowSummary | null;
 };
 
 export type WorkspaceReference = {
@@ -388,6 +389,7 @@ export type WorkspaceReference = {
   documentWritePermissions: DocumentWritePermission[];
   priorityLevels: PriorityLevel[];
   templateFieldDefaults?: Record<string, string>;
+  units?: WorkspaceTargetUnit[];
 };
 
 export type WorkspaceTargetUnit = {
@@ -421,6 +423,29 @@ export type WorkspaceTransmissionTargets = {
 };
 
 export type DocumentScope = "accessible" | "created_by_me" | "current_holder" | "origin_unit" | "owner_unit" | "my_tasks" | "signature_queue";
+export type DocumentRegistrySort = "updated_desc" | "updated_asc" | "document_date_desc" | "priority_desc";
+
+export type DocumentWorkflowStepStatus = "blocked" | "completed" | "current" | "pending";
+
+export type DocumentWorkflowRouteStep = {
+  action?: string | null;
+  documentTaskId?: EntityId | null;
+  label: string;
+  positionId?: EntityId | null;
+  status: DocumentWorkflowStepStatus;
+  sublabel?: string | null;
+  unitId?: EntityId | null;
+  workflowEventId?: EntityId | null;
+};
+
+export type DocumentWorkflowSummary = {
+  activeAction?: string | null;
+  completedTaskCount: number;
+  openTaskCount: number;
+  routeSteps: DocumentWorkflowRouteStep[];
+  thumbnailStatus: "available" | "missing" | "pending";
+  thumbnailUrl: string;
+};
 
 export type DocumentRegistryStats = {
   total: number;
@@ -450,11 +475,13 @@ export type DocumentListItem = {
   priorityCode?: string | null;
   priorityName?: string | null;
   priorityColor?: string | null;
+  currentHolderUnitId?: EntityId;
   currentHolderUnitName: string;
   canDelete?: boolean | number;
   canDownloadPdf?: boolean | number;
   canEdit?: boolean | number;
   canOpenPdf?: boolean | number;
+  workflowSummary?: DocumentWorkflowSummary | null;
 };
 
 export type TipTapMark = {
@@ -575,6 +602,7 @@ export type DocumentTask = {
   can_finalize?: boolean | number;
   can_archive?: boolean | number;
   responded_by_assignment_id?: EntityId | null;
+  response_outcome?: "approved" | "completed" | "changes_requested" | string | null;
   response_note?: string | null;
   payload?: JsonRecord | string | null;
   status: Status;
@@ -592,7 +620,55 @@ export type DocumentTask = {
   creatorName?: string | null;
 };
 
+export type DocumentAttachmentAccess = {
+  downloadedAt?: string | null;
+  latestAt?: string | null;
+  viewedAt?: string | null;
+};
+
+export type DocumentAttachmentReceipt = {
+  action: "download" | "view" | string;
+  actorName?: string | null;
+  actorPositionTitle?: string | null;
+  actorUnitName?: string | null;
+  assignmentId?: EntityId | null;
+  createdAt: string;
+  id: EntityId;
+  userId?: EntityId | null;
+};
+
+export type DocumentAttachmentReceiptSummary = {
+  downloadCount: number;
+  latestAccessedAt?: string | null;
+  latestAction?: string | null;
+  latestActorName?: string | null;
+  recent: DocumentAttachmentReceipt[];
+  viewCount: number;
+};
+
+export type DocumentAttachment = JsonRecord & {
+  id: EntityId;
+  uuid: string;
+  document_id: EntityId;
+  file_asset_id: EntityId;
+  fileAssetId?: EntityId;
+  uploaded_by_assignment_id?: EntityId | null;
+  attachment_type: string;
+  title?: string | null;
+  description?: string | null;
+  status: Status;
+  created_at?: string | null;
+  updated_at?: string | null;
+  originalFilename?: string | null;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  isPreviewable?: boolean;
+  myAccess?: DocumentAttachmentAccess;
+  receiptSummary?: DocumentAttachmentReceiptSummary | null;
+};
+
 export type DocumentDetail = {
+  canUploadAttachments?: boolean;
   document: JsonRecord & {
     current_content_hash?: string | null;
     document_content?: DocumentContent | string | null;
@@ -602,12 +678,13 @@ export type DocumentDetail = {
     status: Status;
   };
   versions: JsonRecord[];
-  attachments: JsonRecord[];
+  attachments: DocumentAttachment[];
   relations: JsonRecord[];
   workflowEvents: DocumentWorkflowEvent[];
   tasks: DocumentTask[];
   signatureEvents: JsonRecord[];
   renders: DocumentRender[];
+  workflowSummary?: DocumentWorkflowSummary | null;
   serialAssignment: JsonRecord | null;
 };
 

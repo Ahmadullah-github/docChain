@@ -11,6 +11,7 @@ import {
 } from "../../api";
 import type {
   DocumentDetail,
+  DocumentAttachment,
   DocumentRequestAction,
   DocumentRequestPermissions,
   DocumentSendAction,
@@ -26,8 +27,9 @@ import type {
   WorkspaceReference
 } from "../../api";
 import { useAuth } from "../../app/AuthContext";
+import { DocumentWorkflowRoute } from "../../components/app";
 import { FullscreenDocumentPreview } from "../../components/app/FullscreenDocumentPreview";
-import { Button, DataTable, Icon, PanelCard, StatusBadge } from "../../components/ui";
+import { ActivityTimeline, Button, Icon, PanelCard, StatusBadge } from "../../components/ui";
 import type { IconName } from "../../components/ui";
 import { cx } from "../../lib/classNames";
 import { downloadBlob, openBlobInNewWindow } from "../../lib/downloads";
@@ -95,6 +97,74 @@ function fileSizeLabel(value: unknown) {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
   return `${Math.max(1, Math.round(size / 1024))} KB`;
+}
+
+function attachmentTitle(attachment: DocumentAttachment) {
+  return attachment.title || attachment.originalFilename || "Attachment";
+}
+
+function attachmentTypeLabel(attachment: DocumentAttachment) {
+  const mimeType = attachment.mimeType || "";
+  if (!mimeType) {
+    return "File";
+  }
+  if (mimeType === "application/pdf") {
+    return "PDF";
+  }
+  if (mimeType.startsWith("image/")) {
+    return "Image";
+  }
+  if (mimeType.includes("wordprocessingml") || mimeType === "application/msword") {
+    return "Word";
+  }
+  if (mimeType.includes("spreadsheetml") || mimeType.includes("excel")) {
+    return "Spreadsheet";
+  }
+  if (mimeType.includes("presentationml") || mimeType.includes("powerpoint")) {
+    return "Presentation";
+  }
+  if (mimeType.startsWith("text/")) {
+    return mimeType.replace("text/", "").toUpperCase();
+  }
+  return mimeType;
+}
+
+function attachmentMyAccessText(attachment: DocumentAttachment) {
+  const access = attachment.myAccess;
+  if (access?.downloadedAt) {
+    return `Downloaded ${formatDateTime(access.downloadedAt)}`;
+  }
+  if (access?.viewedAt) {
+    return `Viewed ${formatDateTime(access.viewedAt)}`;
+  }
+  return "";
+}
+
+function AttachmentActionLink({
+  children,
+  href,
+  icon,
+  onClick,
+  target
+}: {
+  children: ReactNode;
+  href: string;
+  icon: IconName;
+  onClick?: () => void;
+  target?: string;
+}) {
+  return (
+    <a
+      className="inline-flex min-h-10 max-w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold leading-5 text-[#061d49] shadow-sm shadow-slate-900/5 transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#061d49]/15"
+      href={href}
+      onClick={onClick}
+      rel={target ? "noreferrer" : undefined}
+      target={target}
+    >
+      <Icon className="h-4 w-4" name={icon} />
+      {children}
+    </a>
+  );
 }
 
 function EmptyPreview({ action, children, icon = "view" }: { action?: ReactNode; children: ReactNode; icon?: IconName }) {
@@ -441,18 +511,28 @@ function SendRequestsBuilder({
             <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(18rem,0.9fr)_minmax(0,1.35fr)]">
               <section className="space-y-4">
                 <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <label className="block text-sm font-bold text-slate-700">
-                    Default primary request
-                    <select
-                      className="mt-2 min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-[#061d49] focus:ring-4 focus:ring-[#061d49]/10"
-                      onChange={(event) => setSelectedAction(event.target.value as DocumentRequestAction)}
-                      value={selectedAction}
-                    >
-                      {actions.map((action) => (
-                        <option disabled={Boolean(action.disabledReason)} key={action.action} value={action.action}>{action.label}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">Default primary request</p>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {actions.map((action) => {
+                        const active = selectedAction === action.action;
+                        return (
+                          <button
+                            className={cx(
+                              "min-h-10 rounded-lg border px-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50",
+                              active ? "border-[#061d49] bg-[#061d49] text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-[#061d49]/30"
+                            )}
+                            disabled={Boolean(action.disabledReason)}
+                            key={action.action}
+                            onClick={() => setSelectedAction(action.action)}
+                            type="button"
+                          >
+                            {action.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
                     <label className="block text-sm font-bold text-slate-700">
                       Shared due date
@@ -500,6 +580,24 @@ function SendRequestsBuilder({
                   </div>
                   {targetLimitReached ? <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">Limit reached</span> : null}
                 </div>
+
+                {recipients.length ? (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="text-xs font-black text-slate-500">Route preview</p>
+                    <div className="mt-3 flex min-w-0 items-center gap-2 overflow-x-auto pb-1">
+                      {recipients.slice(0, 6).map((recipient, index) => (
+                        <div className="flex min-w-32 shrink-0 items-center gap-2" key={recipient.localId}>
+                          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 border-blue-600 bg-white text-[10px] font-black text-blue-700">{index + 1}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-bold text-slate-800">{targetLabel(recipient.target)}</span>
+                            <span className="block truncate text-[10px] text-slate-500">{requestActionLabel(recipient.required_action)}</span>
+                          </span>
+                        </div>
+                      ))}
+                      {recipients.length > 6 ? <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-500">+{recipients.length - 6}</span> : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 {recipients.length ? (
                   <div className="space-y-3">
@@ -663,6 +761,146 @@ function OfficialDocumentPreview({
           The official document preview will appear here.
         </EmptyPreview>
       )}
+    </PanelCard>
+  );
+}
+
+function AttachedFilesPanel({
+  attachments,
+  canUpload,
+  documentId,
+  framed = true,
+  onFileChange,
+  onToggleReceipt,
+  onUpload,
+  openReceiptIds,
+  uploadFile
+}: {
+  attachments: DocumentAttachment[];
+  canUpload: boolean;
+  documentId: EntityId;
+  framed?: boolean;
+  onFileChange: (file: File | null) => void;
+  onToggleReceipt: (attachmentId: EntityId) => void;
+  onUpload: () => void;
+  openReceiptIds: Set<string>;
+  uploadFile: File | null;
+}) {
+  const content = (
+    <div className="space-y-3">
+      {canUpload ? (
+        <div className="grid gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <label className="flex min-h-16 cursor-pointer items-center gap-3 rounded-lg bg-white px-3 py-3 text-sm font-semibold text-[#061d49] ring-1 ring-slate-200 transition hover:bg-slate-50">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100">
+              <Icon className="h-5 w-5" name="upload" />
+            </span>
+            <span className="min-w-0 truncate">{uploadFile ? uploadFile.name : "Choose supporting file"}</span>
+            <input className="sr-only" onChange={(event) => onFileChange(event.target.files?.[0] || null)} type="file" />
+          </label>
+          <Button className="min-h-12" disabled={!uploadFile} onClick={onUpload} variant="primary">Upload attachment</Button>
+        </div>
+      ) : null}
+
+      {attachments.length ? (
+        <div className="grid gap-2">
+          {attachments.map((attachment) => {
+            const attachmentId = Number(attachment.id);
+            const receiptOpen = openReceiptIds.has(String(attachmentId));
+            const receiptSummary = attachment.receiptSummary || null;
+            const myAccess = attachmentMyAccessText(attachment);
+            const latestActionLabel = receiptSummary?.latestAction === "download" ? "downloaded" : "viewed";
+            const latestReceiptText = receiptSummary?.latestAccessedAt
+              ? `${receiptSummary.latestActorName || "A viewer"} ${latestActionLabel} ${formatDateTime(receiptSummary.latestAccessedAt)}`
+              : "";
+            return (
+              <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm" key={String(attachment.id)}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-[#061d49]">
+                        <Icon className="h-4 w-4" name={attachment.mimeType?.startsWith("image/") ? "image" : "document"} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-900">{attachmentTitle(attachment)}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {attachmentTypeLabel(attachment)} - {fileSizeLabel(attachment.byteSize)}
+                        </p>
+                      </div>
+                    </div>
+                    {attachment.description ? <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{attachment.description}</p> : null}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
+                      {attachment.created_at ? <span>Uploaded {formatDateTime(attachment.created_at)}</span> : null}
+                      {myAccess ? <span>{myAccess}</span> : null}
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {attachment.isPreviewable ? (
+                      <AttachmentActionLink
+                        href={documentApi.attachmentFileUrl(documentId, attachmentId)}
+                        icon="view"
+                        target="_blank"
+                      >
+                        View
+                      </AttachmentActionLink>
+                    ) : null}
+                    <AttachmentActionLink
+                      href={documentApi.attachmentFileUrl(documentId, attachmentId, { download: true })}
+                      icon="export"
+                    >
+                      Download
+                    </AttachmentActionLink>
+                  </div>
+                </div>
+
+                {receiptSummary ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-slate-600">
+                        {receiptSummary.viewCount} view{receiptSummary.viewCount === 1 ? "" : "s"} - {receiptSummary.downloadCount} download{receiptSummary.downloadCount === 1 ? "" : "s"}
+                        {latestReceiptText ? ` - ${latestReceiptText}` : ""}
+                      </p>
+                      {receiptSummary.recent.length ? (
+                        <Button icon={receiptOpen ? "chevronDown" : "activity"} onClick={() => onToggleReceipt(attachmentId)} variant="ghost">
+                          {receiptOpen ? "Hide receipts" : "Receipts"}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {receiptOpen ? (
+                      <div className="mt-3 grid gap-2">
+                        {receiptSummary.recent.map((receipt) => (
+                          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200" key={receipt.id}>
+                            <span className="font-bold text-slate-800">
+                              {receipt.actorName || "Unknown user"} - {receipt.action === "view" ? "Viewed" : "Downloaded"}
+                            </span>
+                            <span>{formatDateTime(receipt.createdAt)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">No attachments.</p>
+      )}
+    </div>
+  );
+
+  if (!framed) {
+    return content;
+  }
+
+  return (
+    <PanelCard
+      actions={<StatusBadge tone={attachments.length ? "blue" : "slate"}>{`${attachments.length} file${attachments.length === 1 ? "" : "s"}`}</StatusBadge>}
+      bodyClassName="space-y-3"
+      title="Attached files"
+    >
+      {content}
     </PanelCard>
   );
 }
@@ -1482,11 +1720,12 @@ function DocumentActionPanel({
               );
               return (
                 <div className={cx("rounded-lg border p-3", mine ? "border-[#061d49]/20 bg-[#061d49]/5" : "border-slate-200 bg-white")} key={task.id}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-950">{taskTargetLabel(task)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{task.description || task.title}</p>
-                    </div>
+	                  <div className="flex items-start justify-between gap-2">
+	                    <div className="min-w-0">
+	                      <p className="truncate text-sm font-bold text-slate-950">{taskTargetLabel(task)}</p>
+	                      <p className="mt-1 text-xs text-slate-500">{task.description || task.title}</p>
+	                      {task.due_at ? <p className="mt-2 text-xs font-semibold text-slate-500">Due {formatDateTime(task.due_at)}</p> : null}
+	                    </div>
                     <StatusBadge tone={requestActionTone(taskAction(task))}>{requestActionLabel(taskAction(task))}</StatusBadge>
                   </div>
                   {showTaskActions ? (
@@ -1545,6 +1784,7 @@ export function DocumentDetailPage() {
   const [activeSupportTab, setActiveSupportTab] = useState<SupportTab>("dispatch");
   const [commentBody, setCommentBody] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [openReceiptAttachmentIds, setOpenReceiptAttachmentIds] = useState<Set<string>>(new Set());
   const [previewHtml, setPreviewHtml] = useState("");
   const [pdfActionBusy, setPdfActionBusy] = useState<"download" | "open" | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1585,6 +1825,7 @@ export function DocumentDetailPage() {
   const canFinalize = Boolean(!finalTerminalStatus && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_finalize"))));
   const canArchive = Boolean(!closedOrArchived && (auth.isAdmin || isCreator || myOpenTasks.some((task) => taskCan(task, "can_archive"))));
   const canSelfSign = Boolean(!activePositionAlreadySigned && !assignedSignTasks.length && !finalTerminalStatus && active && (auth.isAdmin || booleanValue(active.isSigningAuthority)));
+  const canUploadAttachments = Boolean(detail?.canUploadAttachments);
   const officialSerial = textField(documentRecord, "official_serial", "") || textField(documentRecord, "officialSerial", "");
   const latestVersion = detail?.versions[0] || null;
   const expectedDocumentHash = typeof documentRecord?.current_content_hash === "string" ? documentRecord.current_content_hash : undefined;
@@ -1748,6 +1989,19 @@ export function DocumentDetailPage() {
     await load();
   }
 
+  function toggleAttachmentReceipts(attachmentId: EntityId) {
+    setOpenReceiptAttachmentIds((current) => {
+      const next = new Set(current);
+      const key = String(attachmentId);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
   async function finishSigning() {
     setSigningTarget(null);
     setNotice("Document signed.");
@@ -1767,7 +2021,10 @@ export function DocumentDetailPage() {
     setLifecycleBusy(true);
     setError(null);
     try {
-      await documentApi.completeTask(documentId, task.id, responseNote || null);
+      await documentApi.completeTask(documentId, task.id, {
+        completion_note: responseNote || null,
+        outcome: taskCan(task, "can_review") ? "approved" : "completed"
+      });
       setNotice(taskCan(task, "can_review") ? "Review approved." : "Request completed.");
       setCompletionTask(null);
       setCompletionNote("");
@@ -1852,22 +2109,17 @@ export function DocumentDetailPage() {
 
   function renderAttachmentsPanel() {
     return (
-      <div className="space-y-3">
-        <label className="flex min-h-20 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-center text-sm font-semibold text-[#061d49] transition hover:bg-white">
-          <Icon className="mb-2 h-5 w-5" name="upload" />
-          {uploadFile ? uploadFile.name : "Choose file"}
-          <input className="sr-only" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} type="file" />
-        </label>
-        <Button disabled={!uploadFile} onClick={() => void uploadAttachment()}>Upload attachment</Button>
-        <div className="space-y-2">
-          {detail?.attachments.length ? detail.attachments.map((attachment) => (
-            <div className="rounded-lg border border-slate-200 p-3 text-sm" key={String(attachment.id)}>
-              <p className="font-bold text-slate-900">{textField(attachment, "title", textField(attachment, "originalFilename", "Attachment"))}</p>
-              <p className="mt-1 text-xs text-slate-500">{textField(attachment, "mimeType")} - {fileSizeLabel(attachment.byteSize)}</p>
-            </div>
-          )) : <p className="text-sm text-slate-500">No attachments.</p>}
-        </div>
-      </div>
+      <AttachedFilesPanel
+        attachments={detail?.attachments || []}
+        canUpload={canUploadAttachments}
+        documentId={documentId}
+        framed={false}
+        onFileChange={setUploadFile}
+        onToggleReceipt={toggleAttachmentReceipts}
+        onUpload={() => void uploadAttachment()}
+        openReceiptIds={openReceiptAttachmentIds}
+        uploadFile={uploadFile}
+      />
     );
   }
 
@@ -1889,17 +2141,25 @@ export function DocumentDetailPage() {
   }
 
   function renderHistoryPanel() {
+    const events = detail?.workflowEvents || [];
+    if (!events.length) {
+      return <p className="text-sm text-slate-500">No workflow events.</p>;
+    }
+
     return (
-      <DataTable
-        columns={[
-          { key: "action", header: "Action", cell: (row) => textField(row as JsonRecord, "action") },
-          { key: "status", header: "Status", cell: (row) => `${textField(row as JsonRecord, "from_status", "-")} -> ${textField(row as JsonRecord, "to_status", "-")}` },
-          { key: "note", header: "Note", hideOnMobile: true, cell: (row) => textField(row as JsonRecord, "note") },
-          { key: "created", header: "Created", hideOnMobile: true, cell: (row) => formatDateTime(textField(row as JsonRecord, "created_at", "")) }
-        ]}
-        emptyLabel="No workflow events."
-        getRowKey={(row) => numberField(row as JsonRecord, "id")}
-        rows={detail?.workflowEvents || []}
+      <ActivityTimeline
+        items={events.map((row) => {
+          const event = row as unknown as JsonRecord;
+          const note = textField(event, "note", "");
+          return {
+            meta: [
+              `${textField(event, "from_status", "-")} -> ${textField(event, "to_status", "-")}`,
+              note
+            ].filter(Boolean).join(" - "),
+            time: formatDateTime(textField(event, "created_at", "")),
+            title: statusLabel(textField(event, "action", "workflow event"))
+          };
+        })}
       />
     );
   }
@@ -1961,6 +2221,19 @@ export function DocumentDetailPage() {
           </div>
         </div>
       </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-black text-slate-950">Workflow route</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {detail.workflowSummary?.openTaskCount || 0} open request{detail.workflowSummary?.openTaskCount === 1 ? "" : "s"} - {detail.workflowSummary?.completedTaskCount || 0} completed
+            </p>
+          </div>
+          {detail.workflowSummary?.activeAction ? <StatusBadge>{detail.workflowSummary.activeAction}</StatusBadge> : null}
+        </div>
+        <DocumentWorkflowRoute className="mt-4" maxSteps={7} summary={detail.workflowSummary} />
+      </section>
 
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
       {notice ? <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{notice}</div> : null}
@@ -2064,7 +2337,7 @@ export function DocumentDetailPage() {
       ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
-        <main className="min-w-0">
+        <main className="min-w-0 space-y-4">
           <OfficialDocumentPreview
             html={previewHtml}
             onDownloadPdf={() => void downloadOfficialPdf()}
@@ -2075,6 +2348,16 @@ export function DocumentDetailPage() {
             previewError={previewError}
             previewLoading={previewLoading}
             previewUpdatedAt={previewUpdatedAt}
+          />
+          <AttachedFilesPanel
+            attachments={detail.attachments}
+            canUpload={canUploadAttachments}
+            documentId={documentId}
+            onFileChange={setUploadFile}
+            onToggleReceipt={toggleAttachmentReceipts}
+            onUpload={() => void uploadAttachment()}
+            openReceiptIds={openReceiptAttachmentIds}
+            uploadFile={uploadFile}
           />
         </main>
 
