@@ -365,7 +365,10 @@ create table `global_search_index` (
   unique `global_search_entity_uq` (`entity_type`, `entity_id`),
   index `global_search_type_status_idx` (`entity_type`, `status`),
   index `global_search_route_path_idx` (`route_path`),
-  fulltext index `global_search_fulltext_idx` (`title`, `subtitle`, `body`, `keywords`)
+  fulltext index `global_search_title_fulltext_idx` (`title`),
+  fulltext index `global_search_subtitle_fulltext_idx` (`subtitle`),
+  fulltext index `global_search_body_fulltext_idx` (`body`),
+  fulltext index `global_search_keywords_fulltext_idx` (`keywords`)
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
 -- Document write rules.

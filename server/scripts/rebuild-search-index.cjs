@@ -2,6 +2,10 @@ const mysql = require("mysql2/promise");
 const path = require("node:path");
 require("dotenv").config({ path: path.resolve(process.cwd(), ".env") });
 
+function sslConfig() {
+  return process.env.DB_SSL === "true" ? { minVersion: "TLSv1.2" } : undefined;
+}
+
 function connectionConfig() {
   return {
     host: process.env.DB_HOST || "127.0.0.1",
@@ -9,6 +13,7 @@ function connectionConfig() {
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "",
     database: process.env.DB_NAME || "docchain_express",
+    ssl: sslConfig(),
     charset: "utf8mb4",
     timezone: "Z"
   };

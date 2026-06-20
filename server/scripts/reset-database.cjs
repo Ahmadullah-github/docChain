@@ -3,12 +3,17 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 require("dotenv").config({ path: path.resolve(process.cwd(), ".env") });
 
+function sslConfig() {
+  return process.env.DB_SSL === "true" ? { minVersion: "TLSv1.2" } : undefined;
+}
+
 function baseConnectionConfig() {
   return {
     host: process.env.DB_HOST || "127.0.0.1",
     port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER || "root",
     password: process.env.DB_PASSWORD || "",
+    ssl: sslConfig(),
     multipleStatements: false
   };
 }

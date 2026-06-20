@@ -36,6 +36,7 @@ const MySQLStore = createMySQLSession(session);
 
 export function createApp() {
   const app = express();
+  const dbSsl = env.DB_SSL ? { minVersion: "TLSv1.2" as const } : undefined;
 
   if (isProduction) {
     app.set("trust proxy", 1);
@@ -47,6 +48,7 @@ export function createApp() {
     user: env.DB_USER,
     password: env.DB_PASSWORD,
     database: env.DB_NAME,
+    ssl: dbSsl,
     createDatabaseTable: false,
     charset: "utf8mb4_bin",
     schema: {

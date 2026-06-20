@@ -12,6 +12,7 @@ const envSchema = z.object({
   DB_USER: z.string().default("root"),
   DB_PASSWORD: z.string().default(""),
   DB_NAME: z.string().default("docchain_express"),
+  DB_SSL: z.coerce.boolean().default(false),
   SESSION_SECRET: z.string().min(16).default("docchain-local-development-secret"),
   SESSION_COOKIE_NAME: z.string().default("docchain.sid"),
   SIGNATURE_STORAGE_DIR: z.string().default("storage/signatures"),
