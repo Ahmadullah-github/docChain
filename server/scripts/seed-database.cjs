@@ -4,6 +4,8 @@ const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 require("dotenv").config({ path: path.resolve(process.cwd(), ".env") });
 
+const universityName = process.env.SEED_UNIVERSITY_NAME || "پوهنتون بلخ";
+
 function connectionConfig() {
   return {
     host: process.env.DB_HOST || "127.0.0.1",
@@ -35,70 +37,124 @@ async function findOrCreate(connection, selectSql, selectParams, insertSql, inse
   return insert(connection, insertSql, insertParams);
 }
 
-async function seedAdminFoundation(connection) {
+async function ensureRole(connection, role) {
+  const roleId = await findOrCreate(
+    connection,
+    "SELECT id FROM roles WHERE name = ? LIMIT 1",
+    [role.name],
+    "INSERT INTO roles (uuid, name, display_name, description, is_system) VALUES (?, ?, ?, ?, ?)",
+    [randomUUID(), role.name, role.displayName, role.description, true]
+  );
+
+  await connection.execute(
+    `UPDATE roles
+     SET display_name = ?,
+         description = ?,
+         is_system = TRUE,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [role.displayName, role.description, roleId]
+  );
+
+  return roleId;
+}
+
+async function ensureAdminFoundation(connection) {
   const adminEmail = process.env.SEED_ADMIN_EMAIL || "admin@docchain.local";
   const adminUsername = process.env.SEED_ADMIN_USERNAME || "admin";
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || "Admin@12345";
 
-  const systemAdminRoleId = await findOrCreate(
-    connection,
-    "SELECT id FROM roles WHERE name = ? LIMIT 1",
-    ["system_admin"],
-    "INSERT INTO roles (uuid, name, display_name, description, is_system) VALUES (?, ?, ?, ?, ?)",
-    [randomUUID(), "system_admin", "System Administrator", "Unrestricted platform administrator.", true]
-  );
+  const systemAdminRoleId = await ensureRole(connection, {
+    name: "system_admin",
+    displayName: "System Administrator",
+    description: "Full access to configure and operate DocChain."
+  });
+
+  await ensureRole(connection, {
+    name: "admin_staff",
+    displayName: "Admin Staff",
+    description: "Administrative access for day-to-day configuration."
+  });
 
   const organizationId = await findOrCreate(
     connection,
     "SELECT id FROM organizations WHERE code = ? LIMIT 1",
     ["DOCCHAIN_UNIVERSITY"],
     "INSERT INTO organizations (uuid, code, name, name_local, description, status) VALUES (?, ?, ?, ?, ?, ?)",
-    [randomUUID(), "DOCCHAIN_UNIVERSITY", "Balkh University", "پوهنتون بلخ", "Default organization for Balkh University.", "active"]
+    [randomUUID(), "DOCCHAIN_UNIVERSITY", universityName, universityName, null, "active"]
   );
   await connection.execute(
     `UPDATE organizations
      SET name = ?,
          name_local = ?,
-         description = ?,
+         description = NULL,
          status = 'active',
          deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    ["Balkh University", "پوهنتون بلخ", "Default organization for Balkh University.", organizationId]
+    [universityName, universityName, organizationId]
   );
 
   const unitTypeId = await findOrCreate(
     connection,
     "SELECT id FROM unit_types WHERE code = ? LIMIT 1",
     ["university"],
-    "INSERT INTO unit_types (uuid, code, name, hierarchy_level, allows_children, status) VALUES (?, ?, ?, ?, ?, ?)",
-    [randomUUID(), "university", "University", 1, true, "active"]
+    "INSERT INTO unit_types (uuid, code, name, hierarchy_level, allows_children, status, description) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), "university", "University", 1, true, "active", "Root university unit."]
+  );
+  await connection.execute(
+    `UPDATE unit_types
+     SET name = ?,
+         hierarchy_level = ?,
+         allows_children = TRUE,
+         status = 'active',
+         description = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    ["University", 1, "Root university unit.", unitTypeId]
   );
 
   const rootUnitId = await findOrCreate(
     connection,
     "SELECT id FROM units WHERE organization_id = ? AND code = ? LIMIT 1",
     [organizationId, "UNIVERSITY"],
-    "INSERT INTO units (uuid, organization_id, unit_type_id, parent_unit_id, code, name, name_local, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [randomUUID(), organizationId, unitTypeId, null, "UNIVERSITY", "Balkh University", "پوهنتون بلخ", "active"]
+    "INSERT INTO units (uuid, organization_id, unit_type_id, parent_unit_id, code, name, name_local, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), organizationId, unitTypeId, null, "UNIVERSITY", universityName, universityName, null, "active"]
   );
   await connection.execute(
     `UPDATE units
-     SET name = ?,
+     SET unit_type_id = ?,
+         parent_unit_id = NULL,
+         name = ?,
          name_local = ?,
+         description = NULL,
          status = 'active',
          deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    ["Balkh University", "پوهنتون بلخ", rootUnitId]
+    [unitTypeId, universityName, universityName, rootUnitId]
   );
 
   const systemAdminPositionId = await findOrCreate(
     connection,
     "SELECT id FROM positions WHERE unit_id = ? AND code = ? LIMIT 1",
     [rootUnitId, "system_admin"],
-    "INSERT INTO positions (uuid, unit_id, code, title, authority_level, is_signing_authority, allows_multiple_active_assignments, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [randomUUID(), rootUnitId, "system_admin", "System Administrator", 100, false, false, "active"]
+    "INSERT INTO positions (uuid, unit_id, code, title, title_local, authority_level, is_signing_authority, allows_multiple_active_assignments, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), rootUnitId, "system_admin", "System Administrator", null, 100, false, false, "Initial administrator position.", "active"]
+  );
+  await connection.execute(
+    `UPDATE positions
+     SET title = ?,
+         title_local = NULL,
+         authority_level = ?,
+         is_signing_authority = FALSE,
+         allows_multiple_active_assignments = FALSE,
+         description = ?,
+         status = 'active',
+         deleted_at = NULL,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    ["System Administrator", 100, "Initial administrator position.", systemAdminPositionId]
   );
 
   const adminPersonId = await findOrCreate(
@@ -108,7 +164,6 @@ async function seedAdminFoundation(connection) {
     "INSERT INTO persons (uuid, employee_code, first_name, last_name, display_name, email, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
     [randomUUID(), "ADMIN-001", "System", "Administrator", "System Administrator", adminEmail, "active"]
   );
-
   await connection.execute(
     `UPDATE persons
      SET employee_code = ?,
@@ -116,10 +171,11 @@ async function seedAdminFoundation(connection) {
          last_name = ?,
          display_name = ?,
          email = ?,
-         status = ?,
+         status = 'active',
+         deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    ["ADMIN-001", "System", "Administrator", "System Administrator", adminEmail, "active", adminPersonId]
+    ["ADMIN-001", "System", "Administrator", "System Administrator", adminEmail, adminPersonId]
   );
 
   const passwordHash = await argon2.hash(adminPassword, { type: argon2.argon2id });
@@ -163,13 +219,14 @@ async function seedAdminFoundation(connection) {
     "INSERT INTO assignments (uuid, person_id, position_id, status, is_primary, starts_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
     [randomUUID(), adminPersonId, systemAdminPositionId, "active", true, adminUserId]
   );
-
   await connection.execute(
     `UPDATE assignments
      SET status = 'active',
          is_primary = TRUE,
          starts_at = COALESCE(starts_at, CURRENT_TIMESTAMP),
+         ends_at = NULL,
          created_by_user_id = ?,
+         deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     [adminUserId, adminAssignmentId]
@@ -180,131 +237,130 @@ async function seedAdminFoundation(connection) {
     "SELECT id FROM assignment_status_history WHERE assignment_id = ? AND to_status = ? LIMIT 1",
     [adminAssignmentId, "active"],
     "INSERT INTO assignment_status_history (assignment_id, from_status, to_status, reason, changed_by_user_id) VALUES (?, ?, ?, ?, ?)",
-    [adminAssignmentId, null, "active", "Initial system administrator seed.", adminUserId]
+    [adminAssignmentId, null, "active", "Initial administrator assignment.", adminUserId]
   );
+
+  return { adminEmail, adminUsername, adminUserId, rootUnitId };
 }
 
-async function seedDocumentReferenceData(connection) {
+async function ensureDefaultReferenceData(connection, adminUserId) {
+  await findOrCreate(
+    connection,
+    "SELECT id FROM document_types WHERE code = ? LIMIT 1",
+    ["official_letter"],
+    "INSERT INTO document_types (uuid, code, name, description, requires_serial, status) VALUES (?, ?, ?, ?, ?, ?)",
+    [randomUUID(), "official_letter", "Official Letter", "Default document type for university correspondence.", true, "active"]
+  );
   await connection.execute(
-    `UPDATE confidentiality_levels
-     SET code = 'secret',
-         name = 'Secret',
-         \`rank\` = 20,
-         requires_access_log = TRUE,
-         description = 'Restricted correspondence that should be access logged.',
+    `UPDATE document_types
+     SET name = ?,
+         description = ?,
+         requires_serial = TRUE,
          status = 'active',
          updated_at = CURRENT_TIMESTAMP
-     WHERE code = 'confidential'
-       AND NOT EXISTS (
-         SELECT 1 FROM (SELECT id FROM confidentiality_levels WHERE code = 'secret' LIMIT 1) AS existing_secret
-       )`
+     WHERE code = ?`,
+    ["Official Letter", "Default document type for university correspondence.", "official_letter"]
   );
 
   await connection.execute(
-    "UPDATE confidentiality_levels SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code <> ?",
+    "UPDATE confidentiality_levels SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code <> ? AND is_default = TRUE",
     ["normal"]
   );
-
-  const confidentialityLevels = [
-    ["normal", "Normal", 10, true, false, "Default internal correspondence level."],
-    ["secret", "Secret", 20, false, true, "Restricted correspondence that should be access logged."],
-    ["highly_secret", "Highly Secret", 30, false, true, "Highly restricted correspondence for sensitive university matters."]
-  ];
-
-  for (const [code, name, rank, isDefault, requiresAccessLog, description] of confidentialityLevels) {
-    const id = await findOrCreate(
-      connection,
-      "SELECT id FROM confidentiality_levels WHERE code = ? LIMIT 1",
-      [code],
-      "INSERT INTO confidentiality_levels (uuid, code, name, `rank`, is_default, requires_access_log, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [randomUUID(), code, name, rank, isDefault, requiresAccessLog, description, "active"]
-    );
-
-    await connection.execute(
-      `UPDATE confidentiality_levels
-       SET name = ?,
-           \`rank\` = ?,
-           is_default = ?,
-           requires_access_log = ?,
-           description = ?,
-           status = 'active',
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [name, rank, isDefault, requiresAccessLog, description, id]
-    );
-  }
-
-  await connection.execute(
-    "UPDATE confidentiality_levels SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE code IN (?, ?)",
-    ["public", "confidential"]
+  await findOrCreate(
+    connection,
+    "SELECT id FROM confidentiality_levels WHERE code = ? LIMIT 1",
+    ["normal"],
+    "INSERT INTO confidentiality_levels (uuid, code, name, `rank`, is_default, requires_access_log, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), "normal", "Normal", 10, true, false, "Default correspondence visibility.", "active"]
   );
-
   await connection.execute(
-    `UPDATE priority_levels
-     SET code = 'medium',
-         name = 'Medium',
-         \`rank\` = 20,
-         description = 'Default priority for routine correspondence.',
+    `UPDATE confidentiality_levels
+     SET name = ?,
+         \`rank\` = ?,
+         is_default = TRUE,
+         requires_access_log = FALSE,
+         description = ?,
          status = 'active',
          updated_at = CURRENT_TIMESTAMP
-     WHERE code = 'normal'
-       AND NOT EXISTS (
-         SELECT 1 FROM (SELECT id FROM priority_levels WHERE code = 'medium' LIMIT 1) AS existing_medium
-       )`
+     WHERE code = ?`,
+    ["Normal", 10, "Default correspondence visibility.", "normal"]
   );
 
   await connection.execute(
-    `UPDATE priority_levels
-     SET code = 'high',
-         name = 'High',
-         \`rank\` = 30,
-         description = 'Needs quick action.',
-         status = 'active',
-         updated_at = CURRENT_TIMESTAMP
-     WHERE code = 'urgent'
-       AND NOT EXISTS (
-         SELECT 1 FROM (SELECT id FROM priority_levels WHERE code = 'high' LIMIT 1) AS existing_high
-       )`
-  );
-
-  await connection.execute(
-    "UPDATE priority_levels SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code <> ?",
+    "UPDATE priority_levels SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code <> ? AND is_default = TRUE",
     ["medium"]
   );
-
-  const priorityLevels = [
-    ["low", "Low", 10, false, 14, "#64748b", "Can be handled after medium priority work."],
-    ["medium", "Medium", 20, true, 7, "#2563eb", "Default priority for routine correspondence."],
-    ["high", "High", 30, false, 2, "#dc2626", "Needs quick action."]
-  ];
-
-  for (const [code, name, rank, isDefault, defaultDueDays, color, description] of priorityLevels) {
-    const id = await findOrCreate(
-      connection,
-      "SELECT id FROM priority_levels WHERE code = ? LIMIT 1",
-      [code],
-      "INSERT INTO priority_levels (uuid, code, name, `rank`, is_default, default_due_days, color, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [randomUUID(), code, name, rank, isDefault, defaultDueDays, color, description, "active"]
-    );
-
-    await connection.execute(
-      `UPDATE priority_levels
-       SET name = ?,
-           \`rank\` = ?,
-           is_default = ?,
-           default_due_days = ?,
-           color = ?,
-           description = ?,
-           status = 'active',
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [name, rank, isDefault, defaultDueDays, color, description, id]
-    );
-  }
+  await findOrCreate(
+    connection,
+    "SELECT id FROM priority_levels WHERE code = ? LIMIT 1",
+    ["medium"],
+    "INSERT INTO priority_levels (uuid, code, name, `rank`, is_default, default_due_days, color, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [randomUUID(), "medium", "Medium", 20, true, 7, "#2563eb", "Default priority for routine correspondence.", "active"]
+  );
+  await connection.execute(
+    `UPDATE priority_levels
+     SET name = ?,
+         \`rank\` = ?,
+         is_default = TRUE,
+         default_due_days = ?,
+         color = ?,
+         description = ?,
+         status = 'active',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE code = ?`,
+    ["Medium", 20, 7, "#2563eb", "Default priority for routine correspondence.", "medium"]
+  );
 
   await connection.execute(
-    "UPDATE priority_levels SET status = 'inactive', is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code IN (?, ?)",
-    ["normal", "urgent"]
+    "UPDATE serial_rules SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP WHERE code <> ? AND is_default = TRUE",
+    ["default_yearly"]
+  );
+  await findOrCreate(
+    connection,
+    "SELECT id FROM serial_rules WHERE code = ? LIMIT 1",
+    ["default_yearly"],
+    `INSERT INTO serial_rules (
+      uuid, code, name, format, scope, reset_policy, sequence_padding,
+      is_default, status, activated_by_user_id, activated_at, notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)`,
+    [
+      randomUUID(),
+      "default_yearly",
+      "Default yearly serial",
+      "DOC-{YEAR}-{SEQUENCE}",
+      "global",
+      "yearly",
+      6,
+      true,
+      "active",
+      adminUserId,
+      "Minimal seed default serial rule."
+    ]
+  );
+  await connection.execute(
+    `UPDATE serial_rules
+     SET name = ?,
+         format = ?,
+         scope = ?,
+         reset_policy = ?,
+         sequence_padding = ?,
+         is_default = TRUE,
+         status = 'active',
+         activated_by_user_id = COALESCE(activated_by_user_id, ?),
+         activated_at = COALESCE(activated_at, CURRENT_TIMESTAMP),
+         notes = ?,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE code = ?`,
+    [
+      "Default yearly serial",
+      "DOC-{YEAR}-{SEQUENCE}",
+      "global",
+      "yearly",
+      6,
+      adminUserId,
+      "Minimal seed default serial rule.",
+      "default_yearly"
+    ]
   );
 }
 
@@ -312,9 +368,14 @@ async function main() {
   const connection = await mysql.createConnection(connectionConfig());
   try {
     await connection.beginTransaction();
-    await seedAdminFoundation(connection);
-    await seedDocumentReferenceData(connection);
+    const admin = await ensureAdminFoundation(connection);
+    await ensureDefaultReferenceData(connection, admin.adminUserId);
     await connection.commit();
+
+    console.log("Minimal DocChain seed complete.");
+    console.log(`University: ${universityName}`);
+    console.log(`Admin username: ${admin.adminUsername}`);
+    console.log(`Admin email: ${admin.adminEmail}`);
   } catch (error) {
     await connection.rollback();
     throw error;
