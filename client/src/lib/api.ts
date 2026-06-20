@@ -54,7 +54,11 @@ function requestPathname(path: string) {
 
 function isCsrfExemptPath(path: string) {
   const pathname = requestPathname(path);
-  return pathname === "/api/auth/login" || pathname.startsWith("/api/signature-upload/");
+  return [
+    "/api/auth/login",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password"
+  ].includes(pathname) || pathname.startsWith("/api/signature-upload/");
 }
 
 async function refreshCsrfTokenFromSession() {

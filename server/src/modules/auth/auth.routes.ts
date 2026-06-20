@@ -1,7 +1,10 @@
 import argon2 from "argon2";
+import { createHash, randomBytes } from "node:crypto";
 import { Router } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
+import { env, isProduction } from "../../config/env";
+import { logger } from "../../config/logger";
 import { pool } from "../../db/mysql";
 import { requireAuth } from "../../middleware/auth";
 import { ensureCsrfToken } from "../../middleware/csrf";
@@ -22,9 +25,20 @@ const changePasswordSchema = z.object({
   new_password: z.string().min(8).max(128)
 });
 
+const forgotPasswordSchema = z.object({
+  identifier: z.string().trim().min(1).max(191)
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().trim().min(32).max(256),
+  new_password: z.string().min(8).max(128)
+});
+
 const activeAssignmentSchema = z.object({
   assignmentId: z.coerce.number().int().positive()
 });
+
+const passwordResetTokenTtlMinutes = 30;
 
 function regenerateSession(request: Express.Request) {
   return new Promise<void>((resolve, reject) => {
@@ -48,6 +62,16 @@ function destroySession(request: Express.Request) {
       resolve();
     });
   });
+}
+
+function hashResetToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function buildResetUrl(token: string) {
+  const url = new URL("/login", env.APP_ORIGIN);
+  url.searchParams.set("resetToken", token);
+  return url.toString();
 }
 
 async function getUserPayload(userId: number, activeAssignmentId?: number) {
@@ -120,6 +144,118 @@ async function getUserPayload(userId: number, activeAssignmentId?: number) {
     activeAssignmentId: activeAssignmentId || null
   };
 }
+
+authRouter.post("/forgot-password", asyncHandler(async (request, response) => {
+  const input = forgotPasswordSchema.parse(request.body);
+  const [userRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT id, email, username, status
+     FROM users
+     WHERE (email = ? OR username = ?)
+       AND deleted_at IS NULL
+     LIMIT 1`,
+    [input.identifier, input.identifier]
+  );
+  const user = userRows[0];
+  let resetUrl: string | null = null;
+
+  if (user && user.status === "active") {
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = hashResetToken(token);
+    const expiresAt = new Date(Date.now() + passwordResetTokenTtlMinutes * 60 * 1000);
+
+    await pool.execute<ResultSetHeader>(
+      `UPDATE password_reset_tokens
+       SET consumed_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND consumed_at IS NULL`,
+      [user.id]
+    );
+    await pool.execute<ResultSetHeader>(
+      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+       VALUES (?, ?, ?)`,
+      [user.id, tokenHash, expiresAt]
+    );
+
+    resetUrl = buildResetUrl(token);
+    await writeAuditLog(request, {
+      action: "auth.password_reset.requested",
+      entityType: "user",
+      entityId: user.id
+    });
+
+    if (!isProduction) {
+      logger.info({ userId: user.id, resetUrl }, "Password reset link generated");
+    }
+  }
+
+  ok(response, {
+    requested: true,
+    resetUrl: !isProduction ? resetUrl : null,
+    expiresInMinutes: passwordResetTokenTtlMinutes
+  });
+}));
+
+authRouter.post("/reset-password", asyncHandler(async (request, response) => {
+  const input = resetPasswordSchema.parse(request.body);
+  const tokenHash = hashResetToken(input.token);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [rows] = await connection.execute<RowDataPacket[]>(
+      `SELECT
+        password_reset_tokens.id AS tokenId,
+        password_reset_tokens.user_id AS userId
+       FROM password_reset_tokens
+       INNER JOIN users ON password_reset_tokens.user_id = users.id
+       WHERE password_reset_tokens.token_hash = ?
+         AND password_reset_tokens.consumed_at IS NULL
+         AND password_reset_tokens.expires_at > CURRENT_TIMESTAMP
+         AND users.status = 'active'
+         AND users.deleted_at IS NULL
+       LIMIT 1
+       FOR UPDATE`,
+      [tokenHash]
+    );
+    const resetToken = rows[0];
+
+    if (!resetToken) {
+      throw new AppError(400, "invalid_reset_token", "This password reset link is invalid or has expired.");
+    }
+
+    const passwordHash = await argon2.hash(input.new_password, { type: argon2.argon2id });
+    await connection.execute<ResultSetHeader>(
+      `UPDATE users
+       SET password_hash = ?,
+           must_change_password = FALSE,
+           failed_login_attempts = 0,
+           locked_until = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND deleted_at IS NULL`,
+      [passwordHash, resetToken.userId]
+    );
+    await connection.execute<ResultSetHeader>(
+      `UPDATE password_reset_tokens
+       SET consumed_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND consumed_at IS NULL`,
+      [resetToken.userId]
+    );
+
+    await connection.commit();
+
+    await writeAuditLog(request, {
+      action: "auth.password_reset.completed",
+      entityType: "user",
+      entityId: resetToken.userId
+    });
+    ok(response, { reset: true });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
 
 authRouter.post("/login", asyncHandler(async (request, response) => {
   const input = loginSchema.parse(request.body);

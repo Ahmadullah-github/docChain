@@ -1,25 +1,5 @@
--- 003_secure_signature_verification up
--- Secure approval hashes, final render verification, and phone signature setup sessions.
-
-alter table `document_versions`
-  add column `content_hash` varchar(64) null after `version_number`;
-
-alter table `document_versions`
-  add index `document_versions_content_hash_index`(`content_hash`);
-
-alter table `signature_events`
-  add column `document_version_number` int unsigned null after `pin_verification_event_id`,
-  add column `document_hash` varchar(64) null after `document_version_number`;
-
-alter table `signature_events`
-  add index `signature_events_document_hash_index`(`document_hash`);
-
-alter table `document_renders`
-  add column `document_hash` varchar(64) null after `source_version_number`,
-  add column `verification_url` varchar(500) null after `document_hash`;
-
-alter table `document_renders`
-  add index `document_renders_document_hash_index`(`document_hash`);
+-- 003_signature_verification up
+-- Production baseline for phone-based signature setup sessions.
 
 create table `signature_upload_sessions` (
   `id` bigint unsigned not null auto_increment primary key,

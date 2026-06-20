@@ -103,15 +103,38 @@ function PublicShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function LoginShell({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
+
+  return (
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,#e8dcc8,transparent_35%),linear-gradient(135deg,#f6f1e8,#e8eef2)] text-slate-900">
+      <header className="border-b border-black/10 bg-white/75 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
+          <Link to="/" className="flex items-center gap-3 text-lg font-semibold tracking-tight">
+            <BrandLogo alt={t("app.name")} className="h-10 w-10 rounded-xl" />
+            <span>{t("app.name")}</span>
+          </Link>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+          </div>
+        </div>
+      </header>
+      <main className="w-full">
+        {children}
+      </main>
+    </div>
+  );
+}
+
 function AppRoutes() {
   return (
     <Routes>
       <Route
         path="/login"
         element={(
-          <PublicShell>
+          <LoginShell>
             <LoginPage />
-          </PublicShell>
+          </LoginShell>
         )}
       />
       <Route

@@ -1,5 +1,5 @@
 -- 001_core_system up
--- Core authentication, organization, assignment, master-data, and audit schema.
+-- Production baseline for authentication, organization, assignment, master-data, and audit schema.
 
 create table `persons` (`id` bigint unsigned not null auto_increment primary key, `uuid` char(36) not null, `employee_code` varchar(64), `first_name` varchar(120) not null, `last_name` varchar(120), `display_name` varchar(180) not null, `father_name` varchar(120), `email` varchar(191), `phone` varchar(40), `status` varchar(40) not null default 'active', `created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP, `deleted_at` timestamp null);
 alter table `persons` add unique `persons_uuid_unique`(`uuid`);
@@ -72,11 +72,12 @@ alter table `confidentiality_levels` add unique `confidentiality_levels_uuid_uni
 alter table `confidentiality_levels` add unique `confidentiality_levels_code_unique`(`code`);
 alter table `confidentiality_levels` add index `confidentiality_levels_rank_index`(`rank`);
 alter table `confidentiality_levels` add index `confidentiality_levels_status_index`(`status`);
-create table `priority_levels` (`id` bigint unsigned not null auto_increment primary key, `uuid` char(36) not null, `code` varchar(80) not null, `name` varchar(140) not null, `rank` int unsigned not null default '0', `default_due_days` int unsigned, `color` varchar(32), `description` text, `status` varchar(40) not null default 'active', `created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP);
+create table `priority_levels` (`id` bigint unsigned not null auto_increment primary key, `uuid` char(36) not null, `code` varchar(80) not null, `name` varchar(140) not null, `rank` int unsigned not null default '0', `is_default` boolean not null default '0', `default_due_days` int unsigned, `color` varchar(32), `description` text, `status` varchar(40) not null default 'active', `created_at` timestamp not null default CURRENT_TIMESTAMP, `updated_at` timestamp not null default CURRENT_TIMESTAMP);
 alter table `priority_levels` add unique `priority_levels_uuid_unique`(`uuid`);
 alter table `priority_levels` add unique `priority_levels_code_unique`(`code`);
 alter table `priority_levels` add index `priority_levels_rank_index`(`rank`);
 alter table `priority_levels` add index `priority_levels_status_index`(`status`);
+alter table `priority_levels` add index `priority_levels_status_default_index`(`status`, `is_default`);
 create table `audit_logs` (`id` bigint unsigned not null auto_increment primary key, `actor_user_id` bigint unsigned, `actor_assignment_id` bigint unsigned, `action` varchar(120) not null, `entity_type` varchar(120) not null, `entity_id` varchar(120), `ip_address` varchar(80), `user_agent` text, `metadata` json, `created_at` timestamp not null default CURRENT_TIMESTAMP);
 alter table `audit_logs` add constraint `audit_logs_actor_user_id_foreign` foreign key (`actor_user_id`) references `users` (`id`) on delete SET NULL;
 alter table `audit_logs` add constraint `audit_logs_actor_assignment_id_foreign` foreign key (`actor_assignment_id`) references `assignments` (`id`) on delete SET NULL;

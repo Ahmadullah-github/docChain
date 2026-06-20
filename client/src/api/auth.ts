@@ -1,6 +1,13 @@
 import { setCsrfToken } from "../lib/api";
 import { getJson, postJson } from "./http";
-import type { AuthSession, LoginInput } from "./types";
+import type {
+  AuthSession,
+  ForgotPasswordInput,
+  ForgotPasswordResponse,
+  LoginInput,
+  ResetPasswordInput,
+  ResetPasswordResponse
+} from "./types";
 
 export const authApi = {
   async login(input: LoginInput) {
@@ -19,6 +26,14 @@ export const authApi = {
     const session = await postJson<AuthSession>("/api/auth/change-password", input);
     setCsrfToken(session.csrfToken);
     return session;
+  },
+
+  async requestPasswordReset(input: ForgotPasswordInput) {
+    return postJson<ForgotPasswordResponse>("/api/auth/forgot-password", input);
+  },
+
+  async resetPassword(input: ResetPasswordInput) {
+    return postJson<ResetPasswordResponse>("/api/auth/reset-password", input);
   },
 
   async me() {

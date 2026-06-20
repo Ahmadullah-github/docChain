@@ -1,5 +1,5 @@
--- 007_walk_in_issuance up
--- Walk-in document issuance, print tracking, and physical handover records.
+-- 004_walk_in_issuance up
+-- Production baseline for walk-in document issuance, print tracking, and physical handover records.
 
 create table `external_persons` (
   `id` bigint unsigned not null auto_increment primary key,

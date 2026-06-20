@@ -45,6 +45,25 @@ export type LoginInput = {
   password: string;
 };
 
+export type ForgotPasswordInput = {
+  identifier: string;
+};
+
+export type ForgotPasswordResponse = {
+  requested: boolean;
+  resetUrl?: string | null;
+  expiresInMinutes: number;
+};
+
+export type ResetPasswordInput = {
+  token: string;
+  new_password: string;
+};
+
+export type ResetPasswordResponse = {
+  reset: boolean;
+};
+
 export type Assignment = AuthAssignment & {
   startsAt?: string | null;
   endsAt?: string | null;

@@ -1,4 +1,4 @@
--- 007_walk_in_issuance down
+-- 004_walk_in_issuance down
 
 drop table if exists `document_handover_records`;
 drop table if exists `document_print_events`;

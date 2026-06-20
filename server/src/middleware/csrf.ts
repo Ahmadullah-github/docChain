@@ -3,7 +3,11 @@ import type { NextFunction, Request, Response } from "express";
 import { AppError } from "../shared/errors";
 
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const csrfExemptPaths = new Set(["/api/auth/login"]);
+const csrfExemptPaths = new Set([
+  "/api/auth/login",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password"
+]);
 
 export function ensureCsrfToken(request: Request) {
   if (!request.session.csrfToken) {
