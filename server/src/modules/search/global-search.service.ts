@@ -453,6 +453,7 @@ export async function searchGlobalIndex(input: { q: string; types?: SearchEntity
     whereParams.push(...types);
   }
 
+  const limitSql = String(limit);
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       id,
@@ -469,8 +470,8 @@ export async function searchGlobalIndex(input: { q: string; types?: SearchEntity
      FROM global_search_index
      WHERE ${where.join(" AND ")}
      ORDER BY score DESC, updated_at DESC, id DESC
-     LIMIT ?`,
-    [booleanQuery || query, ...whereParams, limit]
+     LIMIT ${limitSql}`,
+    [booleanQuery || query, ...whereParams]
   );
 
   return rows.map((row) => ({

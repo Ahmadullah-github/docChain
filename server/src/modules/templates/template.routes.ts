@@ -307,9 +307,9 @@ async function findActiveTemplateBindings(input: {
     input.documentTypeId || null,
     input.locale,
     input.locale,
-    input.variant,
-    input.limit || 1
+    input.variant
   ];
+  const limitSql = String(Number(input.limit || 1));
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       document_template_bindings.*,
@@ -332,7 +332,7 @@ async function findActiveTemplateBindings(input: {
        document_template_bindings.document_type_id IS NULL ASC,
        document_template_bindings.locale = 'all' ASC,
        document_template_bindings.id DESC
-     LIMIT ?`,
+     LIMIT ${limitSql}`,
     params
   );
   return rows;
@@ -1259,8 +1259,8 @@ adminTemplateRouter.get("/logo-assets", asyncHandler(async (_request, response) 
        AND status = 'active'
        AND deleted_at IS NULL
      ORDER BY created_at DESC, id DESC
-     LIMIT ?`,
-    [templateLogoPurpose, maxTemplateLogoAssets]
+     LIMIT ${maxTemplateLogoAssets}`,
+    [templateLogoPurpose]
   );
   ok(response, rows.map(logoAssetPayload));
 }));

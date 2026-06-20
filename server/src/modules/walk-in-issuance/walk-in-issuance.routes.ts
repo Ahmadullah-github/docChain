@@ -401,7 +401,7 @@ async function defaultReferenceId(connection: PoolConnection, table: "confidenti
     `SELECT id
      FROM ${table}
      WHERE status = 'active'
-     ORDER BY is_default DESC, rank ASC, id ASC
+     ORDER BY is_default DESC, \`rank\` ASC, id ASC
      LIMIT 1`
   );
   const row = rows[0];
@@ -654,16 +654,16 @@ walkInIssuanceRouter.get("/reference", asyncHandler(async (request, response) =>
   const [documentTypes, confidentialityLevels, priorityLevels, faculties, departments] = await Promise.all([
     documentTypesPromise,
     pool.execute<RowDataPacket[]>(
-      `SELECT id, uuid, code, name, rank, is_default, requires_access_log, description, status
+      `SELECT id, uuid, code, name, \`rank\`, is_default, requires_access_log, description, status
        FROM confidentiality_levels
        WHERE status = 'active'
-       ORDER BY rank ASC, name ASC`
+       ORDER BY \`rank\` ASC, name ASC`
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
-      `SELECT id, uuid, code, name, rank, is_default, default_due_days, color, description, status
+      `SELECT id, uuid, code, name, \`rank\`, is_default, default_due_days, color, description, status
        FROM priority_levels
        WHERE status = 'active'
-       ORDER BY rank ASC, name ASC`
+       ORDER BY \`rank\` ASC, name ASC`
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
       `SELECT units.id, units.uuid, units.code, units.name, units.name_local, units.parent_unit_id

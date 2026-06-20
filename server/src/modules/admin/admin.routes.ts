@@ -437,6 +437,7 @@ adminRouter.get("/audit-logs", asyncHandler(async (request, response) => {
   }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const limitSql = String(Number(input.limit));
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT
       audit_logs.id,
@@ -461,8 +462,8 @@ adminRouter.get("/audit-logs", asyncHandler(async (request, response) => {
      LEFT JOIN units ON positions.unit_id = units.id
      ${whereClause}
      ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
-     LIMIT ?`,
-    [...params, input.limit]
+     LIMIT ${limitSql}`,
+    params
   );
 
   ok(response, rows);

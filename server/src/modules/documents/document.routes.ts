@@ -364,7 +364,9 @@ async function unitPositionTarget(unitId: number, positionId?: number | null): P
 }
 
 async function listSendTargetCandidates(query: z.infer<typeof sendOptionsQuerySchema>) {
-  const limit = query.limit;
+  const limit = Number(query.limit);
+  const unitLimitSql = String(Math.max(limit, 25));
+  const unitPositionLimitSql = String(Math.max(limit * 3, 75));
   const search = query.q?.trim();
   const unitWhere = ["units.status = 'active'", "units.deleted_at IS NULL"];
   const unitParams: Array<number | string> = [];
@@ -372,7 +374,6 @@ async function listSendTargetCandidates(query: z.infer<typeof sendOptionsQuerySc
     unitWhere.push("(units.name LIKE ? OR units.code LIKE ? OR unit_types.name LIKE ?)");
     unitParams.push(like(search), like(search), like(search));
   }
-  unitParams.push(Math.max(limit, 25));
 
   const unitPositionWhere = [
     "units.status = 'active'",
@@ -385,7 +386,6 @@ async function listSendTargetCandidates(query: z.infer<typeof sendOptionsQuerySc
     unitPositionWhere.push("(units.name LIKE ? OR units.code LIKE ? OR unit_types.name LIKE ? OR positions.title LIKE ? OR positions.code LIKE ?)");
     unitPositionParams.push(like(search), like(search), like(search), like(search), like(search));
   }
-  unitPositionParams.push(Math.max(limit * 3, 75));
 
   const [unitRows, unitPositionRows] = await Promise.all([
     pool.execute<RowDataPacket[]>(
@@ -398,7 +398,7 @@ async function listSendTargetCandidates(query: z.infer<typeof sendOptionsQuerySc
        INNER JOIN unit_types ON units.unit_type_id = unit_types.id
        WHERE ${unitWhere.join(" AND ")}
        ORDER BY unit_types.hierarchy_level ASC, units.name ASC
-       LIMIT ?`,
+       LIMIT ${unitLimitSql}`,
       unitParams
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
@@ -429,7 +429,7 @@ async function listSendTargetCandidates(query: z.infer<typeof sendOptionsQuerySc
        ) holders ON holders.position_id = positions.id
        WHERE ${unitPositionWhere.join(" AND ")}
        ORDER BY unit_types.hierarchy_level ASC, units.name ASC, positions.authority_level DESC, positions.title ASC
-       LIMIT ?`,
+       LIMIT ${unitPositionLimitSql}`,
       unitPositionParams
     ).then(([rows]) => rows)
   ]);
@@ -1112,7 +1112,7 @@ function documentRegistryOrderBy(sort: DocumentFilterQuery["sort"]) {
     return "documents.document_date DESC, documents.updated_at DESC, documents.id DESC";
   }
   if (sort === "priority_desc") {
-    return "priority_levels.rank DESC, documents.updated_at DESC, documents.id DESC";
+    return "priority_levels.`rank` DESC, documents.updated_at DESC, documents.id DESC";
   }
   return "documents.updated_at DESC, documents.id DESC";
 }
@@ -1370,6 +1370,8 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
   const context = await getDocumentRegistryContext(request);
   const query = documentListQuerySchema.parse(request.query);
   const { where, params } = buildDocumentWhere(context, response, query);
+  const limitSql = String(Number(query.limit));
+  const offsetSql = String(Number(query.offset));
   const admin = isAdmin(response);
   const writePermissions = admin
     ? []
@@ -1403,8 +1405,8 @@ documentRouter.get("/", asyncHandler(async (request, response) => {
     INNER JOIN units AS holder_units ON documents.current_holder_unit_id = holder_units.id
     WHERE ${where.join(" AND ")}
     ORDER BY ${documentRegistryOrderBy(query.sort)}
-    LIMIT ? OFFSET ?`,
-    [...params, query.limit, query.offset]
+    LIMIT ${limitSql} OFFSET ${offsetSql}`,
+    params
   );
 
   const decorated = rows.map((row) => {
@@ -1478,8 +1480,8 @@ documentRouter.get("/stats", asyncHandler(async (request, response) => {
        FROM documents
        INNER JOIN priority_levels ON documents.priority_level_id = priority_levels.id
        WHERE ${priorityFilter.where.join(" AND ")}
-       GROUP BY priority_levels.id, priority_levels.code, priority_levels.name, priority_levels.color, priority_levels.rank
-       ORDER BY priority_levels.rank ASC, priority_levels.name ASC`,
+       GROUP BY priority_levels.id, priority_levels.code, priority_levels.name, priority_levels.color, priority_levels.\`rank\`
+       ORDER BY priority_levels.\`rank\` ASC, priority_levels.name ASC`,
       priorityFilter.params
     ).then(([rows]) => rows.map((row) => ({
       code: String(row.code),

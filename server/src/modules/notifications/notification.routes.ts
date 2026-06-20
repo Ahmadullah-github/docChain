@@ -25,13 +25,13 @@ notificationRouter.get("/notifications", asyncHandler(async (request, response) 
     where.push("status = ?");
     params.push(query.status);
   }
-  params.push(query.limit);
+  const limitSql = String(Number(query.limit));
   const [rows] = await pool.execute<RowDataPacket[]>(
     `SELECT *
      FROM notifications
      WHERE ${where.join(" AND ")}
      ORDER BY created_at DESC
-     LIMIT ?`,
+     LIMIT ${limitSql}`,
     params
   );
   ok(response, rows);

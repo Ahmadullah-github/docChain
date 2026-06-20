@@ -65,16 +65,16 @@ workspaceRouter.get("/reference", asyncHandler(async (request, response) => {
        ORDER BY name ASC`
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
-      `SELECT id, uuid, code, name, rank, is_default, requires_access_log, description, status
+      `SELECT id, uuid, code, name, \`rank\`, is_default, requires_access_log, description, status
        FROM confidentiality_levels
        WHERE status = 'active'
-       ORDER BY rank ASC, name ASC`
+       ORDER BY \`rank\` ASC, name ASC`
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
-      `SELECT id, uuid, code, name, rank, is_default, default_due_days, color, description, status
+      `SELECT id, uuid, code, name, \`rank\`, is_default, default_due_days, color, description, status
        FROM priority_levels
        WHERE status = 'active'
-       ORDER BY rank ASC, name ASC`
+       ORDER BY \`rank\` ASC, name ASC`
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
       `SELECT
@@ -207,7 +207,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
   const assignment = await getActiveAssignment(request, "loading work items");
   const userAssignmentIds = await assignmentIdsForPerson(assignment.personId);
   const access = userDocumentAccessWhere(userAssignmentIds);
-  const limit = query.limit;
+  const limit = Number(query.limit);
+  const limitSql = String(limit);
   const includeAll = query.type === "all";
 
   if (includeAll) {
@@ -256,8 +257,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
            )
          )
        ORDER BY COALESCE(document_tasks.due_at, document_tasks.created_at) ASC
-       LIMIT ?`,
-      [assignment.id, assignment.unitId, assignment.positionId, limit]
+       LIMIT ${limitSql}`,
+      [assignment.id, assignment.unitId, assignment.positionId]
     );
 
     ok(response, await attachWorkflowSummaries(rows, (row) => Number(row.documentId)));
@@ -306,8 +307,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
            )
          )
        ORDER BY COALESCE(document_tasks.due_at, document_tasks.created_at) ASC
-       LIMIT ?`,
-      [assignment.id, assignment.unitId, assignment.positionId, limit]
+       LIMIT ${limitSql}`,
+      [assignment.id, assignment.unitId, assignment.positionId]
     ).then(([rows]) => rows));
   }
 
@@ -349,8 +350,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
          AND (document_tasks.assigned_position_id IS NULL OR document_tasks.assigned_position_id = ?)
          AND documents.deleted_at IS NULL
        ORDER BY COALESCE(document_tasks.due_at, document_tasks.created_at) ASC
-       LIMIT ?`,
-      [assignment.unitId, assignment.positionId, limit]
+       LIMIT ${limitSql}`,
+      [assignment.unitId, assignment.positionId]
     ).then(([rows]) => rows));
   }
 
@@ -397,8 +398,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
          AND documents.deleted_at IS NULL
          AND ${access.sql}
        ORDER BY COALESCE(document_tasks.due_at, document_tasks.created_at) ASC
-       LIMIT ?`,
-      [assignment.id, assignment.unitId, assignment.positionId, ...userAssignmentIds, assignment.unitId, assignment.unitId, assignment.unitId, limit]
+       LIMIT ${limitSql}`,
+      [assignment.id, assignment.unitId, assignment.positionId, ...userAssignmentIds, assignment.unitId, assignment.unitId, assignment.unitId]
     ).then(([rows]) => rows));
   }
 
@@ -426,8 +427,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
        LEFT JOIN units AS holder_units ON documents.current_holder_unit_id = holder_units.id
        WHERE notifications.recipient_user_id = ?
        ORDER BY notifications.created_at DESC
-       LIMIT ?`,
-      [authUser.id, limit]
+       LIMIT ${limitSql}`,
+      [authUser.id]
     ).then(([rows]) => rows));
   }
 
@@ -456,8 +457,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
        WHERE documents.deleted_at IS NULL
          AND ${access.sql}
        ORDER BY document_workflow_events.created_at DESC
-       LIMIT ?`,
-      [...userAssignmentIds, assignment.unitId, assignment.unitId, assignment.unitId, limit]
+       LIMIT ${limitSql}`,
+      [...userAssignmentIds, assignment.unitId, assignment.unitId, assignment.unitId]
     ).then(([rows]) => rows));
   }
 
@@ -472,7 +473,8 @@ workspaceRouter.get("/work-items", asyncHandler(async (request, response) => {
 workspaceRouter.get("/transmission-targets", asyncHandler(async (request, response) => {
   const query = transmissionTargetsQuerySchema.parse(request.query);
   await getActiveAssignment(request, "choosing transmission recipients");
-  const limit = query.limit;
+  const limit = Number(query.limit);
+  const limitSql = String(limit);
 
   const unitWhere = [
     "units.status = 'active'",
@@ -483,8 +485,6 @@ workspaceRouter.get("/transmission-targets", asyncHandler(async (request, respon
     unitWhere.push("(units.name LIKE ? OR units.code LIKE ? OR unit_types.name LIKE ?)");
     unitParams.push(like(query.q), like(query.q), like(query.q));
   }
-  unitParams.push(limit);
-
   const assignmentWhere = [
     "assignments.status = 'active'",
     "assignments.deleted_at IS NULL",
@@ -499,8 +499,6 @@ workspaceRouter.get("/transmission-targets", asyncHandler(async (request, respon
     assignmentWhere.push("(persons.display_name LIKE ? OR units.name LIKE ? OR positions.title LIKE ?)");
     assignmentParams.push(like(query.q), like(query.q), like(query.q));
   }
-  assignmentParams.push(limit);
-
   const [units, assignments] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT
@@ -514,7 +512,7 @@ workspaceRouter.get("/transmission-targets", asyncHandler(async (request, respon
        INNER JOIN unit_types ON units.unit_type_id = unit_types.id
        WHERE ${unitWhere.join(" AND ")}
        ORDER BY unit_types.hierarchy_level ASC, units.name ASC
-       LIMIT ?`,
+       LIMIT ${limitSql}`,
       unitParams
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
@@ -533,7 +531,7 @@ workspaceRouter.get("/transmission-targets", asyncHandler(async (request, respon
        INNER JOIN units ON positions.unit_id = units.id
        WHERE ${assignmentWhere.join(" AND ")}
        ORDER BY persons.display_name ASC, units.name ASC
-       LIMIT ?`,
+       LIMIT ${limitSql}`,
       assignmentParams
     ).then(([rows]) => rows)
   ]);
@@ -544,6 +542,7 @@ workspaceRouter.get("/transmission-targets", asyncHandler(async (request, respon
 workspaceRouter.get("/targets", asyncHandler(async (request, response) => {
   const query = targetsQuerySchema.parse(request.query);
   await getActiveAssignment(request, "choosing a document target");
+  const limitSql = "25";
 
   const unitWhere = ["units.status = 'active'", "units.deleted_at IS NULL"];
   const unitParams: any[] = [];
@@ -551,8 +550,6 @@ workspaceRouter.get("/targets", asyncHandler(async (request, response) => {
     unitWhere.push("(units.name LIKE ? OR units.code LIKE ?)");
     unitParams.push(like(query.q), like(query.q));
   }
-  unitParams.push(25);
-
   const assignmentWhere = [
     "assignments.status = 'active'",
     "assignments.deleted_at IS NULL",
@@ -563,8 +560,6 @@ workspaceRouter.get("/targets", asyncHandler(async (request, response) => {
     assignmentWhere.push("(persons.display_name LIKE ? OR units.name LIKE ? OR positions.title LIKE ?)");
     assignmentParams.push(like(query.q), like(query.q), like(query.q));
   }
-  assignmentParams.push(25);
-
   const [units, assignments] = await Promise.all([
     pool.execute<RowDataPacket[]>(
       `SELECT
@@ -578,7 +573,7 @@ workspaceRouter.get("/targets", asyncHandler(async (request, response) => {
        INNER JOIN unit_types ON units.unit_type_id = unit_types.id
        WHERE ${unitWhere.join(" AND ")}
        ORDER BY unit_types.hierarchy_level ASC, units.name ASC
-       LIMIT ?`,
+       LIMIT ${limitSql}`,
       unitParams
     ).then(([rows]) => rows),
     pool.execute<RowDataPacket[]>(
@@ -597,7 +592,7 @@ workspaceRouter.get("/targets", asyncHandler(async (request, response) => {
        INNER JOIN units ON positions.unit_id = units.id
        WHERE ${assignmentWhere.join(" AND ")}
        ORDER BY persons.display_name ASC, units.name ASC
-       LIMIT ?`,
+       LIMIT ${limitSql}`,
       assignmentParams
     ).then(([rows]) => rows)
   ]);
