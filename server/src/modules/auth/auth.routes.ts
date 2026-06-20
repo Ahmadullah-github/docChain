@@ -145,6 +145,30 @@ async function getUserPayload(userId: number, activeAssignmentId?: number) {
   };
 }
 
+async function ensureSessionActiveAssignment(request: Express.Request) {
+  if (request.session.activeAssignmentId || !request.session.userId) {
+    return;
+  }
+
+  const [assignmentRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT assignments.id
+     FROM assignments
+     INNER JOIN users ON users.person_id = assignments.person_id
+     WHERE users.id = ?
+       AND users.deleted_at IS NULL
+       AND assignments.status = 'active'
+       AND assignments.deleted_at IS NULL
+     ORDER BY assignments.is_primary DESC, assignments.id ASC
+     LIMIT 1`,
+    [request.session.userId]
+  );
+  const assignment = assignmentRows[0];
+
+  if (assignment) {
+    request.session.activeAssignmentId = Number(assignment.id);
+  }
+}
+
 authRouter.post("/forgot-password", asyncHandler(async (request, response) => {
   const input = forgotPasswordSchema.parse(request.body);
   const [userRows] = await pool.execute<RowDataPacket[]>(
@@ -357,6 +381,7 @@ authRouter.post("/logout", asyncHandler(async (request, response) => {
 }));
 
 authRouter.get("/me", requireAuth, asyncHandler(async (request, response) => {
+  await ensureSessionActiveAssignment(request);
   const csrfToken = ensureCsrfToken(request);
   ok(response, {
     ...await getUserPayload(request.session.userId!, request.session.activeAssignmentId),
@@ -393,6 +418,7 @@ authRouter.post("/change-password", requireAuth, asyncHandler(async (request, re
     [passwordHash, userId]
   );
   await writeAuditLog(request, { action: "auth.change_password", entityType: "user", entityId: userId });
+  await ensureSessionActiveAssignment(request);
   const csrfToken = ensureCsrfToken(request);
   ok(response, {
     ...await getUserPayload(userId, request.session.activeAssignmentId),

@@ -23,8 +23,71 @@ export function isAdmin(response: Response) {
   return roles.includes("system_admin") || roles.includes("admin_staff");
 }
 
+async function selectDefaultActiveAssignment(request: Request) {
+  if (!request.session.userId) {
+    return null;
+  }
+
+  const [assignmentRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT
+      assignments.id,
+      assignments.person_id AS personId,
+      positions.unit_id AS unitId,
+      units.code AS unitCode,
+      units.name AS unitName,
+      assignments.position_id AS positionId,
+      positions.title AS positionTitle,
+      units.organization_id AS organizationId,
+      units.unit_type_id AS unitTypeId,
+      unit_types.code AS unitTypeCode,
+      unit_types.name AS unitTypeName,
+      positions.code AS positionCode
+    FROM assignments
+    INNER JOIN positions ON assignments.position_id = positions.id
+    INNER JOIN units ON positions.unit_id = units.id
+    INNER JOIN unit_types ON units.unit_type_id = unit_types.id
+    INNER JOIN users ON users.person_id = assignments.person_id
+    WHERE users.id = ?
+      AND assignments.status = 'active'
+      AND assignments.deleted_at IS NULL
+      AND users.deleted_at IS NULL
+    ORDER BY assignments.is_primary DESC, assignments.id ASC
+    LIMIT 1`,
+    [request.session.userId]
+  );
+
+  const assignment = assignmentRows[0];
+  if (assignment) {
+    request.session.activeAssignmentId = Number(assignment.id);
+  }
+
+  return assignment || null;
+}
+
+function mapActiveAssignment(assignment: RowDataPacket): ActiveAssignment {
+  return {
+    id: Number(assignment.id),
+    personId: Number(assignment.personId),
+    unitId: Number(assignment.unitId),
+    unitCode: String(assignment.unitCode),
+    unitName: String(assignment.unitName),
+    positionId: Number(assignment.positionId),
+    positionTitle: String(assignment.positionTitle),
+    organizationId: Number(assignment.organizationId),
+    unitTypeId: Number(assignment.unitTypeId),
+    unitTypeCode: String(assignment.unitTypeCode),
+    unitTypeName: String(assignment.unitTypeName),
+    positionCode: String(assignment.positionCode)
+  };
+}
+
 export async function getActiveAssignment(request: Request, actionDescription = "this action"): Promise<ActiveAssignment> {
   if (!request.session.activeAssignmentId) {
+    const fallbackAssignment = await selectDefaultActiveAssignment(request);
+    if (fallbackAssignment) {
+      return mapActiveAssignment(fallbackAssignment);
+    }
+
     throw new AppError(409, "active_assignment_required", `Select an active assignment before ${actionDescription}.`);
   }
 
@@ -52,26 +115,13 @@ export async function getActiveAssignment(request: Request, actionDescription = 
     LIMIT 1`,
     [request.session.activeAssignmentId]
   );
-  const assignment = assignmentRows[0];
+  const assignment = assignmentRows[0] || await selectDefaultActiveAssignment(request);
 
   if (!assignment) {
     throw new AppError(409, "active_assignment_invalid", "The selected assignment is no longer active.");
   }
 
-  return {
-    id: Number(assignment.id),
-    personId: Number(assignment.personId),
-    unitId: Number(assignment.unitId),
-    unitCode: String(assignment.unitCode),
-    unitName: String(assignment.unitName),
-    positionId: Number(assignment.positionId),
-    positionTitle: String(assignment.positionTitle),
-    organizationId: Number(assignment.organizationId),
-    unitTypeId: Number(assignment.unitTypeId),
-    unitTypeCode: String(assignment.unitTypeCode),
-    unitTypeName: String(assignment.unitTypeName),
-    positionCode: String(assignment.positionCode)
-  };
+  return mapActiveAssignment(assignment);
 }
 
 export async function assertDocumentAccess(documentId: number, request: Request, response: Response) {
