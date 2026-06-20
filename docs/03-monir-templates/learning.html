@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>منیر - آموزش عمیق Templates</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Monir Waheedy - Templates System</p>
+      <h1 class="mt-2 text-3xl font-black">مینی کورس دفاع: Templates، Builder و Rendering</h1>
+      <p class="mt-4 leading-8 text-slate-700">منیر مسؤول توسعه و دفاع این بخش است. بخش مربوط به این عضو تیم تعیین می‌کند سند رسمی چگونه دیده شود: لوگو، سربرگ، متن، جدول، امضا، QR، فاصله‌ها، صفحه A4، HTML preview و PDF نهایی.</p>
+      <div class="mt-5 rounded-2xl bg-cyan-50 p-4 text-sm leading-7 text-cyan-950">جمله شروع دفاع: «در DocChain محتوا از ظاهر جدا است. کارمند محتوا را وارد می‌کند، اما template تصمیم می‌گیرد سند رسمی چگونه نمایش، چاپ و PDF شود.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 lg:grid-cols-3">
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۱. Template چیست؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">Template نقشه ظاهری سند است. مثل فورم آماده‌ای که مشخص می‌کند عنوان کجا باشد، متن در کدام بخش بیاید، امضاها کجا قرار گیرند و QR در کدام گوشه چاپ شود.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۲. چرا Builder لازم است؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">اگر قالب‌ها hard-code شوند، هر تغییر ظاهری نیاز به برنامه‌نویس دارد. Builder به ادمین اجازه می‌دهد قالب رسمی را با ابزار گرافیکی تنظیم کند.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۳. Renderer چه کار می‌کند؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">Renderer تعریف JSON قالب و معلومات سند را می‌گیرد و خروجی HTML رسمی تولید می‌کند؛ بعد PDF renderer همان HTML را به فایل قابل چاپ تبدیل می‌کند.</p>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۱: lifecycle کامل قالب</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">Create template -> Edit layout -> Save version -> Submit -> Review -> Approve -> Bind -> Preview -> Render HTML/PDF</div>
+      <p class="mt-4 leading-8 text-slate-700">قالب فقط یک صفحه طراحی نیست؛ یک جریان کامل دارد. کاربر قالب را می‌سازد، نسخه قابل ویرایش ذخیره می‌شود، برای تایید ارسال می‌شود، ادمین آن را approve می‌کند، بعد به نوع سند bind می‌شود تا در ساخت سند قابل انتخاب باشد.</p>
+      <div class="mt-4 rounded-2xl bg-cyan-50 p-4 leading-7 text-cyan-950">روش گفتن به استاد: «ما قالب را versioned ساختیم تا نسخه‌های قبلی از بین نروند و قالب رسمی بدون review مستقیم فعال نشود.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۲: Template Library</h2>
+        <p class="mt-4 leading-8 text-slate-700">Template Library جای دیدن قالب‌های آماده و قابل clone است. کاربر می‌تواند قالب موجود را بگیرد، clone کند و برای نوع سند خاص تنظیم نماید. این کار سرعت ساخت قالب را بالا می‌برد.</p>
+        <p class="mt-3 leading-8 text-slate-700">در دفاع بگویید library برای reuse است؛ یعنی لازم نیست هر قالب از صفر ساخته شود.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۳: Template Builder</h2>
+        <p class="mt-4 leading-8 text-slate-700">Builder از چند قسمت تشکیل شده: canvas برای دیدن صفحه، ribbon برای ابزارها، rail یا inspector برای تنظیمات، و model functions برای ساخت layout سالم. نتیجه Builder یک object ساختاری به نام <span class="term">TemplateLayout</span> است.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۴: Blocks و Tokens</h2>
+        <p class="mt-4 leading-8 text-slate-700">قالب از blockها ساخته می‌شود: متن، تصویر، جدول، خط، QR، امضا و fieldهای متحرک. Tokenها جای‌نگهدارهایی مثل شماره سند، تاریخ، نام واحد و امضای تکمیل‌شده هستند.</p>
+        <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">{{document.subject}}, {{document.serial}}, {{signature.completed}}, {{origin_unit.name}}</div>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۵: Preview و A4</h2>
+        <p class="mt-4 leading-8 text-slate-700">Preview کمک می‌کند ادمین قبل از ذخیره یا چاپ، ظاهر سند را ببیند. صفحه باید مثل A4 رفتار کند، جهت متن را رعایت کند، و فاصله‌ها در HTML و PDF نزدیک به هم باشند.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۶: Approval و Binding</h2>
+        <p class="mt-4 leading-8 text-slate-700">وقتی قالب submit شد، در review queue می‌آید. ادمین می‌تواند approve یا reject کند. بعد قالب approved به document type bind می‌شود؛ یعنی سیستم می‌فهمد برای آن نوع سند کدام قالب فعال است.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۷: Render HTML و PDF</h2>
+        <p class="mt-4 leading-8 text-slate-700">Render مرحله‌ای است که layout و document data یکجا می‌شوند. HTML برای preview و نمایش رسمی استفاده می‌شود؛ PDF برای دانلود، چاپ و آرشیف رسمی مناسب‌تر است.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">دیتابیس Templates</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold term">document_templates</h3>
+          <p class="mt-2 leading-7 text-slate-600">معلومات اصلی قالب، owner، status، visibility و current version را نگه می‌دارد.</p>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold term">document_template_versions</h3>
+          <p class="mt-2 leading-7 text-slate-600">نسخه‌های layout، submit/review status و تاریخچه تغییرات را نگه می‌دارد.</p>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold term">document_template_bindings</h3>
+          <p class="mt-2 leading-7 text-slate-600">وصل کردن قالب approved به یک document type یا context خاص.</p>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold term">document_layout_drafts</h3>
+          <p class="mt-2 leading-7 text-slate-600">draft layout سندهای کارمندان را ذخیره می‌کند تا preview/render بعدی از بین نرود.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">چک‌لیست مطالعه منیر</h2>
+      <div class="mt-5 grid gap-3 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">فرق content سند و layout قالب را توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">lifecycle قالب را از create تا binding روی تخته رسم کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بداند <span class="term">TemplateLayout</span> و blockها چه مفهومی دارند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند renderer HTML و PDF renderer را از هم جدا توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند علت versioning و approval را دفاع کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند ارتباط قالب با document type و staff create page را توضیح دهد.</div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+      <h2 class="text-2xl font-black">تمرین دفاع شفاهی</h2>
+      <p class="mt-4 leading-8 text-slate-200">«من بخش Templates را توضیح می‌دهم. هدف ما جدا کردن محتوای سند از شکل ظاهری است. قالب در Builder ساخته می‌شود، به شکل version ذخیره می‌شود، برای review ارسال می‌شود، بعد approve و به document type وصل می‌گردد. هنگام ساخت یا نمایش سند، renderer معلومات سند را با layout ترکیب کرده HTML و PDF رسمی تولید می‌کند.»</p>
+      <div class="mt-5 flex flex-wrap gap-3 text-sm">
+        <a class="rounded-full bg-cyan-500 px-4 py-2 font-bold text-white" href="code-map.html">رفتن به نقشه کد</a>
+        <a class="rounded-full bg-white px-4 py-2 font-bold text-slate-900" href="defense-qa.html">تمرین سوال و جواب</a>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

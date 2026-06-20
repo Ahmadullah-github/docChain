@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>احمد زوبین - آموزش عمیق Admin و Database</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Ahmad Zobeen Farahamand - Admin Frontend + SQL Database</p>
+      <h1 class="mt-2 text-3xl font-black">مینی کورس دفاع: Admin Panel و دیتابیس پایه</h1>
+      <p class="mt-4 leading-8 text-slate-700">احمد زوبین مسؤول توسعه و دفاع این بخش است. بخش مربوط به این عضو تیم، ستون فقرات اداری DocChain را توضیح می‌دهد: ساختار پوهنتون، اشخاص، کاربران، بست‌ها، وظیفه‌ها، نوع سندها و رابطه‌های اصلی دیتابیس.</p>
+      <div class="mt-5 rounded-2xl bg-cyan-50 p-4 text-sm leading-7 text-cyan-950">
+        جمله کلیدی برای شروع دفاع: «من بخش Admin و دیتابیس پایه را تشریح می‌کنم؛ بدون این بخش سیستم نمی‌داند کاربر کی است، در کدام واحد کار می‌کند، چه صلاحیت دارد، و سند مربوط کدام ساختار اداری است.»
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-5 lg:grid-cols-3">
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۱. هدف Admin Panel</h2>
+        <p class="mt-4 leading-8 text-slate-700">Admin Panel برای کارهای روزمره کارمند نیست؛ برای آماده‌سازی و مدیریت بنیاد سیستم است. مدیر در این بخش پوهنتون، واحدها، کاربران، بست‌ها و نقش‌ها را تعریف می‌کند تا بخش‌های دیگر بتوانند workflow، امضا و قالب را درست استفاده کنند.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۲. چرا دیتابیس مهم است؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">دیتابیس فقط محل ذخیره نیست؛ قوانین رابطه را هم نگه می‌دارد. برای مثال، یک <span class="term">user</span> باید به یک <span class="term">person</span> وصل باشد و یک <span class="term">position</span> باید داخل یک <span class="term">unit</span> قرار داشته باشد.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۳. چرا این بخش دفاع مهم دارد؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">استادان معمولا از همین بخش سوال رابطه‌ای می‌پرسند: چرا person جداست؟ چرا assignment داریم؟ چرا foreign key استفاده شده؟ اگر این بخش خوب فهمیده شود، کل پروژه قابل توضیح می‌شود.</p>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۱: مدل ذهنی ساختار اداری</h2>
+      <p class="mt-4 leading-8 text-slate-700">DocChain مثل یک اداره واقعی فکر می‌کند. اول یک سازمان داریم، بعد داخل آن واحدها قرار می‌گیرند، داخل هر واحد بست‌ها تعریف می‌شوند، و اشخاص از طریق assignment به بست‌ها وصل می‌شوند.</p>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">organizations -> unit_types -> units -> positions -> assignments -> persons -> users</div>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">نکته برای فهم</h3>
+          <p class="mt-2 leading-7 text-slate-600">اگر یک استاد بپرسد «کاربر کجا کار می‌کند؟» جواب از جدول <span class="term">users</span> مستقیم نمی‌آید؛ از مسیر <span class="term">person -> assignment -> position -> unit</span> پیدا می‌شود.</p>
+        </div>
+        <div class="rounded-2xl bg-cyan-50 p-4">
+          <h3 class="font-bold">روش گفتن به استاد</h3>
+          <p class="mt-2 leading-7 text-cyan-950">«ما حساب login را از هویت اداری جدا کردیم تا یک شخص بتواند معلومات واقعی، نقش امنیتی و وظیفه اداری جداگانه داشته باشد.»</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۲: مسیر درخواست از صفحه تا دیتابیس</h2>
+      <p class="mt-4 leading-8 text-slate-700">وقتی مدیر یک کاربر یا واحد جدید می‌سازد، جریان به این شکل است: صفحه React فرم را می‌گیرد، <span class="term">adminApi</span> درخواست HTTP می‌فرستد، route سرور داده را validate می‌کند، SQL اجرا می‌شود، و نتیجه دوباره به صفحه برمی‌گردد.</p>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">Admin page -> adminApi -> /api/admin/... -> admin.routes.ts -> MySQL -> JSON response</div>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">مثال ساخت کاربر</h3>
+          <p class="mt-2 leading-7 text-slate-600">صفحه <span class="term">AdminUsersPage.tsx</span> اول person می‌سازد، بعد user را به همان person وصل می‌کند، سپس نقش‌ها و assignment را مدیریت می‌کند.</p>
+        </div>
+        <div class="rounded-2xl bg-cyan-50 p-4">
+          <h3 class="font-bold">روش گفتن به استاد</h3>
+          <p class="mt-2 leading-7 text-cyan-950">«Frontend فقط نمایش و جمع‌آوری معلومات را انجام می‌دهد؛ تصمیم اصلی و ذخیره نهایی در backend route و MySQL انجام می‌شود.»</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۳: Organizations و Units</h2>
+        <p class="mt-4 leading-8 text-slate-700">سازمان سطح کلان است. واحدها داخل سازمان می‌آیند و می‌توانند parent داشته باشند؛ یعنی واحد زیرمجموعه واحد دیگر باشد. این ساختار برای پوهنتون طبیعی است: ریاست، پوهنځی، دیپارتمنت و شعبه.</p>
+        <ul class="mt-4 space-y-2 leading-7 text-slate-700">
+          <li>جدول <span class="term">organizations</span> نام و کد سازمان را نگه می‌دارد.</li>
+          <li>جدول <span class="term">unit_types</span> نوع واحد را تعریف می‌کند.</li>
+          <li>جدول <span class="term">units</span> با <span class="term">parent_unit_id</span> سلسله‌مراتب را می‌سازد.</li>
+        </ul>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۴: Persons و Users</h2>
+        <p class="mt-4 leading-8 text-slate-700"><span class="term">person</span> هویت واقعی فرد است، اما <span class="term">user</span> حساب ورود به سیستم است. این جداسازی باعث می‌شود معلومات اداری مثل نام و شماره تماس با معلومات امنیتی مثل password hash و status حساب مخلوط نشود.</p>
+        <ul class="mt-4 space-y-2 leading-7 text-slate-700">
+          <li><span class="term">persons</span>: نام، ایمیل، شماره تماس، وضعیت فرد.</li>
+          <li><span class="term">users</span>: username، password hash، lockout، last login.</li>
+          <li><span class="term">user_roles</span>: وصل کردن کاربر به نقش‌های امنیتی.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۵: Positions و Assignments</h2>
+        <p class="mt-4 leading-8 text-slate-700">بست یک جایگاه اداری است؛ assignment یعنی کدام شخص فعلا آن بست را گرفته است. این طراحی کمک می‌کند اگر یک شخص تبدیل شود، تاریخچه و رابطه‌های قبلی از بین نروند.</p>
+        <p class="mt-4 leading-8 text-slate-700">فیلدهایی مثل <span class="term">is_signing_authority</span> و <span class="term">authority_level</span> روی position برای صلاحیت امضا و سلسله اداری استفاده می‌شوند.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۶: Document Types و Write Rules</h2>
+        <p class="mt-4 leading-8 text-slate-700">نوع سند مشخص می‌کند سند از چه نوع است، مثل مکتوب، تصدیق یا فورم. Write rules مشخص می‌کند کدام واحد یا بست حق ایجاد همان نوع سند را دارد. این بخش با workflow و templates رابطه مستقیم دارد.</p>
+        <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">document_types -> document_write_rules -> templates/workflow/signature</div>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۷: Migration و Seed</h2>
+      <p class="mt-4 leading-8 text-slate-700">Migration فایل SQL است که ساختار دیتابیس را قابل تکرار می‌سازد. وقتی پروژه روی کمپیوتر جدید نصب شود، migration همان جدول‌ها، foreign keyها و indexها را می‌سازد. Seed داده اولیه مثل نقش‌ها، سازمان نمونه و کاربر ادمین را وارد می‌کند.</p>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">چرا migration خوب است؟</h3>
+          <p class="mt-2 leading-7 text-slate-600">چون ساختار دیتابیس از ذهن برنامه‌نویس بیرون می‌آید و داخل فایل قابل اجرا و قابل بررسی قرار می‌گیرد.</p>
+        </div>
+        <div class="rounded-2xl bg-cyan-50 p-4">
+          <h3 class="font-bold">روش گفتن به استاد</h3>
+          <p class="mt-2 leading-7 text-cyan-950">«اگر دیتابیس پاک شود یا روی ماشین دیگر نصب شود، migrationها دوباره همان schema را می‌سازند و seed داده‌های ضروری را اضافه می‌کند.»</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">چک‌لیست مطالعه احمد زوبین</h2>
+      <div class="mt-5 grid gap-3 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند فرق <span class="term">person</span> و <span class="term">user</span> را توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند مسیر <span class="term">organization -> unit -> position -> assignment</span> را روی تخته رسم کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند بگوید چرا <span class="term">foreign key</span> برای صحت رابطه‌ها ضروری است.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند یک demo کوتاه ساخت user یا unit را همراه مسیر کد توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند صفحه‌های Admin را با routeهای backend وصل کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند بگوید document type و write rule چرا برای workflow لازم است.</div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+      <h2 class="text-2xl font-black">تمرین دفاع شفاهی</h2>
+      <p class="mt-4 leading-8 text-slate-200">در ۶۰ ثانیه بگویید: «من بخش Admin و database را توضیح می‌دهم. اول ساختار پوهنتون در organizations و units ذخیره می‌شود. بعد positions بست‌های اداری را نشان می‌دهد. اشخاص در persons ذخیره می‌شوند و users فقط حساب login آنان است. assignments شخص را به position وصل می‌کند. وقتی مدیر در frontend چیزی ایجاد می‌کند، adminApi درخواست را به backend می‌فرستد و admin.routes.ts داده را در MySQL ذخیره می‌کند.»</p>
+      <div class="mt-5 flex flex-wrap gap-3 text-sm">
+        <a class="rounded-full bg-cyan-500 px-4 py-2 font-bold text-white" href="code-map.html">رفتن به نقشه کد</a>
+        <a class="rounded-full bg-white px-4 py-2 font-bold text-slate-900" href="defense-qa.html">تمرین سوال و جواب</a>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

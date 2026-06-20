@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>حبیب‌الله - آموزش عمیق Signatures و Walk-in</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Habibullah Qurbani - Signatures, Verification, Walk-in Issuance</p>
+      <h1 class="mt-2 text-3xl font-black">مینی کورس دفاع: امضا، شماره رسمی، تایید سند و صدور حضوری</h1>
+      <p class="mt-4 leading-8 text-slate-700">حبیب‌الله مسؤول توسعه و دفاع این بخش است. بخش مربوط به این عضو تیم رسمی بودن سند را توضیح می‌دهد: profile امضا، PIN، upload session، signing event، serial number، verification QR، درخواست حضوری، چاپ، تحویل و آرشیف.</p>
+      <div class="mt-5 rounded-2xl bg-cyan-50 p-4 text-sm leading-7 text-cyan-950">جمله شروع دفاع: «این بخش ثابت می‌کند سند فقط متن نیست؛ سند رسمی باید امضا، شماره مسلسل، لینک تایید، ثبت چاپ و ثبت تحویل داشته باشد.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 lg:grid-cols-3">
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۱. Signature Profile</h2>
+        <p class="mt-4 leading-8 text-slate-700">هر کاربر صاحب امضا باید profile داشته باشد: تصویر امضا، PIN hash، وضعیت profile و asset فعال. هنگام امضا، سیستم PIN را verify و signature event را ثبت می‌کند.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۲. Serial و Verification</h2>
+        <p class="mt-4 leading-8 text-slate-700">شماره رسمی سند از serial rule ساخته می‌شود و verification token/QR کمک می‌کند نسخه چاپی یا PDF قابل تایید باشد.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۳. Walk-in Issuance</h2>
+        <p class="mt-4 leading-8 text-slate-700">برای مراجعه‌کننده حضوری، سیستم معلومات شخص، درخواست سند، سند مرتبط، چاپ، تحویل و آرشیف را مرحله‌به‌مرحله ثبت می‌کند.</p>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۱: جریان امضا</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">Signature image -> PIN -> Signing session -> PIN verification -> Signature event -> Rendered official document</div>
+      <p class="mt-4 leading-8 text-slate-700">کاربر اول profile امضا می‌سازد. تصویر امضا به عنوان asset ذخیره می‌شود و PIN به شکل hash نگهداری می‌گردد. هنگام امضا، سیستم session می‌سازد، PIN را بررسی می‌کند، event ثبت می‌کند و renderer امضا را در جای مناسب سند نشان می‌دهد.</p>
+      <div class="mt-4 rounded-2xl bg-cyan-50 p-4 leading-7 text-cyan-950">روش گفتن به استاد: «ما خود امضا را فقط تصویر ساده نمی‌گیریم؛ امضا با user، assignment، PIN verification، document hash و signature event ثبت می‌شود.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۲: Upload از دسکتاپ و موبایل</h2>
+        <p class="mt-4 leading-8 text-slate-700">کاربر می‌تواند تصویر امضا را مستقیم از کمپیوتر انتخاب کند یا upload session بسازد و از موبایل آپلود کند. موبایل برای حالتی مفید است که امضا در گوشی عکس گرفته می‌شود.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۳: امنیت امضا</h2>
+        <p class="mt-4 leading-8 text-slate-700">تصویر امضا یک دارایی حساس است. ذخیره signature asset، PIN hash، failed attempts، lockout و event log کمک می‌کند سوءاستفاده کمتر شود و اقدام‌ها قابل پیگیری باشند.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۴: Serial Rules</h2>
+        <p class="mt-4 leading-8 text-slate-700">Serial rule format شماره رسمی را تعریف می‌کند، مثلا <span class="term">DOC-{YEAR}-{SEQUENCE}</span>. scope مشخص می‌کند شماره جهانی است یا بر اساس واحد/نوع سند جدا می‌شود. reset policy مشخص می‌کند sequence سالانه، ماهانه یا هرگز reset شود.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۵: Verification و QR</h2>
+        <p class="mt-4 leading-8 text-slate-700">برای سند رسمی، سیستم token تایید می‌سازد. QR یا لینک تایید به صفحه public verification می‌رود تا شخص بیرونی بتواند اصالت سند را بررسی کند.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۶: Walk-in Issuance</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">Intake -> Create request -> Create linked document -> Finalize/print -> Handover -> Archive</div>
+      <p class="mt-4 leading-8 text-slate-700">در مراجعه حضوری، شخص ممکن است user سیستم نباشد. بنابراین معلومات او در external persons ذخیره می‌شود. بعد درخواست صدور سند ثبت می‌گردد، سند وابسته ساخته می‌شود، چاپ ثبت می‌شود، تحویل به گیرنده ثبت می‌گردد و بعد پرونده archive می‌شود.</p>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۷: Print و Handover</h2>
+        <p class="mt-4 leading-8 text-slate-700">چاپ فقط کلیک download نیست؛ سیستم باید بداند سند کی چاپ شد، چند نسخه چاپ شد، به چه کسی تحویل داده شد، شماره رسمی چه بود و آیا گیرنده امضا یا شست ثبت کرد یا نه.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۸: Archive در Walk-in</h2>
+        <p class="mt-4 leading-8 text-slate-700">Archive آخرین مرحله است. وقتی سند چاپ و تحویل شد، پرونده باید با دلیل و زمان آرشیف ذخیره شود تا بعدا قابل پیگیری باشد.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">دیتابیس این بخش</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">signature_profiles</h3><p class="mt-2 leading-7 text-slate-600">PIN hash، status، failed attempts و active signature asset.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">signature_events</h3><p class="mt-2 leading-7 text-slate-600">ثبت اینکه چه کسی، با کدام assignment، کدام سند را امضا کرده است.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">serial_rules / serial_assignments</h3><p class="mt-2 leading-7 text-slate-600">قانون شماره‌دهی و شماره رسمی اختصاص‌داده‌شده به سند.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_verification_tokens</h3><p class="mt-2 leading-7 text-slate-600">tokenهای public برای تایید اصالت سند.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_issuance_requests</h3><p class="mt-2 leading-7 text-slate-600">درخواست‌های صدور حضوری و ارتباط با سند.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_print_events / document_handover_records</h3><p class="mt-2 leading-7 text-slate-600">ثبت چاپ و تحویل سند رسمی به مراجعه‌کننده.</p></div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">چک‌لیست مطالعه حبیب‌الله</h2>
+      <div class="mt-5 grid gap-3 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند فرق signature profile، signature asset و signature event را بگوید.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند PIN verification و lockout را توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند serial rule format، scope و reset policy را شرح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند verification token و QR را با مثال دفاع کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند walk-in issuance را از intake تا archive رسم کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند جداول print و handover را به accountability وصل کند.</div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+      <h2 class="text-2xl font-black">تمرین دفاع شفاهی</h2>
+      <p class="mt-4 leading-8 text-slate-200">«من بخش امضا، تایید و صدور حضوری را توضیح می‌دهم. کاربر signature profile و PIN دارد. هنگام امضا، سیستم PIN را verify می‌کند و signature event ثبت می‌شود. برای سند رسمی serial number و verification token ساخته می‌شود. در walk-in issuance معلومات مراجعه‌کننده، درخواست، سند، چاپ، تحویل و archive ثبت می‌گردد.»</p>
+      <div class="mt-5 flex flex-wrap gap-3 text-sm">
+        <a class="rounded-full bg-cyan-500 px-4 py-2 font-bold text-white" href="code-map.html">رفتن به نقشه کد</a>
+        <a class="rounded-full bg-white px-4 py-2 font-bold text-slate-900" href="defense-qa.html">تمرین سوال و جواب</a>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

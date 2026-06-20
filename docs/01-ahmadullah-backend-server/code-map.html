@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>احمدالله احمدی - نقشه کد کامل Backend</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Tahoma, Arial, sans-serif; }
+    .ltr { direction: ltr; unicode-bidi: embed; text-align: left; }
+    .term { direction: ltr; unicode-bidi: embed; display: inline-block; }
+    .code-link { direction: ltr; unicode-bidi: embed; display: inline-flex; align-items: center; border-radius: 9999px; background: #0f172a; color: #fff; padding: .35rem .7rem; font-size: .75rem; font-weight: 700; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش عمیق</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Backend Code Map</p>
+      <h1 class="mt-2 text-3xl font-black">نقشه کد قابل کلیک برای دفاع احمدالله</h1>
+      <p class="mt-4 leading-8 text-slate-700">
+        هر کارت یک نقطه مهم در سرور را نشان می‌دهد. دکمه <span class="term">Open in Cursor</span> باید فایل را در Cursor باز کند.
+        اگر browser اجازه نداد، مسیر فایل در badge سیاه به صورت LTR نمایش داده شده است.
+      </p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace اصلی: از اجرای سرور تا routeها</h2>
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">۱. شروع سرور</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/server.ts:6">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/server.ts:6</p>
+          <p class="mt-3 leading-8 text-slate-700">تابع <span class="term">createApp()</span> صدا زده می‌شود، سپس <span class="term">app.listen</span> سرور را روی port اجرا می‌کند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">۲. ساخت Express app</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:37">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/app.ts:37</p>
+          <p class="mt-3 leading-8 text-slate-700">در <span class="term">createApp</span> همه middlewareها، session store، routeها و error handlerها تنظیم می‌شوند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">۳. Middleware chain</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:62">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/app.ts:62</p>
+          <p class="mt-3 leading-8 text-slate-700">logging، compression، Helmet، CORS، JSON parser، session و CSRF قبل از routeها اجرا می‌شوند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">۴. وصل کردن routeها</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:93">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/app.ts:93</p>
+          <p class="mt-3 leading-8 text-slate-700">هر module روی prefix خودش نصب می‌شود؛ مثل <span class="term">/api/auth</span>، <span class="term">/api/documents</span> و <span class="term">/api/admin</span>.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace امنیت و login</h2>
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Login route</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:260">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/modules/auth/auth.routes.ts:260</p>
+          <p class="mt-3 leading-8 text-slate-700">ورود کاربر از این route شروع می‌شود: validate input، پیدا کردن user، بررسی password، session و audit.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Argon2 و lockout</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:285">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/modules/auth/auth.routes.ts:285</p>
+          <p class="mt-3 leading-8 text-slate-700">پسورد با <span class="term">argon2.verify</span> بررسی می‌شود و تلاش‌های ناکام باعث lock موقت حساب می‌شود.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Session و CSRF token</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:304">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/modules/auth/auth.routes.ts:304</p>
+          <p class="mt-3 leading-8 text-slate-700">بعد از login، session تازه ساخته می‌شود، <span class="term">userId</span> ذخیره می‌شود و CSRF token آماده می‌گردد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Auth middleware</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/auth.ts:23">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/middleware/auth.ts:23</p>
+          <p class="mt-3 leading-8 text-slate-700"><span class="term">requireAuth</span> session را بررسی می‌کند و user/roles را داخل <span class="term">response.locals</span> می‌گذارد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Role guard</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/auth.ts:69">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/middleware/auth.ts:69</p>
+          <p class="mt-3 leading-8 text-slate-700"><span class="term">requireAnyRole</span> برای routeهای admin استفاده می‌شود تا فقط roleهای مجاز دسترسی داشته باشند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">CSRF guard</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/csrf.ts:20">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/middleware/csrf.ts:20</p>
+          <p class="mt-3 leading-8 text-slate-700">برای درخواست‌های unsafe مثل <span class="term">POST</span> و <span class="term">PATCH</span>، header <span class="term">x-csrf-token</span> با session مقایسه می‌شود.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace دیتابیس و تنظیمات</h2>
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Environment schema</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/config/env.ts:6">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/config/env.ts:6</p>
+          <p class="mt-3 leading-8 text-slate-700">متغیرهای محیطی با Zod validate می‌شوند؛ اگر مقدار مهم غلط باشد، سیستم زودتر خطا می‌دهد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">MySQL pool</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/db/mysql.ts:7">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/db/mysql.ts:7</p>
+          <p class="mt-3 leading-8 text-slate-700">Connection pool باعث می‌شود درخواست‌ها connectionهای قابل استفاده مجدد داشته باشند، نه اینکه هر بار اتصال تازه بسازند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Create database script</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/scripts/create-database.cjs:5">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/scripts/create-database.cjs:5</p>
+          <p class="mt-3 leading-8 text-slate-700">دیتابیس MySQL را اگر وجود نداشته باشد ایجاد می‌کند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Migration runner</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/scripts/migrate-database.cjs:54">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/scripts/migrate-database.cjs:54</p>
+          <p class="mt-3 leading-8 text-slate-700">فایل‌های SQL را به ترتیب اجرا می‌کند و migrationهای اجراشده را در <span class="term">schema_migrations</span> ثبت می‌کند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Seed admin foundation</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/scripts/seed-database.cjs:38">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/scripts/seed-database.cjs:38</p>
+          <p class="mt-3 leading-8 text-slate-700">حساب admin، role، organization، unit، position و assignment اولیه را می‌سازد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Session table mapping</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:44">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/app.ts:44</p>
+          <p class="mt-3 leading-8 text-slate-700">Express session با MySQLStore به جدول <span class="term">sessions</span> وصل می‌شود.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace جواب، خطا و audit</h2>
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Standard success response</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/http.ts:3">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/shared/http.ts:3</p>
+          <p class="mt-3 leading-8 text-slate-700">جواب موفق معمولاً به شکل <span class="term">{ data: ... }</span> برمی‌گردد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Async route wrapper</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/async-handler.ts:15">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/shared/async-handler.ts:15</p>
+          <p class="mt-3 leading-8 text-slate-700">خطاهای async routeها را به Express error middleware می‌فرستد.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Central error handler</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/error-handler.ts:15">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/middleware/error-handler.ts:15</p>
+          <p class="mt-3 leading-8 text-slate-700">AppError، ZodError و خطای ناشناخته را به JSON error استاندارد تبدیل می‌کند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-lg font-black">Audit logging</h3>
+            <a class="code-link" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/audit.ts:13">Open in Cursor</a>
+          </div>
+          <p class="mt-3 ltr rounded-xl bg-slate-950 p-3 text-xs text-slate-100">server/src/shared/audit.ts:13</p>
+          <p class="mt-3 leading-8 text-slate-700">عملیات‌های مهم را با actor، assignment، action، entity، IP و user agent در <span class="term">audit_logs</span> ثبت می‌کند.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Routeهای کلیدی برای دفاع</h2>
+      <div class="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">GET /api/health</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">POST /api/auth/login</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">GET /api/auth/me</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">POST /api/auth/logout</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">POST /api/auth/change-password</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm text-slate-100">POST /api/auth/active-assignment</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

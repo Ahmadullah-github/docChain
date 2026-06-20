@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>نصرت‌الله - نقشه کد Staff Workflow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Code Map - Windows + VS Code</p>
+      <h1 class="mt-2 text-3xl font-black">نقشه کد Staff Document Workflow</h1>
+      <p class="mt-4 leading-8 text-slate-700">این نقشه از صفحه‌های staff تا routeهای backend و جدول‌های workflow را وصل می‌کند.</p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace اصلی: ایجاد و ارسال سند</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">DocumentCreatePage -> documentApi.create -> document.routes.ts POST / -> documents/document_versions -> DocumentDetailPage -> send/task/transmission</div>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Work Inbox</h3><p class="mt-3 leading-7 text-slate-700">نمایش work itemها و taskهای مربوط به assignment فعال.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/WorkPage.tsx" data-code-line="151">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/WorkPage.tsx:151</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Documents Registry</h3><p class="mt-3 leading-7 text-slate-700">لیست، filter، saved search، PDF و delete.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/DocumentsPage.tsx" data-code-line="156">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/DocumentsPage.tsx:156</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Create Document</h3><p class="mt-3 leading-7 text-slate-700">انتخاب document type/template، پر کردن fields، preview و upload attachment.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/DocumentCreatePage.tsx" data-code-line="119">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/DocumentCreatePage.tsx:119</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Edit Document</h3><p class="mt-3 leading-7 text-slate-700">ویرایش سند موجود با permission مناسب.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/DocumentEditPage.tsx" data-code-line="50">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/DocumentEditPage.tsx:50</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Document Detail</h3><p class="mt-3 leading-7 text-slate-700">مرکز عملیات سند: send، task complete، comment، attachment، preview، finalize و archive.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/DocumentDetailPage.tsx" data-code-line="1774">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/DocumentDetailPage.tsx:1774</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Structured Editor</h3><p class="mt-3 leading-7 text-slate-700">مدل content سند و تبدیل متن به ساختار قابل ذخیره.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/components/app/StructuredDocumentEditor.tsx" data-code-line="232">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/components/app/StructuredDocumentEditor.tsx:232</span></div></article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Frontend API clients</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">documentApi</h3><p class="mt-2 leading-7 text-slate-600">CRUD سند، send، finalize، archive، attachments و tasks.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/documents.ts" data-code-line="67">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/documents.ts:67</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">workspaceApi</h3><p class="mt-2 leading-7 text-slate-600">summary، work-items و targets برای inbox.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/workspace.ts" data-code-line="24">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/workspace.ts:24</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">transmissionApi</h3><p class="mt-2 leading-7 text-slate-600">ارسال رسمی، recipient status و renderهای transmission.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/transmissions.ts" data-code-line="49">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/transmissions.ts:49</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">notificationApi</h3><p class="mt-2 leading-7 text-slate-600">خواندن notification، unread count و preferences.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/notifications.ts" data-code-line="9">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/notifications.ts:9</span></div></div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Backend routes و services</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Document routes</h3><p class="mt-2 leading-7 text-slate-600">list، create، detail، send، finalize، archive، patch، attachment و task complete.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/documents/document.routes.ts" data-code-line="36">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/documents/document.routes.ts:36</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Workflow service</h3><p class="mt-2 leading-7 text-slate-600">منطق task action، status بعد از task و notificationهای workflow.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/documents/document-workflow-service.ts" data-code-line="52">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/documents/document-workflow-service.ts:52</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Workspace routes</h3><p class="mt-2 leading-7 text-slate-600">reference، summary، work-items و targets.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/workspace/workspace.routes.ts" data-code-line="12">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/workspace/workspace.routes.ts:12</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Transmission routes</h3><p class="mt-2 leading-7 text-slate-600">ارسال، recipient status، render و archive transmission.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/transmissions/transmission.routes.ts" data-code-line="16">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/transmissions/transmission.routes.ts:16</span></div></div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Database anchors</h2>
+      <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/002_document_system.up.sql" data-code-line="11">باز کردن migration</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/migrations/sql/002_document_system.up.sql:11</span></div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">documents</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_versions</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_tasks</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_workflow_events</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_attachments</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">transmissions</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">transmission_recipients</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">notifications</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_comments</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">saved_searches</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_renders</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">archive_records</span>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>حبیب‌الله - سوال و جواب Signatures و Walk-in</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-5xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Teacher-style Defense Q&A</p>
+      <h1 class="mt-2 text-3xl font-black">سوال و جواب دفاع - Signatures، Verification و Walk-in</h1>
+      <p class="mt-4 leading-8 text-slate-700">این سوال‌ها برای دفاع بخش امضا، شماره رسمی، تایید سند و صدور حضوری آماده شده‌اند.</p>
+    </section>
+
+    <section class="mt-6 space-y-3">
+      <h2 class="text-2xl font-black">Signature Concepts</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" open><summary class="font-black">۱. Signature Profile چیست؟</summary><p class="mt-3 leading-8 text-slate-700">جواب کوتاه: پروفایل امضای کاربر است. جواب عمیق: PIN hash، status، failed attempts و active signature asset را نگه می‌دارد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/pages/app/SignatureProfilePage.tsx" data-code-line="11">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/SignatureProfilePage.tsx:11</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲. فرق signature asset و signature event چیست؟</summary><p class="mt-3 leading-8 text-slate-700">asset تصویر ذخیره‌شده امضا است؛ event ثبت می‌کند که این امضا در چه سندی، توسط چه user و assignment استفاده شد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳. چرا PIN لازم است؟</summary><p class="mt-3 leading-8 text-slate-700">برای اینکه هر کسی با حساب باز نتواند امضا بزند. PIN یک تایید دوم برای action حساس امضا است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۴. چرا PIN را plain ذخیره نمی‌کنیم؟</summary><p class="mt-3 leading-8 text-slate-700">چون PIN محرمانه است. باید hash ذخیره شود تا اگر دیتابیس لو رفت، PIN اصلی قابل خواندن نباشد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۵. upload session موبایل برای چیست؟</summary><p class="mt-3 leading-8 text-slate-700">برای وقتی که کاربر می‌خواهد امضا را با موبایل عکس بگیرد و با token موقت به profile خود وصل کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۶. چرا امضا event log دارد؟</summary><p class="mt-3 leading-8 text-slate-700">برای accountability. بعدا می‌توان دید چه کسی، در چه زمان، با کدام assignment و روی کدام سند امضا کرده است.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Signing Flow و Security</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۷. جریان امضای سند چیست؟</summary><p class="mt-3 leading-8 text-slate-700">signing session ساخته می‌شود، PIN verify می‌شود، signature event ثبت می‌شود، و renderer امضا را در خروجی رسمی نشان می‌دهد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/signatures/signature.routes.ts" data-code-line="916">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/signature.routes.ts:916</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۸. task signing با document signing چه فرق دارد؟</summary><p class="mt-3 leading-8 text-slate-700">document signing مستقیم روی سند است؛ task signing وقتی است که امضا بخشی از یک task workflow باشد و task هم update شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۹. failed PIN attempts چرا ذخیره می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">برای lockout و تشخیص تلاش‌های مشکوک. اگر چندبار PIN غلط وارد شود، profile موقتا قفل می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۰. document hash در signature event چه فایده دارد؟</summary><p class="mt-3 leading-8 text-slate-700">برای پیوند امضا با محتوای همان نسخه سند. اگر محتوا تغییر کند، hash کمک می‌کند تفاوت قابل تشخیص باشد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۱. چرا signature asset encryption مهم است؟</summary><p class="mt-3 leading-8 text-slate-700">تصویر امضا حساس است. encrypt/store کمک می‌کند فایل خام امضا به سادگی قابل سوءاستفاده نباشد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/signatures/signature-assets.ts" data-code-line="35">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/signature-assets.ts:35</span></div></details>
+
+      <h2 class="pt-5 text-2xl font-black">Serial Numbers</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۲. serial rule چیست؟</summary><p class="mt-3 leading-8 text-slate-700">قانون تولید شماره رسمی سند است؛ format، scope، reset policy و padding را مشخص می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۳. نمونه format شماره رسمی چیست؟</summary><p class="mt-3 leading-8 text-slate-700"><span class="term">DOC-{YEAR}-{SEQUENCE}</span> یا ترکیب‌هایی با <span class="term">{ORG}</span> و <span class="term">{DOC}</span>. tokenها هنگام تولید با مقدار واقعی جایگزین می‌شوند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۴. scope در serial یعنی چه؟</summary><p class="mt-3 leading-8 text-slate-700">مشخص می‌کند sequence برای همه سیستم یکی باشد یا بر اساس سازمان، واحد، نوع سند یا ترکیب آن‌ها جدا شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۵. reset policy چیست؟</summary><p class="mt-3 leading-8 text-slate-700">مشخص می‌کند sequence سالانه، ماهانه یا هرگز reset شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۶. چرا serial assignment جدا ذخیره می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">برای اینکه شماره رسمی سند یکتا، قابل audit و قابل پیگیری باشد. سند نباید چند شماره رسمی متضاد بگیرد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/signatures/serial-assignment-service.ts" data-code-line="38">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/serial-assignment-service.ts:38</span></div></details>
+
+      <h2 class="pt-5 text-2xl font-black">Verification</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۷. verification token چیست؟</summary><p class="mt-3 leading-8 text-slate-700">یک token برای تایید اصالت سند است. معمولا در QR یا لینک public استفاده می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۸. چرا token hash ذخیره می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">مانند رمزها، بهتر است مقدار اصلی token در دیتابیس raw ذخیره نشود. سیستم token ورودی را hash و مقایسه می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۹. public verify route چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">token را می‌گیرد، سند مربوط را پیدا می‌کند و معلومات قابل نمایش برای تایید اصالت را برمی‌گرداند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/verification/document-verification.routes.ts" data-code-line="39">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/verification/document-verification.routes.ts:39</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۰. QR code در این بخش چه نقش دارد؟</summary><p class="mt-3 leading-8 text-slate-700">QR فقط شکل تصویری لینک تایید است. کاربر آن را scan می‌کند و به صفحه verification می‌رود.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Walk-in Issuance</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۱. Walk-in Issuance چیست؟</summary><p class="mt-3 leading-8 text-slate-700">جریان صدور سند برای مراجعه‌کننده حضوری که ممکن است user سیستم نباشد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/pages/app/WalkInIssuancePage.tsx" data-code-line="226">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/WalkInIssuancePage.tsx:226</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۲. چرا external persons داریم؟</summary><p class="mt-3 leading-8 text-slate-700">چون مراجعه‌کننده حضوری الزاما کارمند یا user سیستم نیست. معلومات او جدا از users ذخیره می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۳. document issuance request چه نگه می‌دارد؟</summary><p class="mt-3 leading-8 text-slate-700">نوع سند، requester، subject، taker، handled by assignment/unit، status و ارتباط با document ساخته‌شده.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۴. create linked document یعنی چه؟</summary><p class="mt-3 leading-8 text-slate-700">از معلومات درخواست حضوری، یک document واقعی در سیستم ساخته می‌شود تا از template، serial، print و archive استفاده کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۵. چرا print event ثبت می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">برای اینکه معلوم شود چه وقت، توسط چه assignment و چند نسخه سند چاپ شده است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۶. handover record چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ثبت اینکه سند چاپ‌شده به چه کسی، چه وقت و توسط کدام کارمند تحویل داده شد.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Database و Demo</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۷. جدول‌های مهم امضا کدام‌اند؟</summary><p class="mt-3 leading-8 text-slate-700"><span class="term">signature_profiles</span>، <span class="term">signature_assets</span>، <span class="term">pin_verification_events</span> و <span class="term">signature_events</span>.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۸. جدول‌های مهم walk-in کدام‌اند؟</summary><p class="mt-3 leading-8 text-slate-700"><span class="term">external_persons</span>، <span class="term">document_issuance_requests</span>، <span class="term">document_print_events</span> و <span class="term">document_handover_records</span>.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/migrations/sql/004_walk_in_issuance.up.sql" data-code-line="4">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/migrations/sql/004_walk_in_issuance.up.sql:4</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۹. demo سریع برای این بخش چیست؟</summary><p class="mt-3 leading-8 text-slate-700">Signature profile را نشان دهید، serial rule preview را توضیح دهید، verification page را باز کنید و در walk-in wizard مراحل intake تا handover را نمایش دهید.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳۰. جمع‌بندی ۳۰ ثانیه‌ای شما چیست؟</summary><p class="mt-3 leading-8 text-slate-700">«این بخش رسمی بودن سند را کامل می‌کند. امضا با profile، PIN و event ثبت می‌شود؛ serial rule شماره رسمی می‌سازد؛ verification token اصالت سند را قابل بررسی می‌کند؛ و walk-in issuance درخواست حضوری، چاپ، تحویل و archive را ثبت می‌نماید.»</p></details>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

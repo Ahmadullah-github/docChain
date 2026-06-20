@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>احمدالله احمدی - سوال و جواب کامل Backend</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Tahoma, Arial, sans-serif; }
+    .ltr { direction: ltr; unicode-bidi: embed; text-align: left; }
+    .term { direction: ltr; unicode-bidi: embed; display: inline-block; }
+    .code-link { direction: ltr; unicode-bidi: embed; display: inline-flex; align-items: center; border-radius: 9999px; background: #0f172a; color: #fff; padding: .35rem .7rem; font-size: .75rem; font-weight: 700; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش عمیق</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Backend Defense Q&A</p>
+      <h1 class="mt-2 text-3xl font-black">سوال و جواب کامل برای دفاع احمدالله</h1>
+      <p class="mt-4 leading-8 text-slate-700">
+        این سوال‌ها را مثل متن حفظ نکنید. اول جواب کوتاه را تمرین کنید، بعد اگر استاد بیشتر پرسید، جواب عمیق را توضیح بدهید و در صورت نیاز با لینک Cursor فایل مربوطه را باز کنید.
+      </p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۱: معماری و ساختار پروژه</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱. Backend این پروژه دقیقاً چه مسؤولیتی دارد؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> Backend قوانین اصلی سیستم، امنیت، دیتابیس و APIها را مدیریت می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> فرانت‌اند request می‌فرستد، اما Backend تصمیم می‌گیرد کاربر اجازه دارد یا نه، input درست است یا نه، کدام SQL اجرا شود، audit log نوشته شود یا نه، و جواب به چه شکل برگردد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:37">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲. چرا modular monolith انتخاب شده است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> چون برای سیستم واحد پوهنتونی ساده‌تر و قابل مدیریت‌تر است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> همه featureها در یک سرور هستند، پس deploy ساده است؛ اما هر feature route جدا دارد، پس کد منظم می‌ماند. این انتخاب برای تیم کوچک و پروژه پوهنتونی منطقی است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:14">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳. سرور از کدام فایل شروع می‌شود؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> از <span class="term">server/src/server.ts</span>.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> این فایل <span class="term">createApp()</span> را صدا می‌زند، سرور را با <span class="term">app.listen</span> اجرا می‌کند، و برای shutdown درست، pool دیتابیس را می‌بندد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/server.ts:6">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۴. فایل <span class="term">app.ts</span> چه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> Express app را می‌سازد و middlewareها و routeها را وصل می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> در این فایل session store، CORS، Helmet، JSON parser، CSRF، routeهای featureها، static production frontend، not found و error handler تنظیم می‌شود.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:62">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۲: Middleware و Request Lifecycle</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۵. Middleware چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> کدی است که قبل یا بعد از route روی request اجرا می‌شود.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> Middleware می‌تواند request را log کند، body را parse کند، session را بخواند، امنیت را بررسی کند، یا خطا را به جواب JSON تبدیل کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:62">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۶. مسیر یک request در سرور چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> browser → Express app → middleware → router → دیتابیس → response.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> اول browser از API درخواست می‌فرستد. Express middlewareهای عمومی را اجرا می‌کند. سپس request به route مربوطه می‌رود. route SQL یا helper را اجرا می‌کند و در آخر JSON برمی‌گرداند.</p>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۷. چرا CORS لازم است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> تا browser فقط از origin مجاز به API درخواست بدهد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> چون frontend و backend ممکن است روی portهای جدا اجرا شوند. CORS مشخص می‌کند کدام origin اجازه دارد cookie/session را همراه request بفرستد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:67">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۸. Helmet برای چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> headerهای امنیتی HTTP را اضافه می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> Helmet کمک می‌کند بعضی خطرات عمومی وب مثل clickjacking یا headerهای ناامن کاهش یابد. در development، CSP خاموش شده تا Vite راحت‌تر کار کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:64">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۳: Authentication, Session و Password</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۹. Login چگونه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> identifier و password validate می‌شود، user پیدا می‌شود، password بررسی می‌شود، session ساخته می‌شود.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> route اول input را با Zod چک می‌کند، user را با email یا username پیدا می‌کند، lock و status را بررسی می‌کند، password را با Argon2 verify می‌کند، session را regenerate می‌کند، userId و activeAssignmentId را ذخیره می‌کند و CSRF token برمی‌گرداند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:260">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۰. چرا Argon2 استفاده شده است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> چون برای password hashing امن و مناسب است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> پسورد خام ذخیره نمی‌شود. فقط hash ذخیره می‌شود. هنگام login، پسورد واردشده با hash مقایسه می‌شود. Argon2 برای سخت‌تر کردن حمله به password hashها طراحی شده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:285">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۱. اگر password غلط باشد چه می‌شود؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> تعداد تلاش ناکام زیاد می‌شود و بعد از چند بار حساب موقتاً قفل می‌شود.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> کد failed_login_attempts را افزایش می‌دهد. اگر تعداد به ۵ برسد، locked_until برای ۱۵ دقیقه تنظیم می‌شود. این در برابر brute force کمک می‌کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:286">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۲. چرا session بعد از login regenerate می‌شود؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> برای امنیت بیشتر و جلوگیری از session fixation.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> اگر session قدیمی قبل از login وجود داشته باشد، بعد از login session تازه ساخته می‌شود تا attacker نتواند از session قبلی سوءاستفاده کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:43">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۳. active assignment چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> موقف یا وظیفه فعلی کاربر در سیستم است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> سیستم اداری فقط user ندارد؛ هر user به یک person و assignment وصل است. active assignment مشخص می‌کند کاربر در حال حاضر از طرف کدام position و unit عمل می‌کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:403">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۴. Logout چگونه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> audit log نوشته می‌شود و session destroy می‌شود.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> وقتی user logout می‌کند، سیستم action را ثبت می‌کند و session را از بین می‌برد تا cookie دیگر دسترسی نداشته باشد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:346">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۴: CSRF، Roles و امنیت</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۵. CSRF چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> حمله‌ای است که یک سایت دیگر از طرف کاربر login شده request می‌فرستد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> چون browser cookie را خودکار می‌فرستد، یک سایت مخرب می‌تواند تلاش کند request خطرناک بفرستد. CSRF token ثابت می‌کند request از frontend خود سیستم آمده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/csrf.ts:20">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۶. کدام methodها CSRF نیاز دارند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> POST، PUT، PATCH و DELETE.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> این methodها معلومات را تغییر می‌دهند. GET معمولاً فقط خواندن است، پس در این guard به عنوان unsafe method حساب نشده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/csrf.ts:5">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۷. چرا route login از CSRF معاف است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> چون کاربر قبل از login هنوز CSRF token ندارد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> بعد از login، token داخل session ساخته و به client داده می‌شود. پس خود login و forgot/reset password باید بدون token قابل اجرا باشند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/csrf.ts:6">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۸. requireAuth چه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> بررسی می‌کند کاربر login است و حسابش active است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> اگر session userId نداشته باشد، unauthorized می‌دهد. اگر user حذف یا inactive باشد، session destroy می‌شود. سپس roleها خوانده می‌شود و در response.locals قرار می‌گیرد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/auth.ts:23">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۱۹. requireAnyRole چه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> بررسی می‌کند user یکی از roleهای مجاز را دارد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> مثلاً routeهای admin فقط برای system_admin یا admin_staff باز است. اگر user role لازم نداشته باشد، forbidden برمی‌گردد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/auth.ts:69">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۵: Database، Migration و Seed</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۰. MySQL pool چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> مجموعه‌ای از connectionهای قابل استفاده مجدد به دیتابیس است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> ساختن connection برای هر request کند است. pool چند connection نگه می‌دارد و requestها از آنها استفاده می‌کنند. در production تعداد connection بیشتر تنظیم شده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/db/mysql.ts:7">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۱. env.ts چه مشکلی را حل می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> تنظیمات محیط را validate و centralize می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> با Zod مشخص می‌شود PORT عدد مثبت باشد، APP_ORIGIN URL باشد، SESSION_SECRET حداقل طول داشته باشد و defaultهای local development وجود داشته باشد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/config/env.ts:6">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۲. Migration چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> فایل‌هایی که ساختار دیتابیس را مرحله‌به‌مرحله می‌سازند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> migration باعث می‌شود همه اعضای تیم و سیستم deploy یک schema یکسان داشته باشند. script جدول schema_migrations می‌سازد تا بداند کدام migration قبلاً اجرا شده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/scripts/migrate-database.cjs:33">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۳. Seed چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> داده‌های اولیه لازم برای شروع سیستم را وارد دیتابیس می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> seed حساب admin، role، organization، unit، position، assignment و داده‌های پایه document reference را می‌سازد تا بعد از نصب بتوان login و کار کرد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/scripts/seed-database.cjs:38">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۴. جدول sessions برای چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> sessionهای login کاربران را ذخیره می‌کند.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> Express session با MySQLStore به جدول sessions وصل است. cookie فقط session id را نگه می‌دارد؛ data اصلی session در دیتابیس ذخیره می‌شود.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:44">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۶: Validation، Errors و Audit</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۵. چرا Zod استفاده شده است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> برای validate کردن inputهای request.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> اگر input نادرست باشد، قبل از اجرای منطق اصلی route خطا داده می‌شود. این کار هم امنیت را بهتر می‌کند و هم خطاها را قابل پیش‌بینی می‌سازد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:18">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۶. asyncHandler چه کار می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> خطاهای routeهای async را به error handler می‌فرستد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> اگر promise reject شود، بدون try/catch تکراری، خطا به next داده می‌شود و Express error middleware آن را مدیریت می‌کند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/async-handler.ts:15">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۷. AppError چیست؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> خطای قابل پیش‌بینی با status code و code مشخص است.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> به جای error عمومی، AppError مشخص می‌کند HTTP status و error code چه باشد؛ مثل unauthorized، forbidden یا invalid_credentials.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/errors.ts:21">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۸. errorHandler چند نوع خطا را مدیریت می‌کند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> AppError، ZodError و خطای ناشناخته.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> AppError با status خودش برمی‌گردد. ZodError به validation_failed با status 422 تبدیل می‌شود. خطای ناشناخته log می‌شود و status 500 می‌گیرد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/error-handler.ts:15">where in code?</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۲۹. Audit log چرا مهم است؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> برای پیگیری کارهای مهم کاربران.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> سیستم اداری باید traceable باشد. audit log ثبت می‌کند چه کسی، با کدام assignment، چه actionی را روی کدام entity انجام داده است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/shared/audit.ts:13">where in code?</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">گروه ۷: سوال‌های عملی و Demo</h2>
+      <div class="mt-5 space-y-4">
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۰. اگر استاد بگوید login را در کد نشان بده، چه می‌کنید؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> فایل <span class="term">auth.routes.ts</span> را باز می‌کنم و route <span class="term">POST /login</span> را نشان می‌دهم.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> از line 260 شروع می‌کنم؛ validate input، پیدا کردن user، password verification، lockout، session و audit را مرحله‌به‌مرحله توضیح می‌دهم.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/modules/auth/auth.routes.ts:260">open login code</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۱. اگر استاد بپرسد APIها کجا register شده‌اند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> در <span class="term">server/src/app.ts</span>.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> از line 93 به بعد، prefixهای routeها مثل <span class="term">/api/auth</span>، <span class="term">/api/documents</span> و <span class="term">/api/admin</span> به routerها وصل شده‌اند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:93">open route registration</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۲. اگر استاد بپرسد دیتابیس از کجا وصل می‌شود؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> از <span class="term">server/src/db/mysql.ts</span>.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> این فایل با استفاده از env config یک MySQL connection pool می‌سازد و همه routeها از همین pool برای query استفاده می‌کنند.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/db/mysql.ts:7">open mysql pool</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۳. اگر استاد بپرسد چطور پروژه را local اجرا کنیم؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> MySQL را اجرا می‌کنیم، دیتابیس را create/migrate/seed می‌کنیم، بعد <span class="term">npm run dev</span>.</p>
+          <div class="mt-3 ltr rounded-xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">npm run db:create
+npm run db:migrate
+npm run db:seed
+npm run dev</div>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۴. اگر استاد بپرسد خطاها چطور به frontend می‌رسند؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> به شکل JSON استاندارد با object خطا.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> errorHandler خطا را به ساختار <span class="term">{ error: { code, message, details } }</span> تبدیل می‌کند تا frontend بتواند پیام مناسب نشان دهد.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/middleware/error-handler.ts:15">open error handler</a>
+        </article>
+        <article class="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <h3 class="font-black">۳۵. اگر استاد بپرسد چرا از session به جای JWT استفاده شده؟</h3>
+          <p class="mt-3 leading-8 text-slate-700"><strong>جواب کوتاه:</strong> چون سیستم داخلی پوهنتونی است و session server-side کنترول و revoke آسان‌تر دارد.</p>
+          <p class="mt-2 leading-8 text-slate-600"><strong>جواب عمیق:</strong> session در MySQL ذخیره می‌شود، cookie فقط شناسه دارد، و سرور هر request را با دیتابیس/session store بررسی می‌کند. برای سیستم closed university این مدل ساده و قابل کنترول است.</p>
+          <a class="code-link mt-3" href="cursor://file/home/ahmad/Projects/DocChain/server/src/app.ts:73">open session config</a>
+        </article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

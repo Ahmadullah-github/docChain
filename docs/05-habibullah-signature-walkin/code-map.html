@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>حبیب‌الله - نقشه کد Signatures و Walk-in</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Code Map - Windows + VS Code</p>
+      <h1 class="mt-2 text-3xl font-black">نقشه کد Signatures، Verification و Walk-in Issuance</h1>
+      <p class="mt-4 leading-8 text-slate-700">این نقشه جریان امضا، شماره رسمی، تایید سند و صدور حضوری را از UI تا backend و دیتابیس نشان می‌دهد.</p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Traceهای اصلی</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">SignatureProfilePage -> signatureApi -> signature.routes.ts -> signature_profiles/signature_assets</div>
+        <div class="ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">WalkInIssuancePage -> walkInIssuanceApi -> walk-in routes -> issuance/print/handover tables</div>
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Signature Profile page</h3><p class="mt-3 leading-7 text-slate-700">ساخت profile، upload desktop، upload session موبایل و confirm upload.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/SignatureProfilePage.tsx" data-code-line="11">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/SignatureProfilePage.tsx:11</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Signature Image Editor</h3><p class="mt-3 leading-7 text-slate-700">crop، background، contrast و preview تصویر امضا قبل از ذخیره.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/components/app/SignatureImageEditor.tsx" data-code-line="15">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/components/app/SignatureImageEditor.tsx:15</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Phone upload page</h3><p class="mt-3 leading-7 text-slate-700">صفحه public برای آپلود امضا از موبایل با token موقت.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/SignatureUploadPage.tsx" data-code-line="10">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/SignatureUploadPage.tsx:10</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Verify Document page</h3><p class="mt-3 leading-7 text-slate-700">صفحه public برای بررسی token/QR سند رسمی.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/VerifyDocumentPage.tsx" data-code-line="8">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/VerifyDocumentPage.tsx:8</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Walk-in Issuance page</h3><p class="mt-3 leading-7 text-slate-700">wizard صدور حضوری: intake، create document، print، handover و archive.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/WalkInIssuancePage.tsx" data-code-line="226">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/WalkInIssuancePage.tsx:226</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Walk-in form helpers</h3><p class="mt-3 leading-7 text-slate-700">normalize، validate و build payload برای معلومات مراجعه‌کننده.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/app/walkInIssuanceUtils.ts" data-code-line="63">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/walkInIssuanceUtils.ts:63</span></div></article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">API و backend routes</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">signatureApi</h3><p class="mt-2 leading-7 text-slate-600">profile، upload sessions، sign document، serial rules.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/signatures.ts" data-code-line="60">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/signatures.ts:60</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Signature routes</h3><p class="mt-2 leading-7 text-slate-600">profile، confirm upload، signing session، sign، task sign و serial rules.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/signatures/signature.routes.ts" data-code-line="32">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/signatures/signature.routes.ts:32</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">walkInIssuanceApi</h3><p class="mt-2 leading-7 text-slate-600">document types، reference، requests، create document، print، handover و archive.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/walkInIssuance.ts" data-code-line="14">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/walkInIssuance.ts:14</span></div></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold">Walk-in routes</h3><p class="mt-2 leading-7 text-slate-600">request lifecycle و تمام actionهای صدور حضوری.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/walk-in-issuance/walk-in-issuance.routes.ts" data-code-line="20">VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/walk-in-issuance/walk-in-issuance.routes.ts:20</span></div></div>
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Signature asset service</h3><p class="mt-3 leading-7 text-slate-700">parse image، encrypt/store و decrypt signature file.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/signatures/signature-assets.ts" data-code-line="35">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/signature-assets.ts:35</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Serial numbering</h3><p class="mt-3 leading-7 text-slate-700">format، supported tokens، scope، reset policy و preview serial.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/signatures/serial-numbering.ts" data-code-line="28">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/serial-numbering.ts:28</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Serial assignment service</h3><p class="mt-3 leading-7 text-slate-700">اختصاص شماره رسمی به سند و update sequence.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/signatures/serial-assignment-service.ts" data-code-line="38">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/signatures/serial-assignment-service.ts:38</span></div></article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><h3 class="text-lg font-black">Verification routes</h3><p class="mt-3 leading-7 text-slate-700">public verify و ساخت verification token برای سند.</p><div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/verification/document-verification.routes.ts" data-code-line="39">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/verification/document-verification.routes.ts:39</span></div></article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Database anchors</h2>
+      <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/002_document_system.up.sql" data-code-line="85">Signature tables</a><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/004_walk_in_issuance.up.sql" data-code-line="4">Walk-in tables</a></div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">signature_profiles</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">signature_assets</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">pin_verification_events</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">signature_events</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">serial_rules</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">serial_sequences</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">serial_assignments</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_verification_tokens</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">signature_upload_sessions</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">external_persons</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_issuance_requests</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_handover_records</span>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

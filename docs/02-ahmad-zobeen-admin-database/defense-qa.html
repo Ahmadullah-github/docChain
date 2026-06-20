@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>احمد زوبین - سوال و جواب Admin و Database</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-5xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Teacher-style Defense Q&A</p>
+      <h1 class="mt-2 text-3xl font-black">سوال و جواب دفاع - Admin و Database</h1>
+      <p class="mt-4 leading-8 text-slate-700">این سوال‌ها برای تمرین شفاهی احمد زوبین است. هر جواب اول کوتاه گفته می‌شود، بعد اگر استاد توضیح بیشتر خواست، جواب عمیق‌تر ارائه می‌شود.</p>
+    </section>
+
+    <section class="mt-6 space-y-3">
+      <h2 class="text-2xl font-black">Architecture و نقش Admin</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" open><summary class="font-black">۱. بخش Admin در DocChain چه وظیفه دارد؟</summary><p class="mt-3 leading-8 text-slate-700">جواب کوتاه: ساختار اداری و کاربران را مدیریت می‌کند. جواب عمیق: Admin foundation سیستم است؛ سازمان، واحد، بست، شخص، حساب، نقش و نوع سند را آماده می‌کند تا workflow و امضا بتوانند درست کار کنند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲. چرا این بخش را از Staff Workflow جدا ساختید؟</summary><p class="mt-3 leading-8 text-slate-700">چون Admin کار تنظیمات و master data است، اما Staff Workflow کار روزانه سندهاست. جدا بودن باعث می‌شود صلاحیت‌ها واضح و تغییرات ساختاری کنترل‌شده باشد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳. مسیر یک action در صفحه Admin چگونه است؟</summary><p class="mt-3 leading-8 text-slate-700">صفحه React فرم را می‌گیرد، <span class="term">adminApi</span> درخواست می‌فرستد، route سرور داده را validate می‌کند، query به MySQL اجرا می‌شود و JSON برمی‌گردد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/api/admin.ts" data-code-line="189">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/api/admin.ts:189</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۴. چرا از API client مشترک استفاده شده؟</summary><p class="mt-3 leading-8 text-slate-700">تا همه صفحه‌های Admin با یک روش به backend وصل شوند. این کار تکرار fetch، query string و مدیریت response را کم می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۵. اگر استاد بپرسد «کدام فایل‌ها بخش شماست»، چه می‌گویید؟</summary><p class="mt-3 leading-8 text-slate-700">صفحه‌های Admin در <span class="term">client/src/pages/admin</span>، API client در <span class="term">client/src/api/admin.ts</span>، routeها در <span class="term">server/src/modules/admin</span> و schema اصلی در <span class="term">server/migrations/sql/001_core_system.up.sql</span>.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Database Model</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۶. فرق <span class="term">person</span> و <span class="term">user</span> چیست؟</summary><p class="mt-3 leading-8 text-slate-700">person هویت واقعی فرد است؛ user حساب login همان فرد است. جدا کردن آن‌ها باعث می‌شود معلومات اداری از معلومات امنیتی جدا بماند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/migrations/sql/001_core_system.up.sql" data-code-line="4">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/migrations/sql/001_core_system.up.sql:4</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۷. چرا assignment لازم است؟</summary><p class="mt-3 leading-8 text-slate-700">assignment مشخص می‌کند کدام شخص در کدام position فعال است. سندها به وظیفه اداری وابسته‌اند، نه فقط به حساب login.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۸. چرا units حالت hierarchy دارند؟</summary><p class="mt-3 leading-8 text-slate-700">چون ساختار پوهنتون سلسله‌مراتبی است. فیلد <span class="term">parent_unit_id</span> کمک می‌کند یک دیپارتمنت زیر یک پوهنځی و یک شعبه زیر یک ریاست ذخیره شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۹. role با position چه فرق دارد؟</summary><p class="mt-3 leading-8 text-slate-700">role صلاحیت امنیتی در سیستم است، مثل admin. position جایگاه اداری است، مثل مدیر دیپارتمنت. یک شخص می‌تواند position داشته باشد ولی role متفاوت بگیرد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۰. چرا foreign key استفاده شده؟</summary><p class="mt-3 leading-8 text-slate-700">برای جلوگیری از داده یتیم. مثلا assignment بدون person یا position نباید ساخته شود. foreign key همین رابطه را در سطح دیتابیس محافظت می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۱. چرا بعضی جدول‌ها status دارند؟</summary><p class="mt-3 leading-8 text-slate-700">برای غیرفعال کردن نرم اطلاعات بدون حذف فوری. مثلا user یا unit می‌تواند inactive شود اما تاریخچه سندها محفوظ بماند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۲. چرا unique index روی codeها مهم است؟</summary><p class="mt-3 leading-8 text-slate-700">کد سازمان، واحد یا بست باید تکراری نباشد تا سیستم هنگام جستجو، import و reference دادن دچار ابهام نشود.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Admin Screens</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۳. صفحه Organizations چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">ساخت و ویرایش organization و unit، نمایش hierarchy، assign head، export/import structure و حذف کنترل‌شده واحدها را انجام می‌دهد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/pages/admin/AdminOrganizationsPage.tsx" data-code-line="147">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminOrganizationsPage.tsx:147</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۴. صفحه Users چرا اول person می‌سازد؟</summary><p class="mt-3 leading-8 text-slate-700">چون user به person وصل است. بدون person، حساب login هویت واقعی و معلومات تماس ندارد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۵. صفحه Positions چه مفهوم مهمی دارد؟</summary><p class="mt-3 leading-8 text-slate-700">بست‌ها صلاحیت اداری را نشان می‌دهند. فیلدهایی مثل <span class="term">authority_level</span> و <span class="term">is_signing_authority</span> در workflow و signature مهم می‌شوند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۶. صفحه Assignments چه مشکل واقعی را حل می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">تغییرات وظیفه‌ای کارمندان را مدل می‌کند. یک شخص ممکن است امروز در یک بست و فردا در بست دیگر باشد؛ assignment این تاریخچه را قابل مدیریت می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۷. Document Types به کدام بخش‌ها وصل است؟</summary><p class="mt-3 leading-8 text-slate-700">به template binding، create document، serial rule و workflow. نوع سند تعیین می‌کند قالب و شماره‌دهی چگونه انتخاب شود.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Routes و Security</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۸. routeهای Admin کجا تعریف شده‌اند؟</summary><p class="mt-3 leading-8 text-slate-700">در <span class="term">server/src/modules/admin/admin.routes.ts</span>. این فایل endpointهای CRUD برای master data را نگه می‌دارد.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/admin/admin.routes.ts" data-code-line="17">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/admin/admin.routes.ts:17</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۹. چرا بعضی routeها role لازم دارند؟</summary><p class="mt-3 leading-8 text-slate-700">چون همه کاربران نباید بتوانند ساختار اداری یا نوع سند را تغییر دهند. role check جلوی دسترسی غیرمجاز را می‌گیرد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۰. validation در backend چرا لازم است وقتی frontend فرم دارد؟</summary><p class="mt-3 leading-8 text-slate-700">Frontend قابل دور زدن است. backend باید همیشه داده را دوباره بررسی کند تا درخواست خراب یا مخرب وارد دیتابیس نشود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۱. audit log در Admin چه فایده دارد؟</summary><p class="mt-3 leading-8 text-slate-700">تغییرات حساس مثل ساخت user، تغییر role یا حذف واحد قابل پیگیری می‌شود. در سیستم اداری accountability مهم است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۲. reset password در صفحه Admin چرا حساس است؟</summary><p class="mt-3 leading-8 text-slate-700">چون مدیر می‌تواند دسترسی کاربر را تغییر دهد. باید فقط نقش مجاز انجام دهد و بهتر است در audit log ثبت شود.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Migration و Import/Export</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۳. migration چیست؟</summary><p class="mt-3 leading-8 text-slate-700">فایل قابل اجرای تغییرات دیتابیس است. با migration، schema روی هر ماشین به شکل یکسان ساخته می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۴. seed با migration چه فرق دارد؟</summary><p class="mt-3 leading-8 text-slate-700">migration ساختار جدول‌ها را می‌سازد؛ seed داده اولیه مثل roles، admin user و نمونه‌های ضروری را وارد می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۵. import structure برای چیست؟</summary><p class="mt-3 leading-8 text-slate-700">برای وارد کردن ساختار بزرگ سازمانی از فایل workbook. سیستم اول preview می‌سازد تا خطاها دیده شود، بعد apply انجام می‌شود.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/admin/structure.routes.ts" data-code-line="298">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/admin/structure.routes.ts:298</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۶. چرا import اول preview دارد؟</summary><p class="mt-3 leading-8 text-slate-700">چون تغییر ساختار اداری پرخطر است. preview نشان می‌دهد چه recordهایی ایجاد یا update می‌شوند و خطاها قبل از ذخیره دیده می‌شود.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Demo و Troubleshooting</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۷. برای demo سریع چه چیزی نشان بدهید؟</summary><p class="mt-3 leading-8 text-slate-700">یک unit یا user بسازید و بگویید frontend درخواست را به adminApi می‌دهد، backend route آن را ذخیره می‌کند و جدول مربوط update می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۸. اگر ساخت user خطا بدهد، کجا را بررسی می‌کنید؟</summary><p class="mt-3 leading-8 text-slate-700">اول فرم و console، بعد <span class="term">adminApi</span>، بعد route <span class="term">/api/admin/users</span>، بعد unique constraintهای email و username در دیتابیس.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۹. اگر یک unit حذف نشود، دلیل احتمالی چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ممکن است unit فرزند، position یا document وابسته داشته باشد. foreign key یا منطق backend جلوی حذف خطرناک را می‌گیرد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳۰. جمع‌بندی ۳۰ ثانیه‌ای شما چیست؟</summary><p class="mt-3 leading-8 text-slate-700">«Admin و Database پایه، هویت اداری سیستم را می‌سازد. organizations و units ساختار پوهنتون اند؛ positions بست‌ها اند؛ persons افراد واقعی اند؛ users حساب ورود اند؛ assignments شخص را به وظیفه وصل می‌کند. این اطلاعات از صفحه‌های Admin به API، route و MySQL می‌رود.»</p></details>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

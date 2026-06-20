@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>احمد زوبین - نقشه کد Admin و Database</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Code Map - Windows + VS Code</p>
+      <h1 class="mt-2 text-3xl font-black">نقشه کد بخش Admin و SQL Database</h1>
+      <p class="mt-4 leading-8 text-slate-700">این صفحه مسیر دقیق frontend، API، backend route و SQL migration را نشان می‌دهد. دکمه‌های «باز کردن در VS Code» روی ویندوز مسیر فایل را از محل همین HTML می‌سازند.</p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace اصلی: ساخت یک کاربر</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">AdminUsersPage.tsx -> adminApi.users/persons -> /api/admin/users -> admin.routes.ts -> persons/users/user_roles</div>
+      <p class="mt-4 leading-8 text-slate-700">در دفاع، این trace را برای استاد توضیح دهید تا نشان بدهید صفحه، API و دیتابیس جدا اما متصل هستند.</p>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">صفحه سازمان و واحدها</h3>
+        <p class="mt-3 leading-7 text-slate-700">مدیریت organization، unit، hierarchy، import/export ساختار و head assignment.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminOrganizationsPage.tsx" data-code-line="147">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminOrganizationsPage.tsx:147</span>
+        </div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">صفحه کاربران</h3>
+        <p class="mt-3 leading-7 text-slate-700">ساخت person، ساخت user، نقش‌ها، assignment، reset password و status حساب.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminUsersPage.tsx" data-code-line="171">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminUsersPage.tsx:171</span>
+        </div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">صفحه بست‌ها</h3>
+        <p class="mt-3 leading-7 text-slate-700">تعریف position، authority level، signing authority، clone، edit و assign holder.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminPositionsPage.tsx" data-code-line="142">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminPositionsPage.tsx:142</span>
+        </div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">صفحه وظیفه‌ها</h3>
+        <p class="mt-3 leading-7 text-slate-700">وصل کردن person به position با تاریخ شروع، تاریخ ختم، status، primary و transfer.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminAssignmentsPage.tsx" data-code-line="133">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminAssignmentsPage.tsx:133</span>
+        </div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">نوع سندها</h3>
+        <p class="mt-3 leading-7 text-slate-700">تعریف <span class="term">document_types</span> و آماده‌سازی برای template، serial و workflow.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminDocumentTypesPage.tsx" data-code-line="499">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminDocumentTypesPage.tsx:499</span>
+        </div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Admin API در فرانت‌اند</h3>
+        <p class="mt-3 leading-7 text-slate-700">تمام صفحه‌های Admin به جای نوشتن fetch خام، از یک API client مشترک استفاده می‌کنند.</p>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/admin.ts" data-code-line="189">باز کردن در VS Code</a>
+          <span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/api/admin.ts:189</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Backend routes</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Admin Router</h3>
+          <p class="mt-2 leading-7 text-slate-600">Routeهای persons، users، organizations، units، positions، assignments و document types در این فایل قرار دارند.</p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/admin/admin.routes.ts" data-code-line="17">باز کردن در VS Code</a>
+            <span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/admin/admin.routes.ts:17</span>
+          </div>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Structure Import/Export</h3>
+          <p class="mt-2 leading-7 text-slate-600">دانلود template، export ساختار، preview import و apply import برای ساختار پوهنتون.</p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/admin/structure.routes.ts" data-code-line="262">باز کردن در VS Code</a>
+            <span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/admin/structure.routes.ts:262</span>
+          </div>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">GET /api/admin/users</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/admin/users</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">GET /api/admin/organizations</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/admin/units</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/admin/assignments</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/admin/structure/imports/preview</span>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">SQL tables و migration anchors</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Core schema</h3>
+          <p class="mt-2 leading-7 text-slate-600">جدول‌های پایه مثل persons، users، organizations، units، positions، assignments و document_types.</p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/001_core_system.up.sql" data-code-line="4">باز کردن در VS Code</a>
+            <span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/migrations/sql/001_core_system.up.sql:4</span>
+          </div>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Document write rules</h3>
+          <p class="mt-2 leading-7 text-slate-600">قانون اینکه کدام واحد یا position حق ایجاد نوع خاص سند را دارد.</p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/002_document_system.up.sql" data-code-line="372">باز کردن در VS Code</a>
+            <span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/migrations/sql/002_document_system.up.sql:372</span>
+          </div>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">persons</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">users</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">roles</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">organizations</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">unit_types</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">units</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">positions</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">assignments</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">assignment_status_history</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_types</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">document_write_rules</span>
+        <span class="ltr rounded-xl bg-slate-100 p-3 text-sm font-bold">audit_logs</span>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

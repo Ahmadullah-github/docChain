@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>نصرت‌الله - سوال و جواب Staff Workflow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-5xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Teacher-style Defense Q&A</p>
+      <h1 class="mt-2 text-3xl font-black">سوال و جواب دفاع - Staff Workflow</h1>
+      <p class="mt-4 leading-8 text-slate-700">این سوال‌ها برای دفاع بخش workflow کارمندان آماده شده‌اند.</p>
+    </section>
+
+    <section class="mt-6 space-y-3">
+      <h2 class="text-2xl font-black">Concept و Screens</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" open><summary class="font-black">۱. Staff Workflow چیست؟</summary><p class="mt-3 leading-8 text-slate-700">جواب کوتاه: جریان کار روزانه سندها برای کارمندان. جواب عمیق: ساخت، ارسال، بررسی، task، ضمیمه، comment، finalize و archive سند را مدل می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲. فرق Admin و Staff Workflow چیست؟</summary><p class="mt-3 leading-8 text-slate-700">Admin ساختار پایه و کاربران را تنظیم می‌کند؛ Staff Workflow از همان ساختار برای انجام کارهای واقعی سند استفاده می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳. Work Inbox چه مشکل را حل می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">کارمند همه کارهای مربوط به assignment فعال خود را در یکجا می‌بیند و لازم نیست تمام سندها را دستی جستجو کند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/pages/app/WorkPage.tsx" data-code-line="151">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/app/WorkPage.tsx:151</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۴. Documents page برای چیست؟</summary><p class="mt-3 leading-8 text-slate-700">برای registry سندها: لیست، جستجو، filter، saved search، sort، PDF و actionهای سند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۵. Document Detail چرا مهم‌ترین صفحه است؟</summary><p class="mt-3 leading-8 text-slate-700">چون بیشتر actionهای سند در آنجاست: ارسال، task، comment، attachment، preview، PDF، finalize و archive.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Document Lifecycle</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۶. چرخه اصلی سند چیست؟</summary><p class="mt-3 leading-8 text-slate-700">Draft، preview، send، task/review/edit/sign، finalize و archive. هر مرحله status و actionهای قابل انجام را تغییر می‌دهد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۷. سند draft یعنی چه؟</summary><p class="mt-3 leading-8 text-slate-700">سندی که ساخته شده اما هنوز رسمی یا نهایی نیست. معمولا قابل ویرایش و preview است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۸. send چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">سند را به واحد، position یا assignment دیگر می‌فرستد و workflow event/task یا transmission مرتبط ایجاد می‌کند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/documents/document.routes.ts" data-code-line="1705">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/documents/document.routes.ts:1705</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۹. finalize یعنی چه؟</summary><p class="mt-3 leading-8 text-slate-700">یعنی سند به حالت رسمی‌تر می‌رسد و معمولا برای شماره رسمی، امضا، چاپ یا آرشیف آماده می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۰. archive چرا جدا از delete است؟</summary><p class="mt-3 leading-8 text-slate-700">delete حذف می‌کند، اما archive نگهداری رسمی و تاریخی است. سند اداری معمولا باید قابل پیگیری بماند.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Tasks و Transmissions</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۱. task چیست؟</summary><p class="mt-3 leading-8 text-slate-700">یک کار مشخص روی سند است که به واحد، position یا assignment سپرده می‌شود. task می‌تواند review، edit، sign یا finalize بخواهد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۲. task complete چه پیامدی دارد؟</summary><p class="mt-3 leading-8 text-slate-700">status task تغییر می‌کند، response ثبت می‌شود و ممکن است status سند یا workflow summary update شود.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/documents/document.routes.ts" data-code-line="2534">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/documents/document.routes.ts:2534</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۳. transmission چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ثبت رسمی ارسال سند و recipientهای آن. برای پیگیری ارسال، دریافت و تکمیل استفاده می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۴. فرق task و transmission چیست؟</summary><p class="mt-3 leading-8 text-slate-700">task کار قابل انجام است؛ transmission record رسمی ارسال است. یک سند می‌تواند هم task داشته باشد هم transmission.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۵. چرا recipient status داریم؟</summary><p class="mt-3 leading-8 text-slate-700">چون هر گیرنده ممکن است در زمان متفاوت سند را دریافت، acknowledge یا complete کند.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Frontend و API</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۶. <span class="term">documentApi</span> چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">تمام actionهای سند مثل create، list، detail، update، send، finalize، archive، attachment و task را به backend وصل می‌کند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/api/documents.ts" data-code-line="67">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/api/documents.ts:67</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۷. Create page چگونه preview می‌گیرد؟</summary><p class="mt-3 leading-8 text-slate-700">template fields و layout را به template API می‌فرستد تا HTML preview برگردد و کارمند قبل از ذخیره نتیجه را ببیند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۸. attachment upload کجا انجام می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">در Document Detail یا Create، فایل با form-data به route upload سند فرستاده می‌شود و به <span class="term">document_attachments</span> وصل می‌گردد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۹. comments چه فایده دارند؟</summary><p class="mt-3 leading-8 text-slate-700">برای مکالمه داخلی درباره سند. هر comment به document و author assignment وصل است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۰. notifications چگونه به workflow کمک می‌کنند؟</summary><p class="mt-3 leading-8 text-slate-700">وقتی task یا سند به کارمند مربوط شود، notification او را آگاه می‌کند و سرعت پیگیری را بالا می‌برد.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Backend و Database</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۱. routeهای سند کجا هستند؟</summary><p class="mt-3 leading-8 text-slate-700">در <span class="term">server/src/modules/documents/document.routes.ts</span>. این فایل قلب backend سند است.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/documents/document.routes.ts" data-code-line="36">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/documents/document.routes.ts:36</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۲. جدول <span class="term">documents</span> چه نگه می‌دارد؟</summary><p class="mt-3 leading-8 text-slate-700">رکورد اصلی سند: subject، content، status، owner/current holder، document type، serial و زمان‌های finalize/archive.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۳. چرا <span class="term">document_versions</span> داریم؟</summary><p class="mt-3 leading-8 text-slate-700">برای نگهداری تاریخچه تغییرات محتوای سند. اگر سند ویرایش شود، نسخه قبلی قابل پیگیری می‌ماند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۴. workflow events برای چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ثبت timeline actionهای سند، مثل send، return، review، finalize یا archive. این برای audit و نمایش تاریخچه مهم است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۵. چرا actionها به assignment وصل هستند؟</summary><p class="mt-3 leading-8 text-slate-700">چون در اداره مهم است بدانیم شخص در کدام موقف اداری اقدام کرده، نه فقط با کدام حساب login وارد شده است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۶. workspace routes چه کار می‌کنند؟</summary><p class="mt-3 leading-8 text-slate-700">summary، work-items و targets را برای dashboard/inbox کارمند آماده می‌کنند.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Demo و Troubleshooting</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۷. demo سریع برای این بخش چیست؟</summary><p class="mt-3 leading-8 text-slate-700">یک سند draft بسازید، preview بگیرید، آن را به یک واحد ارسال کنید، task را در detail نشان دهید و سپس مسیر database را توضیح دهید.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۸. اگر سند در inbox دیده نشود، چه بررسی می‌کنید؟</summary><p class="mt-3 leading-8 text-slate-700">assignment فعال، target unit/position، task status، workspace API response و permissionهای سند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۹. اگر کاربر نتواند سند را edit کند، دلیل چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ممکن است status سند اجازه ندهد، user holder نباشد، task permission edit نداشته باشد، یا سند finalized/archive شده باشد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳۰. جمع‌بندی ۳۰ ثانیه‌ای شما چیست؟</summary><p class="mt-3 leading-8 text-slate-700">«Staff Workflow جریان واقعی سند را مدیریت می‌کند. کارمند سند می‌سازد، preview می‌گیرد، ارسال می‌کند، taskها انجام می‌شود، ضمیمه و comment اضافه می‌شود، و در آخر سند finalize و archive می‌شود. backend این مسیر را در documents، tasks، workflow events، transmissions و notifications نگه می‌دارد.»</p></details>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>منیر - سوال و جواب Templates</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-5xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Teacher-style Defense Q&A</p>
+      <h1 class="mt-2 text-3xl font-black">سوال و جواب دفاع - Templates</h1>
+      <p class="mt-4 leading-8 text-slate-700">تمرین برای توضیح قالب‌ها از دید frontend، backend، database و خروجی رسمی سند.</p>
+    </section>
+
+    <section class="mt-6 space-y-3">
+      <h2 class="text-2xl font-black">Concept و Architecture</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" open><summary class="font-black">۱. Template در این پروژه چیست؟</summary><p class="mt-3 leading-8 text-slate-700">جواب کوتاه: نقشه ظاهری سند رسمی است. جواب عمیق: template مشخص می‌کند محتوا، لوگو، جدول، امضا، QR و شماره رسمی در صفحه چگونه قرار بگیرند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲. چرا محتوا و ظاهر را جدا کردید؟</summary><p class="mt-3 leading-8 text-slate-700">چون کارمند باید متن سند را وارد کند، اما شکل رسمی سند باید توسط قالب قابل مدیریت باشد. این جداسازی تغییر طراحی را بدون تغییر منطق سند ممکن می‌سازد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳. lifecycle قالب چیست؟</summary><p class="mt-3 leading-8 text-slate-700">ساخت قالب، ویرایش layout، ذخیره نسخه، submit، review، approve، binding، preview و render به HTML/PDF.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۴. چرا template version دارید؟</summary><p class="mt-3 leading-8 text-slate-700">تا تغییرات قالب تاریخچه داشته باشد و نسخه approved از نسخه draft جدا بماند. این برای اسناد رسمی مهم است.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۵. اگر استاد بپرسد بخش شما کدام فایل‌هاست؟</summary><p class="mt-3 leading-8 text-slate-700">صفحه‌ها در <span class="term">client/src/pages/admin/templates</span>، API در <span class="term">client/src/api/templates.ts</span>، backend در <span class="term">server/src/modules/templates</span>، schema در migration دوم.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Frontend Builder</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۶. Template Builder از چه بخش‌هایی ساخته شده؟</summary><p class="mt-3 leading-8 text-slate-700">Canvas برای صفحه، ribbon برای ابزارها، rail/inspector برای تنظیمات، preview برای دیدن نتیجه و model helperها برای ساخت layout سالم.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/pages/admin/templates/WordTemplateDesigner.tsx" data-code-line="942">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/WordTemplateDesigner.tsx:942</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۷. <span class="term">TemplateLayout</span> چه مفهوم دارد؟</summary><p class="mt-3 leading-8 text-slate-700">یک object ساختاری است که اندازه صفحه، جهت متن، blockها، zones و تنظیمات سند را نگه می‌دارد. renderer همین object را می‌خواند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۸. Block چیست؟</summary><p class="mt-3 leading-8 text-slate-700">یک عنصر داخل قالب است، مثل متن، تصویر، جدول، QR، خط یا محل امضا. هر block موقعیت، اندازه و style خود را دارد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۹. Token چیست؟</summary><p class="mt-3 leading-8 text-slate-700">جای‌نگهدار برای داده متحرک است، مثلا تاریخ سند، شماره مسلسل، نام واحد یا امضای شخص. هنگام render مقدار واقعی جایگزین می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۰. چرا preview لازم است؟</summary><p class="mt-3 leading-8 text-slate-700">چون ادمین باید قبل از approve یا چاپ ببیند سند چگونه دیده می‌شود. Preview خطاهای layout را زودتر آشکار می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۱. چرا A4 مهم است؟</summary><p class="mt-3 leading-8 text-slate-700">اسناد رسمی معمولا چاپ می‌شوند. پس طراحی در browser باید تا حد ممکن با صفحه چاپی A4 هماهنگ باشد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۲. تصویر لوگو چگونه وارد قالب می‌شود؟</summary><p class="mt-3 leading-8 text-slate-700">از طریق asset upload در template API. فایل ذخیره می‌شود و layout فقط reference یا metadata آن را نگه می‌دارد.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Backend و API</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۳. <span class="term">templateApi</span> چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">Frontend را به routeهای template وصل می‌کند: list، create، update، preview، submit، clone، render و PDF.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="client/src/api/templates.ts" data-code-line="77">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/api/templates.ts:77</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۴. routeهای template کجا هستند؟</summary><p class="mt-3 leading-8 text-slate-700">در <span class="term">server/src/modules/templates/template.routes.ts</span>. هم routeهای کاربر و هم routeهای admin template در همین module تعریف شده‌اند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۵. preview route چه کار می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">layout موقت را می‌گیرد و بدون اینکه حتما قالب نهایی شود، خروجی preview تولید می‌کند. برای تست سریع builder استفاده می‌شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۶. submit route چرا جداست؟</summary><p class="mt-3 leading-8 text-slate-700">چون ذخیره draft با درخواست review فرق دارد. submit یعنی کاربر آماده است قالب بررسی شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۷. approve و reject چرا admin route هستند؟</summary><p class="mt-3 leading-8 text-slate-700">چون تایید قالب رسمی باید صلاحیت مدیریتی داشته باشد. هر سازنده قالب نباید خودش قالب را رسمی کند.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/templates/template.routes.ts" data-code-line="1374">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/templates/template.routes.ts:1374</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۸. binding چیست؟</summary><p class="mt-3 leading-8 text-slate-700">وصل کردن یک template approved به document type. بعد از binding، سیستم می‌داند هنگام ساخت یک نوع سند کدام قالب را پیشنهاد کند.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Rendering و PDF</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۱۹. Renderer چه ورودی‌هایی دارد؟</summary><p class="mt-3 leading-8 text-slate-700">layout قالب و context سند، شامل subject، تاریخ، متن، fieldها، امضاها، شماره رسمی و verification URL.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۰. HTML render با PDF render چه فرق دارد؟</summary><p class="mt-3 leading-8 text-slate-700">HTML برای preview و نمایش سریع است؛ PDF برای دانلود، چاپ و آرشیف رسمی مناسب‌تر است.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/src/modules/templates/template-renderer.ts" data-code-line="1337">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/templates/template-renderer.ts:1337</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۱. چرا renderer باید امن باشد؟</summary><p class="mt-3 leading-8 text-slate-700">چون متن سند و fieldها می‌توانند user input باشند. renderer باید خروجی را کنترل کند تا HTML خراب یا ناامن تولید نشود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۲. QR و verification در template کجا استفاده می‌شوند؟</summary><p class="mt-3 leading-8 text-slate-700">قالب جای QR را مشخص می‌کند، اما token verification از بخش verification می‌آید. renderer این URL را داخل خروجی رسمی قرار می‌دهد.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Database</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۳. جدول <span class="term">document_templates</span> برای چیست؟</summary><p class="mt-3 leading-8 text-slate-700">رکورد اصلی قالب را نگه می‌دارد: owner، status، visibility و current version.</p><div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-3 py-2 text-xs font-bold text-white" data-code-path="server/migrations/sql/002_document_system.up.sql" data-code-line="261">VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/migrations/sql/002_document_system.up.sql:261</span></div></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۴. جدول version چه چیزی ذخیره می‌کند؟</summary><p class="mt-3 leading-8 text-slate-700">layout JSON، شماره version، وضعیت review، submit/review info و تاریخچه قالب.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۵. جدول bindings چرا جداست؟</summary><p class="mt-3 leading-8 text-slate-700">چون یک قالب می‌تواند جدا از نوع سند ساخته شود و بعدا به یک یا چند context وصل گردد. جدا بودن binding انعطاف می‌دهد.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۶. layout draft چه فایده دارد؟</summary><p class="mt-3 leading-8 text-slate-700">برای سندهای در حال کار، تغییرات layout موقت ذخیره می‌شود تا کاربر preview و ادامه کار را از دست ندهد.</p></details>
+
+      <h2 class="pt-5 text-2xl font-black">Demo و دفاع عملی</h2>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۷. demo سریع برای Templates چیست؟</summary><p class="mt-3 leading-8 text-slate-700">یک قالب را باز کنید، یک block یا token اضافه کنید، preview بگیرید و توضیح دهید که layout به backend می‌رود و renderer خروجی تولید می‌کند.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۸. اگر preview کار نکند، از کجا شروع می‌کنید؟</summary><p class="mt-3 leading-8 text-slate-700">اول browser console، بعد payload layout، بعد <span class="term">templateApi.preview</span>، بعد route preview و renderer backend.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۲۹. اگر PDF با preview فرق کند، دلیل چیست؟</summary><p class="mt-3 leading-8 text-slate-700">PDF engine ممکن است margin، font یا اندازه صفحه را کمی متفاوت interpret کند. باید CSS چاپ و A4 constraints بررسی شود.</p></details>
+      <details class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200"><summary class="font-black">۳۰. جمع‌بندی ۳۰ ثانیه‌ای شما چیست؟</summary><p class="mt-3 leading-8 text-slate-700">«Templates ظاهر سند رسمی را از محتوای سند جدا می‌کند. Builder قالب را به شکل layout JSON می‌سازد، نسخه‌ها قابل review هستند، قالب approved به document type bind می‌شود و renderer از layout و داده سند HTML/PDF رسمی تولید می‌کند.»</p></details>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

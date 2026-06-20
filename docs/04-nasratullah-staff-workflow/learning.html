@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>نصرت‌الله - آموزش عمیق Staff Workflow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}details>summary{cursor:pointer}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="code-map.html">نقشه کد</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Nasratullah Joya - Staff Document Workflow</p>
+      <h1 class="mt-2 text-3xl font-black">مینی کورس دفاع: جریان کاری سند برای کارمندان</h1>
+      <p class="mt-4 leading-8 text-slate-700">نصرت‌الله مسؤول توسعه و دفاع این بخش است. بخش مربوط به این عضو تیم جریان واقعی کار اداری را پوشش می‌دهد: inbox، ساخت سند، ویرایش، ارسال، task، ضمیمه، comment، notification، finalize و archive.</p>
+      <div class="mt-5 rounded-2xl bg-cyan-50 p-4 text-sm leading-7 text-cyan-950">جمله شروع دفاع: «من بخش workflow کارمندان را توضیح می‌دهم؛ این بخش نشان می‌دهد سند از draft تا ارسال، بررسی، نهایی‌سازی و آرشیف چگونه حرکت می‌کند.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 lg:grid-cols-3">
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۱. Staff Workspace چیست؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">محیط کاری کارمند است. کارمند بر اساس assignment فعال خود work itemها، taskها، سندهای مربوط، notificationها و مسیرهای ارسال را می‌بیند.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۲. Workflow چیست؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">workflow یعنی سند فقط ذخیره نمی‌شود؛ از یک واحد یا شخص به دیگری حرکت می‌کند، task ایجاد می‌شود، پاسخ ثبت می‌گردد و وضعیت سند تغییر می‌کند.</p>
+      </div>
+      <div class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-xl font-black">۳. چرا این بخش مهم است؟</h2>
+        <p class="mt-4 leading-8 text-slate-700">چون کاربران عادی پروژه بیشتر همین بخش را استفاده می‌کنند. اگر workflow درست باشد، سیستم واقعیت کار اداری پوهنتون را مدل می‌کند.</p>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">لکچر ۱: چرخه اصلی سند</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">Draft -> Preview -> Send -> Task -> Review/Edit/Sign -> Finalize -> Archive</div>
+      <p class="mt-4 leading-8 text-slate-700">سند اول draft است. کارمند content و template fields را پر می‌کند. بعد سند می‌تواند به واحد یا شخص دیگر ارسال شود. ارسال معمولا task یا transmission می‌سازد. وقتی کار تکمیل شد، سند finalize و در نهایت archive می‌شود.</p>
+      <div class="mt-4 rounded-2xl bg-cyan-50 p-4 leading-7 text-cyan-950">روش گفتن به استاد: «status سند فقط متن نمایشی نیست؛ هر status نتیجه یک action در workflow است و روی دکمه‌های قابل انجام اثر می‌گذارد.»</div>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۲: Work Inbox</h2>
+        <p class="mt-4 leading-8 text-slate-700">Work Inbox خلاصه کارهای فعال را نشان می‌دهد: taskهای باز، سندهای منتظر اقدام، work itemهای مربوط به واحد و لینک به جزئیات سند. این صفحه برای شروع روز کاری کارمند است.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۳: Document Registry</h2>
+        <p class="mt-4 leading-8 text-slate-700">Documents page لیست سندها را با scope، جستجو، filter، sort، saved search و actionهای مثل PDF یا delete مدیریت می‌کند. این صفحه برای پیدا کردن و مرور اسناد است.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۴: Create و Edit سند</h2>
+        <p class="mt-4 leading-8 text-slate-700">در صفحه create، کارمند نوع سند و template را انتخاب می‌کند، fieldهای لازم را پر می‌کند، preview می‌گیرد و فایل ضمیمه می‌کند. صفحه edit برای تغییر سند موجود قبل از نهایی شدن استفاده می‌شود.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۵: Document Detail</h2>
+        <p class="mt-4 leading-8 text-slate-700">مهم‌ترین صفحه staff است. ارسال سند، complete task، comments، attachments، preview رسمی، PDF، finalize، archive و بعضی جریان‌های امضا در همین صفحه دیده می‌شوند.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۶: Tasks</h2>
+        <p class="mt-4 leading-8 text-slate-700">Task یعنی درخواست کار روی سند. هر task می‌تواند actionهای مختلف داشته باشد: review، edit، sign، forward، finalize یا archive. وقتی task تکمیل می‌شود، سیستم status و workflow summary را update می‌کند.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۷: Transmissions</h2>
+        <p class="mt-4 leading-8 text-slate-700">Transmission جریان رسمی ارسال سند است. می‌تواند به واحد داخلی، assignment مشخص یا گیرنده بیرونی برود. recipientها status جدا دارند تا دریافت و تکمیل قابل پیگیری باشد.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid gap-5 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۸: Attachments و Comments</h2>
+        <p class="mt-4 leading-8 text-slate-700">Attachment فایل‌های ضمیمه سند را نگه می‌دارد. Comment مکالمه داخلی درباره سند است. هر دو به سند وصل‌اند و در دفاع باید بگویید برای collaboration اداری استفاده می‌شوند.</p>
+      </article>
+      <article class="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+        <h2 class="text-2xl font-black">لکچر ۹: Notifications</h2>
+        <p class="mt-4 leading-8 text-slate-700">وقتی task یا سند به کارمند مربوط شود، notification ساخته می‌شود. هدف این است که کارمند مجبور نباشد همه سندها را دستی بگردد.</p>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">دیتابیس Workflow</h2>
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">documents</h3><p class="mt-2 leading-7 text-slate-600">رکورد اصلی سند، status، owner، holder، subject، content و official serial.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_tasks</h3><p class="mt-2 leading-7 text-slate-600">کارهایی که برای سند به واحد، position یا assignment سپرده می‌شود.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_workflow_events</h3><p class="mt-2 leading-7 text-slate-600">تاریخچه actionها و تغییرات workflow.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">transmissions</h3><p class="mt-2 leading-7 text-slate-600">ارسال رسمی سند و recipientهای مربوط.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">document_attachments</h3><p class="mt-2 leading-7 text-slate-600">فایل‌های ضمیمه سند.</p></div>
+        <div class="rounded-2xl bg-slate-50 p-4"><h3 class="font-bold term">notifications</h3><p class="mt-2 leading-7 text-slate-600">پیام‌های in-app برای کاربر و assignment.</p></div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">چک‌لیست مطالعه نصرت‌الله</h2>
+      <div class="mt-5 grid gap-3 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند چرخه draft تا archive را توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند فرق document، task و transmission را بگوید.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند نقش Document Detail page را توضیح دهد.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند بگوید assignment فعال چرا برای staff actions مهم است.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند مسیر frontend API تا backend route را دنبال کند.</div>
+        <div class="rounded-2xl bg-slate-50 p-4 leading-7">بتواند جداول workflow را با مثال عملی وصل کند.</div>
+      </div>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-slate-900 p-6 text-white shadow-sm">
+      <h2 class="text-2xl font-black">تمرین دفاع شفاهی</h2>
+      <p class="mt-4 leading-8 text-slate-200">«من بخش Staff Workflow را توضیح می‌دهم. کارمند از Work Inbox کارهای خود را می‌بیند، در Documents سندها را جستجو می‌کند، در Create سند draft می‌سازد، و در Detail سند را ارسال، بررسی، ضمیمه، comment، finalize یا archive می‌کند. backend این actionها را در documents، tasks، workflow events، transmissions و notifications ذخیره می‌کند.»</p>
+      <div class="mt-5 flex flex-wrap gap-3 text-sm">
+        <a class="rounded-full bg-cyan-500 px-4 py-2 font-bold text-white" href="code-map.html">رفتن به نقشه کد</a>
+        <a class="rounded-full bg-white px-4 py-2 font-bold text-slate-900" href="defense-qa.html">تمرین سوال و جواب</a>
+      </div>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>

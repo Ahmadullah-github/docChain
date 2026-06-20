@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>منیر - نقشه کد Templates</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{font-family:Tahoma,Arial,sans-serif}.ltr{direction:ltr;unicode-bidi:embed;text-align:left}.term{direction:ltr;unicode-bidi:embed;display:inline-block}
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900">
+  <main class="mx-auto max-w-6xl px-4 py-8">
+    <nav class="flex flex-wrap gap-3 text-sm font-bold">
+      <a class="text-cyan-700 hover:underline" href="../index.html">صفحه اصلی</a>
+      <a class="text-cyan-700 hover:underline" href="learning.html">آموزش</a>
+      <a class="text-cyan-700 hover:underline" href="defense-qa.html">سوال و جواب</a>
+    </nav>
+
+    <section class="mt-4 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <p class="text-sm font-bold text-cyan-700">Code Map - Windows + VS Code</p>
+      <h1 class="mt-2 text-3xl font-black">نقشه کد Templates، Builder و Rendering</h1>
+      <p class="mt-4 leading-8 text-slate-700">این نقشه نشان می‌دهد template از صفحه ادمین تا backend و دیتابیس چگونه حرکت می‌کند.</p>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">Trace اصلی: ساخت و render یک قالب</h2>
+      <div class="mt-4 ltr rounded-2xl bg-slate-950 p-4 text-sm leading-7 text-slate-100">AdminTemplatesPage -> WordTemplateDesigner -> templateApi -> template.routes.ts -> document_template_versions -> renderTemplateHtml -> renderHtmlToPdf</div>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Templates main page</h3>
+        <p class="mt-3 leading-7 text-slate-700">لیست، ساخت و ورود به builder قالب‌ها.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/AdminTemplatesPage.tsx" data-code-line="62">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/AdminTemplatesPage.tsx:62</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Template Library</h3>
+        <p class="mt-3 leading-7 text-slate-700">نمایش قالب‌های library و clone کردن قالب آماده.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/templates/AdminTemplateLibraryPage.tsx" data-code-line="17">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/AdminTemplateLibraryPage.tsx:17</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Word Template Designer</h3>
+        <p class="mt-3 leading-7 text-slate-700">بزرگ‌ترین بخش builder: canvas، token insertion، block drag/resize، image upload، table و styling.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/templates/WordTemplateDesigner.tsx" data-code-line="942">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/WordTemplateDesigner.tsx:942</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Builder model helpers</h3>
+        <p class="mt-3 leading-7 text-slate-700">ساخت layout پیش‌فرض، hydrate config، safe layout و blockهای اولیه.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/templates/templateBuilderModel.ts" data-code-line="104">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/templateBuilderModel.ts:104</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Preview components</h3>
+        <p class="mt-3 leading-7 text-slate-700">A4 preview، block labels، dynamic field labels و panel نمایش.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/templates/TemplatePreview.tsx" data-code-line="477">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/TemplatePreview.tsx:477</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Publish و Review</h3>
+        <p class="mt-3 leading-7 text-slate-700">ارسال، approve/reject، binding و تست render HTML/PDF.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/pages/admin/templates/AdminTemplatePublishPage.tsx" data-code-line="703">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">client/src/pages/admin/templates/AdminTemplatePublishPage.tsx:703</span></div>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+      <h2 class="text-2xl font-black">API و Backend</h2>
+      <div class="mt-5 grid gap-4 md:grid-cols-2">
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Frontend API</h3>
+          <p class="mt-2 leading-7 text-slate-600">تمام عملیات template در frontend از <span class="term">templateApi</span> عبور می‌کند.</p>
+          <div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="client/src/api/templates.ts" data-code-line="77">باز کردن در VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">client/src/api/templates.ts:77</span></div>
+        </div>
+        <div class="rounded-2xl bg-slate-50 p-4">
+          <h3 class="font-bold">Template routes</h3>
+          <p class="mt-2 leading-7 text-slate-600">ساخت، preview، submit، clone، layout draft، PDF، render، review queue و bindings.</p>
+          <div class="mt-3 flex flex-wrap gap-3"><a class="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/templates/template.routes.ts" data-code-line="25">باز کردن در VS Code</a><span class="ltr rounded-full bg-white px-3 py-2 text-xs font-bold">server/src/modules/templates/template.routes.ts:25</span></div>
+        </div>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/templates/preview</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/templates/:id/submit</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/templates/documents/:id/pdf</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/templates/documents/:id/render</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">GET /api/admin/templates/review-queue</span>
+        <span class="ltr rounded-xl bg-slate-950 p-3 text-sm text-slate-100">POST /api/admin/templates/bindings</span>
+      </div>
+    </section>
+
+    <section class="mt-6 grid gap-4 md:grid-cols-2">
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">HTML renderer</h3>
+        <p class="mt-3 leading-7 text-slate-700">layout و document context را به HTML رسمی تبدیل می‌کند.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/src/modules/templates/template-renderer.ts" data-code-line="1337">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/src/modules/templates/template-renderer.ts:1337</span></div>
+      </article>
+      <article class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+        <h3 class="text-lg font-black">Template database schema</h3>
+        <p class="mt-3 leading-7 text-slate-700">tables مخصوص template، versions، bindings و layout drafts.</p>
+        <div class="mt-4 flex flex-wrap gap-3"><a class="rounded-full bg-cyan-700 px-4 py-2 text-sm font-bold text-white" data-code-path="server/migrations/sql/002_document_system.up.sql" data-code-line="261">باز کردن در VS Code</a><span class="ltr rounded-full bg-slate-100 px-3 py-2 text-xs font-bold">server/migrations/sql/002_document_system.up.sql:261</span></div>
+      </article>
+    </section>
+  </main>
+  <script src="../assets/vscode-links.js"></script>
+</body>
+</html>
