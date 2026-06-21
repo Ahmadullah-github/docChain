@@ -97,6 +97,36 @@ export function withWordTemplateDocument(layout: TemplateLayout, document: TipTa
   };
 }
 
+function withoutInlineTemplateTables(node: TipTapNode): { node: TipTapNode | null; removed: number } {
+  if (["table", "tableRow", "tableCell", "tableHeader"].includes(node.type)) {
+    return { node: null, removed: node.type === "table" ? 1 : 0 };
+  }
+
+  let removed = 0;
+  const content = (node.content || []).flatMap((child) => {
+    const result = withoutInlineTemplateTables(child);
+    removed += result.removed;
+    return result.node ? [result.node] : [];
+  });
+  const next = { ...node };
+  if (node.content) {
+    next.content = content;
+  }
+  if (next.type === "doc" && !next.content?.length) {
+    next.content = [{ type: "paragraph" }];
+  }
+  return { node: next, removed };
+}
+
+export function stripInlineTablesFromWordLayout(layout: TemplateLayout) {
+  const source = layout.document || emptyWordTemplateDocument();
+  const result = withoutInlineTemplateTables(source);
+  return {
+    layout: withWordTemplateDocument(layout, result.node || emptyWordTemplateDocument()),
+    removedTableCount: result.removed
+  };
+}
+
 export function withWordTemplateDocumentType(layout: TemplateLayout, documentType: Pick<DocumentType, "code" | "id" | "name"> | null): TemplateLayout {
   return {
     ...layout,

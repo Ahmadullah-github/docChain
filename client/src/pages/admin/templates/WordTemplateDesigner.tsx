@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ChangeEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent, ReactNode } from "react";
-import { Extension, type ChainedCommands, type JSONContent } from "@tiptap/core";
+import type { CSSProperties, ChangeEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
+import { Extension, type ChainedCommands, type Editor, type JSONContent } from "@tiptap/core";
 import { NodeSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
-import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
 import ImageExtension from "@tiptap/extension-image";
 import { TextStyle } from "@tiptap/extension-text-style";
 import Color from "@tiptap/extension-color";
 import FontFamily from "@tiptap/extension-font-family";
 import Highlight from "@tiptap/extension-highlight";
-import UnderlineExtension from "@tiptap/extension-underline";
 import {
   AlignCenter,
   AlignJustify,
@@ -71,19 +69,23 @@ import {
   clampTableSelection,
   deleteTableColumn,
   deleteTableRow,
+  deleteTableTrackSize,
   equalTableTrackSizes,
   insertTableColumn,
   insertTableRow,
+  insertTableTrackSize,
   mergeTableCellRight,
   normalizeTableRows,
   normalizeTableTrackSizes,
   resizeVisualPercentTracks,
-  resizeVisualPixelTracks,
   serializeTableRows,
   splitTableCell,
+  tableInsertFrameAtPoint,
+  tableCellDocument,
   updateTableCell,
   visualTrackStopsPercent,
   type CellCoordinate,
+  type TableEditResult,
   type TableDirection
 } from "../templateTableUtils";
 import {
@@ -118,9 +120,9 @@ const maxImageBytes = 2 * 1024 * 1024;
 const a4WidthMm = 210;
 const a4HeightMm = 297;
 const defaultGridSizeMm = 5;
-const minInlineTableColumnPx = 32;
-const minInlineTableRowPx = 20;
 const minFloatingTableTrackPx = 20;
+const tablePickerColumns = 10;
+const tablePickerRows = 8;
 
 type ResizeHandle = "nw" | "ne" | "sw" | "se";
 type TableTrackAxis = "column" | "row";
@@ -136,6 +138,16 @@ type EdgeWarning = {
 type PlacementPointer = {
   x: number;
   y: number;
+};
+
+type TableInsertSize = {
+  columns: number;
+  headerRow: boolean;
+  rows: number;
+};
+
+type TablePlacementState = TableInsertSize & {
+  pointer: PlacementPointer | null;
 };
 
 type SmartGuideLine = {
@@ -206,58 +218,20 @@ type FloatingResizeState = FloatingDragState & {
   startWidth: number;
 };
 
-type InlineTableSelection = {
-  cell: CellCoordinate | null;
-  tableIndex: number;
-};
-
-type InlineTableMetrics = {
-  columnStopsMm: number[];
-  columnWidthsPx: number[];
-  heightMm: number;
-  rowCount: number;
-  rowHeightsPx: number[];
-  rowStopsMm: number[];
-  selectedCellRect?: {
-    heightMm: number;
-    widthMm: number;
-    xMm: number;
-    yMm: number;
-  };
-  tableIndex: number;
-  widthMm: number;
-  xMm: number;
-  yMm: number;
-};
-
 type TableTrackResizeState =
-  | {
-      axis: TableTrackAxis;
-      boundaryIndex: number;
-      pointerId: number;
-      source: "floating";
-      startClientX: number;
-      startClientY: number;
-      startColumnWidths: number[];
-      startRowHeights: number[];
-      tableHeightPx: number;
-      tableWidthPx: number;
-      blockId: string;
-    }
-  | {
-      axis: TableTrackAxis;
-      boundaryIndex: number;
-      pointerId: number;
-      source: "inline";
-      startClientX: number;
-      startClientY: number;
-      startColumnWidths: number[];
-      startDocument: TipTapNode;
-      startRowHeights: number[];
-      tableHeightPx: number;
-      tableIndex: number;
-      tableWidthPx: number;
-    };
+  {
+    axis: TableTrackAxis;
+    boundaryIndex: number;
+    pointerId: number;
+    source: "floating";
+    startClientX: number;
+    startClientY: number;
+    startColumnWidths: number[];
+    startRowHeights: number[];
+    tableHeightPx: number;
+    tableWidthPx: number;
+    blockId: string;
+  };
 
 function setPointerCaptureSafe(element: HTMLElement | null, pointerId: number) {
   try {
@@ -441,54 +415,6 @@ const LineHeight = Extension.create({
   }
 });
 
-const StyledTableCell = TableCell.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      backgroundColor: {
-        default: null,
-        parseHTML: (element) => element.style.backgroundColor || null,
-        renderHTML: (attributes) => attributes.backgroundColor ? { style: `background-color: ${attributes.backgroundColor}` } : {}
-      }
-    };
-  }
-});
-
-const StyledTableHeader = TableHeader.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      backgroundColor: {
-        default: null,
-        parseHTML: (element) => element.style.backgroundColor || null,
-        renderHTML: (attributes) => attributes.backgroundColor ? { style: `background-color: ${attributes.backgroundColor}` } : {}
-      }
-    };
-  }
-});
-
-const StyledTableRow = TableRow.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      height: {
-        default: null,
-        parseHTML: (element) => {
-          const raw = element.getAttribute("data-row-height") || element.style.height;
-          const numeric = Number(String(raw || "").replace(/[^\d.]/g, ""));
-          return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
-        },
-        renderHTML: (attributes) => {
-          const height = Number(attributes.height);
-          return Number.isFinite(height) && height > 0
-            ? { "data-row-height": String(Math.round(height)), style: `height:${Math.round(height)}px` }
-            : {};
-        }
-      }
-    };
-  }
-});
-
 const WordImageExtension = ImageExtension.extend({
   addAttributes() {
     return {
@@ -532,6 +458,7 @@ type WordTemplateDesignerProps = {
   detail: DocumentTemplateDetail | null;
   documentTypes: DocumentType[];
   error?: string | null;
+  notice?: string | null;
   layout: TemplateLayout;
   name: string;
   onBackToLibrary: () => void;
@@ -665,111 +592,6 @@ function RibbonTabButton({ active, label, onClick }: { active: boolean; label: s
   );
 }
 
-function setEqualTableWidthsInNode(node: TipTapNode): TipTapNode {
-  if (node.type === "table") {
-    const rows = node.content || [];
-    const columnCount = Math.max(1, ...(rows.map((row) => row.content?.length || 0)));
-    const columnWidth = Math.max(60, Math.round(640 / columnCount));
-    return {
-      ...node,
-      content: rows.map((row) => ({
-        ...row,
-        content: (row.content || []).map((cell) => ({
-          ...cell,
-          attrs: { ...(cell.attrs || {}), colwidth: Array(Number(cell.attrs?.colspan || 1)).fill(columnWidth) }
-        }))
-      }))
-    };
-  }
-  return node.content ? { ...node, content: node.content.map(setEqualTableWidthsInNode) } : node;
-}
-
-function tableColumnCountFromNode(table: TipTapNode) {
-  const firstRow = table.content?.[0];
-  return Math.max(1, (firstRow?.content || []).reduce((total, cell) => total + Math.max(1, Math.round(Number(cell.attrs?.colspan || cell.attrs?.colSpan || 1))), 0));
-}
-
-function tableRowCountFromNode(table: TipTapNode) {
-  return Math.max(1, table.content?.length || 1);
-}
-
-function columnWidthsFromTableNode(table: TipTapNode, fallbackWidths: number[]) {
-  const firstRow = table.content?.[0];
-  const widths: number[] = [];
-  (firstRow?.content || []).forEach((cell) => {
-    const colSpan = Math.max(1, Math.round(Number(cell.attrs?.colspan || cell.attrs?.colSpan || 1)));
-    const colwidth = Array.isArray(cell.attrs?.colwidth) ? cell.attrs?.colwidth : [];
-    for (let index = 0; index < colSpan; index += 1) {
-      const width = Number(colwidth[index]);
-      widths.push(Number.isFinite(width) && width > 0 ? width : fallbackWidths[widths.length] || 120);
-    }
-  });
-  return widths.length ? widths : fallbackWidths;
-}
-
-function rowHeightsFromTableNode(table: TipTapNode, fallbackHeights: number[]) {
-  const rows = table.content || [];
-  return rows.map((row, index) => {
-    const height = Number(row.attrs?.height);
-    return Number.isFinite(height) && height > 0 ? height : fallbackHeights[index] || minInlineTableRowPx;
-  });
-}
-
-function withInlineTableColumnWidths(table: TipTapNode, widths: number[]): TipTapNode {
-  return {
-    ...table,
-    content: (table.content || []).map((row) => {
-      let columnIndex = 0;
-      return {
-        ...row,
-        content: (row.content || []).map((cell) => {
-          const colSpan = Math.max(1, Math.round(Number(cell.attrs?.colspan || cell.attrs?.colSpan || 1)));
-          const colwidth = Array.from({ length: colSpan }, (_item, index) => Math.max(minInlineTableColumnPx, Math.round(widths[columnIndex + index] || minInlineTableColumnPx)));
-          columnIndex += colSpan;
-          return { ...cell, attrs: { ...(cell.attrs || {}), colwidth } };
-        })
-      };
-    })
-  };
-}
-
-function withInlineTableRowHeights(table: TipTapNode, heights: number[]): TipTapNode {
-  return {
-    ...table,
-    content: (table.content || []).map((row, index) => ({
-      ...row,
-      attrs: {
-        ...(row.attrs || {}),
-        height: Math.max(minInlineTableRowPx, Math.round(heights[index] || minInlineTableRowPx))
-      }
-    }))
-  };
-}
-
-function updateInlineTableByIndex(node: TipTapNode, tableIndex: number, updater: (table: TipTapNode) => TipTapNode, counter = { value: 0 }): TipTapNode {
-  if (node.type === "table") {
-    const currentIndex = counter.value;
-    counter.value += 1;
-    return currentIndex === tableIndex ? updater(node) : node;
-  }
-  return node.content ? { ...node, content: node.content.map((child) => updateInlineTableByIndex(child, tableIndex, updater, counter)) } : node;
-}
-
-function tableNodeAtIndex(node: TipTapNode, tableIndex: number, counter = { value: 0 }): TipTapNode | null {
-  if (node.type === "table") {
-    const currentIndex = counter.value;
-    counter.value += 1;
-    return currentIndex === tableIndex ? node : null;
-  }
-  for (const child of node.content || []) {
-    const found = tableNodeAtIndex(child, tableIndex, counter);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
-}
-
 function tableDirectionValue(direction: TemplateLayout["page"]["direction"]): TableDirection {
   return direction === "ltr" ? "ltr" : "rtl";
 }
@@ -833,9 +655,139 @@ function tokenLabel(token: string) {
     .replaceAll("_", " ");
 }
 
+function RichTableCellPreview({ document, placeholder }: { document: TipTapNode; placeholder?: string }) {
+  function renderNode(node: TipTapNode, key: string): ReactNode {
+    if (node.type === "text") {
+      let content: ReactNode = node.text || "";
+      (node.marks || []).forEach((mark, index) => {
+        if (mark.type === "bold") content = <strong key={`${key}-bold-${index}`}>{content}</strong>;
+        if (mark.type === "italic") content = <em key={`${key}-italic-${index}`}>{content}</em>;
+        if (mark.type === "underline") content = <u key={`${key}-underline-${index}`}>{content}</u>;
+        if (mark.type === "highlight") content = <mark key={`${key}-highlight-${index}`} style={{ backgroundColor: String(mark.attrs?.color || "#fef08a") }}>{content}</mark>;
+        if (mark.type === "textStyle") {
+          content = (
+            <span
+              key={`${key}-style-${index}`}
+              style={{
+                color: mark.attrs?.color ? String(mark.attrs.color) : undefined,
+                fontFamily: mark.attrs?.fontFamily ? String(mark.attrs.fontFamily) : undefined,
+                fontSize: mark.attrs?.fontSize ? String(mark.attrs.fontSize) : undefined
+              }}
+            >
+              {content}
+            </span>
+          );
+        }
+      });
+      return content;
+    }
+    if (node.type === "hardBreak") {
+      return <br key={key} />;
+    }
+    const children = (node.content || []).map((child, index) => renderNode(child, `${key}-${index}`));
+    if (node.type === "paragraph") {
+      return <p key={key} style={{ lineHeight: node.attrs?.lineHeight ? String(node.attrs.lineHeight) : undefined, textAlign: node.attrs?.textAlign as CSSProperties["textAlign"] }}>{children.length ? children : <br />}</p>;
+    }
+    if (node.type === "bulletList") return <ul key={key}>{children}</ul>;
+    if (node.type === "orderedList") return <ol key={key}>{children}</ol>;
+    if (node.type === "listItem") return <li key={key}>{children}</li>;
+    return <span key={key}>{children}</span>;
+  }
+
+  const content = (document.content || []).map((node, index) => renderNode(node, `cell-${index}`));
+  const hasText = JSON.stringify(document).includes('"text"');
+  return hasText ? <>{content}</> : <span className="select-none text-slate-400">{placeholder || "Write here"}</span>;
+}
+
+function FloatingTableCellEditor({
+  document,
+  onChange,
+  onExit,
+  onNavigate,
+  onReady
+}: {
+  document: TipTapNode;
+  onChange: (document: TipTapNode) => void;
+  onExit: () => void;
+  onNavigate: (direction: -1 | 1) => void;
+  onReady: (editor: Editor | null) => void;
+}) {
+  const lastDocumentRef = useRef(JSON.stringify(document));
+  const extensions = useMemo(() => [
+    StarterKit.configure({ blockquote: false, code: false, codeBlock: false, heading: false, horizontalRule: false, link: false, strike: false }),
+    TextStyle,
+    Color,
+    FontFamily,
+    FontSize,
+    LineHeight,
+    Highlight.configure({ multicolor: true }),
+    TextAlign.configure({ types: ["paragraph"] })
+  ], []);
+  const editor = useEditor({
+    content: document as JSONContent,
+    editorProps: {
+      attributes: {
+        class: "floating-table-cell-prose min-h-full w-full outline-none"
+      }
+    },
+    extensions,
+    immediatelyRender: false,
+    onUpdate: ({ editor: updatedEditor }) => {
+      const next = updatedEditor.getJSON() as TipTapNode;
+      lastDocumentRef.current = JSON.stringify(next);
+      onChange(next);
+    }
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    onReady(editor);
+    window.requestAnimationFrame(() => editor.commands.focus("end", { scrollIntoView: false }));
+    return () => onReady(null);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const incoming = JSON.stringify(document);
+    if (incoming !== lastDocumentRef.current) {
+      lastDocumentRef.current = incoming;
+      editor.commands.setContent(document as JSONContent);
+    }
+  }, [document, editor]);
+
+  return (
+    <div
+      className="h-full min-h-full w-full"
+      data-floating-table-cell-editor="true"
+      onKeyDown={(event) => {
+        if (event.key === "Tab") {
+          event.preventDefault();
+          event.stopPropagation();
+          onNavigate(event.shiftKey ? -1 : 1);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onExit();
+        } else {
+          event.stopPropagation();
+        }
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
 function FloatingTablePreview({
   block,
+  canEdit,
+  editingCell,
+  onCellChange,
+  onCellEditorReady,
+  onExitCell,
   onMoveTrackResize,
+  onNavigateCell,
   onSelectCell,
   onStartTrackResize,
   onStopTrackResize,
@@ -844,7 +796,13 @@ function FloatingTablePreview({
   selectedTable
 }: {
   block: TemplateBlock;
+  canEdit?: boolean;
+  editingCell?: CellCoordinate;
+  onCellChange?: (cell: CellCoordinate, document: TipTapNode) => void;
+  onCellEditorReady?: (editor: Editor | null) => void;
+  onExitCell?: () => void;
   onMoveTrackResize?: (event: PointerEvent<HTMLSpanElement>) => void;
+  onNavigateCell?: (direction: -1 | 1) => void;
   onSelectCell?: (cell: CellCoordinate) => void;
   onStartTrackResize?: (event: PointerEvent<HTMLSpanElement>, axis: TableTrackAxis, boundaryIndex: number) => void;
   onStopTrackResize?: (event: PointerEvent<HTMLSpanElement>) => void;
@@ -873,6 +831,7 @@ function FloatingTablePreview({
                 }
                 const CellTag = block.headerRow && rowIndex === 0 ? "th" : "td";
                 const cellStyle = cell.style || {};
+                const activeCell = Boolean(selectedTable && canEdit && editingCell?.row === rowIndex && editingCell.col === colIndex);
                 return (
                   <CellTag
                     className={cx("relative", selectedCell?.row === rowIndex && selectedCell.col === colIndex && "shadow-[inset_0_0_0_2px_#2563eb]")}
@@ -899,7 +858,18 @@ function FloatingTablePreview({
                       wordBreak: "break-word"
                     }}
                   >
-                    {cell.content || (CellTag === "th" ? `Header ${colIndex + 1}` : "")}
+                    {activeCell ? (
+                      <FloatingTableCellEditor
+                        document={tableCellDocument(cell)}
+                        key={`${block.id}-${rowIndex}-${colIndex}`}
+                        onChange={(document) => onCellChange?.({ col: colIndex, row: rowIndex }, document)}
+                        onExit={() => onExitCell?.()}
+                        onNavigate={(direction) => onNavigateCell?.(direction)}
+                        onReady={(editor) => onCellEditorReady?.(editor)}
+                      />
+                    ) : (
+                      <RichTableCellPreview document={tableCellDocument(cell)} placeholder={CellTag === "th" ? `Header ${colIndex + 1}` : "Write here"} />
+                    )}
                   </CellTag>
                 );
               })}
@@ -946,6 +916,7 @@ export function WordTemplateDesigner({
   detail,
   documentTypes,
   error,
+  notice,
   layout,
   name,
   onBackToLibrary,
@@ -959,6 +930,7 @@ export function WordTemplateDesigner({
 }: WordTemplateDesignerProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const replaceImageInputRef = useRef<HTMLInputElement | null>(null);
+  const tablePickerAnchorRef = useRef<HTMLDivElement | null>(null);
   const workAreaRef = useRef<HTMLElement | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const blockElementRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -984,16 +956,19 @@ export function WordTemplateDesigner({
   const [tableTrackResizeState, setTableTrackResizeState] = useState<TableTrackResizeState | null>(null);
   const [activeGuideBlock, setActiveGuideBlock] = useState<TemplateBlock | null>(null);
   const [activeTextEditBlockId, setActiveTextEditBlockId] = useState<string | null>(null);
+  const [activeTableCellEditor, setActiveTableCellEditor] = useState<Editor | null>(null);
   const [placementPointer, setPlacementPointer] = useState<PlacementPointer | null>(null);
   const [textPlacementMode, setTextPlacementMode] = useState(false);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
   const [placementDialog, setPlacementDialog] = useState<PlacementDialog | null>(null);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tablePickerSize, setTablePickerSize] = useState<TableInsertSize>({ columns: 3, headerRow: true, rows: 3 });
+  const [tablePlacement, setTablePlacement] = useState<TablePlacementState | null>(null);
   const [inlineImageSize, setInlineImageSize] = useState({ width: "", height: "" });
   const [selectionTick, setSelectionTick] = useState(0);
-  const [inlineTableSelection, setInlineTableSelection] = useState<InlineTableSelection | null>(null);
-  const [inlineTableMetrics, setInlineTableMetrics] = useState<InlineTableMetrics | null>(null);
   const [selectedTableCell, setSelectedTableCell] = useState<CellCoordinate>({ col: 0, row: 0 });
+  const [editingTableCell, setEditingTableCell] = useState<(CellCoordinate & { blockId: string }) | null>(null);
   const zones = wordTemplateZones(layout);
   const blocks = layout.blocks || [];
   const selectedBlock = selectedBlockId ? blocks.find((block) => block.id === selectedBlockId) || null : null;
@@ -1045,7 +1020,6 @@ export function WordTemplateDesigner({
     FontSize,
     LineHeight,
     Highlight.configure({ multicolor: true }),
-    UnderlineExtension,
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     WordImageExtension.configure({
       allowBase64: true,
@@ -1058,10 +1032,6 @@ export function WordTemplateDesigner({
         minWidth: 24
       }
     }),
-    Table.configure({ allowTableNodeSelection: true, cellMinWidth: minInlineTableColumnPx, resizable: false }),
-    StyledTableRow,
-    StyledTableHeader,
-    StyledTableCell,
     Placeholder.configure({ placeholder: "" })
   ], []);
 
@@ -1109,6 +1079,17 @@ export function WordTemplateDesigner({
   }, [editor, layout.document]);
 
   useEffect(() => {
+    if (activeTableCellEditor) {
+      const textStyle = activeTableCellEditor.getAttributes("textStyle") as { color?: string; fontFamily?: string; fontSize?: string };
+      const highlight = activeTableCellEditor.getAttributes("highlight") as { color?: string };
+      const paragraphAttrs = activeTableCellEditor.getAttributes("paragraph") as { lineHeight?: string };
+      setFontFamily(textStyle.fontFamily || defaultWordFontFamily);
+      setFontSize(textStyle.fontSize || "12pt");
+      setLineHeight(lineHeightLabel(paragraphAttrs.lineHeight));
+      setTextColor(textStyle.color || "#111827");
+      setHighlightColor(highlight.color || "#fef08a");
+      return;
+    }
     if (selectedBlock) {
       const style = blockStyleValue(selectedBlock);
       setFontFamily(style.fontFamily || defaultWordFontFamily);
@@ -1135,20 +1116,18 @@ export function WordTemplateDesigner({
       height: imageAttrs?.height ? String(Math.round(Number(imageAttrs.height))) : "",
       width: imageAttrs?.width ? String(Math.round(Number(imageAttrs.width))) : ""
     });
-  }, [editor, selectedBlock, selectionTick]);
+  }, [activeTableCellEditor, editor, selectedBlock, selectionTick]);
 
   useEffect(() => {
-    refreshInlineTableMetrics();
-  }, [inlineTableSelection, layout.document, pageZoom, selectionTick]);
-
-  useEffect(() => {
-    if (!inlineTableSelection) {
-      return undefined;
-    }
-    const handleResize = () => refreshInlineTableMetrics();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [inlineTableSelection]);
+    if (!activeTableCellEditor) return undefined;
+    const bumpSelection = () => setSelectionTick((current) => current + 1);
+    activeTableCellEditor.on("selectionUpdate", bumpSelection);
+    activeTableCellEditor.on("transaction", bumpSelection);
+    return () => {
+      activeTableCellEditor.off("selectionUpdate", bumpSelection);
+      activeTableCellEditor.off("transaction", bumpSelection);
+    };
+  }, [activeTableCellEditor]);
 
   useEffect(() => () => {
     if (pendingBlockFrameRef.current !== null) {
@@ -1231,7 +1210,7 @@ export function WordTemplateDesigner({
   }, [blocks, dragState, layout.page.direction, resizeState, tableTrackResizeState]);
 
   useEffect(() => {
-    if (!textPlacementMode) {
+    if (!textPlacementMode && !tablePlacement && !tablePickerOpen) {
       return undefined;
     }
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -1240,12 +1219,22 @@ export function WordTemplateDesigner({
       }
       event.preventDefault();
       setTextPlacementMode(false);
+      setTablePlacement(null);
+      setTablePickerOpen(false);
       setPlacementPointer(null);
-      showStatus("Text placement canceled.");
+      showStatus("Placement canceled.");
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [textPlacementMode]);
+  }, [tablePickerOpen, tablePlacement, textPlacementMode]);
+
+  useEffect(() => {
+    if (!tablePickerOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-table-picker-cell="${tablePickerSize.columns}-${tablePickerSize.rows}"]`)?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [tablePickerOpen]);
 
   function updateLayout(next: TemplateLayout) {
     preserveDesignerScroll(() => onLayoutChange(next));
@@ -1418,113 +1407,10 @@ export function WordTemplateDesigner({
     updateBlock(finalDraft.id, finalDraft);
   }
 
-  function editorRootElement() {
-    return pageRef.current?.querySelector(".word-template-prose") as HTMLElement | null;
-  }
-
-  function inlineTableElements() {
-    return Array.from(editorRootElement()?.querySelectorAll("table") || []) as HTMLTableElement[];
-  }
-
-  function measureInlineTable(selection = inlineTableSelection): InlineTableMetrics | null {
-    if (!selection || !pageRef.current) {
-      return null;
-    }
-    const table = inlineTableElements()[selection.tableIndex];
-    if (!table) {
-      return null;
-    }
-    const tableRect = table.getBoundingClientRect();
-    const pageRect = pageRef.current.getBoundingClientRect();
-    if (!tableRect.width || !tableRect.height || !pageRect.width || !pageRect.height) {
-      return null;
-    }
-    const documentNode = editor ? editor.getJSON() as TipTapNode : emptyDoc;
-    const tableNode = tableNodeAtIndex(documentNode, selection.tableIndex);
-    const domColumnWidths = Array.from(table.querySelectorAll("colgroup col")).map((col) => col.getBoundingClientRect().width).filter((width) => width > 0);
-    const fallbackColumnWidths = domColumnWidths.length
-      ? domColumnWidths
-      : Array.from(table.rows[0]?.cells || []).flatMap((cell) => Array.from({ length: Math.max(1, cell.colSpan) }, () => cell.getBoundingClientRect().width / Math.max(1, cell.colSpan)));
-    const fallbackRowHeights = Array.from(table.rows).map((row) => row.getBoundingClientRect().height);
-    const columnCount = tableNode ? tableColumnCountFromNode(tableNode) : Math.max(1, fallbackColumnWidths.length);
-    const rowCount = tableNode ? tableRowCountFromNode(tableNode) : Math.max(1, fallbackRowHeights.length);
-    const columnWidthsPx = tableNode ? columnWidthsFromTableNode(tableNode, fallbackColumnWidths) : fallbackColumnWidths;
-    const rowHeightsPx = tableNode ? rowHeightsFromTableNode(tableNode, fallbackRowHeights) : fallbackRowHeights;
-    const visualColumnWidths = tableDirectionValue(layout.page.direction) === "rtl" ? [...columnWidthsPx].reverse() : columnWidthsPx;
-    const selectedDomCell = selection.cell ? table.rows[selection.cell.row]?.cells[selection.cell.col] : null;
-    const selectedCellRect = selectedDomCell ? selectedDomCell.getBoundingClientRect() : null;
-    const columnStopsMm = visualColumnWidths.slice(0, -1).reduce<number[]>((stops, width) => {
-      stops.push(((stops[stops.length - 1] || 0) + width / tableRect.width * (tableRect.width / pageRect.width) * a4WidthMm));
-      return stops;
-    }, []);
-    const rowStopsMm = rowHeightsPx.slice(0, -1).reduce<number[]>((stops, height) => {
-      stops.push(((stops[stops.length - 1] || 0) + height / pageRect.height * a4HeightMm));
-      return stops;
-    }, []);
-    return {
-      columnStopsMm,
-      columnWidthsPx: Array.from({ length: columnCount }, (_item, index) => Math.max(minInlineTableColumnPx, columnWidthsPx[index] || tableRect.width / columnCount)),
-      heightMm: (tableRect.height / pageRect.height) * a4HeightMm,
-      rowCount,
-      rowHeightsPx: Array.from({ length: rowCount }, (_item, index) => Math.max(minInlineTableRowPx, rowHeightsPx[index] || tableRect.height / rowCount)),
-      rowStopsMm,
-      selectedCellRect: selectedCellRect ? {
-        heightMm: (selectedCellRect.height / pageRect.height) * a4HeightMm,
-        widthMm: (selectedCellRect.width / pageRect.width) * a4WidthMm,
-        xMm: ((selectedCellRect.left - pageRect.left) / pageRect.width) * a4WidthMm,
-        yMm: ((selectedCellRect.top - pageRect.top) / pageRect.height) * a4HeightMm
-      } : undefined,
-      tableIndex: selection.tableIndex,
-      widthMm: (tableRect.width / pageRect.width) * a4WidthMm,
-      xMm: ((tableRect.left - pageRect.left) / pageRect.width) * a4WidthMm,
-      yMm: ((tableRect.top - pageRect.top) / pageRect.height) * a4HeightMm
-    };
-  }
-
-  function refreshInlineTableMetrics(selection = inlineTableSelection) {
-    setInlineTableMetrics(measureInlineTable(selection));
-  }
-
-  function updateInlineTableDocument(tableIndex: number, updater: (table: TipTapNode) => TipTapNode, sourceDocument?: TipTapNode) {
-    if (!editor) {
-      return;
-    }
-    const baseDocument = sourceDocument || editor.getJSON() as TipTapNode;
-    const nextDocument = updateInlineTableByIndex(baseDocument, tableIndex, updater);
-    preserveDesignerScroll(() => {
-      editor.commands.setContent(nextDocument as JSONContent);
-      updateLayout(withWordTemplateDocument(layout, nextDocument));
-    });
-    window.requestAnimationFrame(() => refreshInlineTableMetrics({ tableIndex, cell: inlineTableSelection?.cell || null }));
-  }
-
-  function handleInlineEditorClick(event: ReactMouseEvent<HTMLDivElement>) {
-    const root = editorRootElement();
-    const target = event.target as HTMLElement | null;
-    const table = target?.closest("table") as HTMLTableElement | null;
-    if (!root || !table || !root.contains(table)) {
-      setInlineTableSelection(null);
-      setInlineTableMetrics(null);
-      return;
-    }
-    const tableIndex = inlineTableElements().indexOf(table);
-    if (tableIndex < 0) {
-      return;
-    }
-    const cellElement = target?.closest("td, th") as HTMLTableCellElement | null;
-    const cell = cellElement && table.contains(cellElement)
-      ? { col: Math.max(0, cellElement.cellIndex), row: Math.max(0, cellElement.parentElement ? Array.from(table.rows).indexOf(cellElement.parentElement as HTMLTableRowElement) : 0) }
-      : null;
-    const selection = { tableIndex, cell };
-    setSelectedBlockId(null);
-    setInlineTableSelection(selection);
-    if (cell) {
-      setSelectedTableCell(cell);
-    }
-    window.requestAnimationFrame(() => refreshInlineTableMetrics(selection));
-  }
-
   function updateSelectedBlockStyle(nextStyle: Partial<TemplateBlockStyle>) {
+    if (activeTableCellEditor && selectedBlock?.type === "table") {
+      return false;
+    }
     const block = editableSelectedBlock();
     if (!block) {
       return false;
@@ -1584,11 +1470,16 @@ export function WordTemplateDesigner({
   }
 
   function applyToCurrentTextRange(run: (chain: ChainedCommands) => boolean) {
-    if (!editor) {
+    const targetEditor = activeTableCellEditor || editor;
+    if (!targetEditor) {
       return false;
     }
-    const { selection } = editor.state;
-    const chain = editor.chain().focus(undefined, { scrollIntoView: false });
+    const { selection } = targetEditor.state;
+    const chain = targetEditor.chain().focus(undefined, { scrollIntoView: false });
+    if (activeTableCellEditor) {
+      run(chain);
+      return true;
+    }
     if (!selection.empty) {
       run(chain);
       return true;
@@ -1600,7 +1491,7 @@ export function WordTemplateDesigner({
     if (parentEnd > parentStart) {
       const cursor = selection.from;
       run(chain.setTextSelection({ from: parentStart, to: parentEnd }));
-      editor.commands.setTextSelection(cursor);
+      targetEditor.commands.setTextSelection(cursor);
       return true;
     }
 
@@ -1630,7 +1521,8 @@ export function WordTemplateDesigner({
     if (updateSelectedBlockStyle({ lineHeight: lineHeightNumber(next) })) {
       return;
     }
-    if (!editor?.can().setLineHeight(next)) {
+    const targetEditor = activeTableCellEditor || editor;
+    if (!targetEditor?.can().setLineHeight(next)) {
       showStatus("Place the cursor inside text or select a floating text object first.");
       return;
     }
@@ -1659,7 +1551,7 @@ export function WordTemplateDesigner({
   }
 
   function toggleBold() {
-    if (selectedBlock) {
+    if (selectedBlock && !activeTableCellEditor) {
       updateSelectedBlockStyle({ fontWeight: blockStyleValue(selectedBlock).fontWeight === "700" ? "400" : "700" });
       return;
     }
@@ -1667,7 +1559,7 @@ export function WordTemplateDesigner({
   }
 
   function toggleItalic() {
-    if (selectedBlock) {
+    if (selectedBlock && !activeTableCellEditor) {
       updateSelectedBlockStyle({ fontStyle: blockStyleValue(selectedBlock).fontStyle === "italic" ? "normal" : "italic" });
       return;
     }
@@ -1675,7 +1567,7 @@ export function WordTemplateDesigner({
   }
 
   function toggleUnderline() {
-    if (selectedBlock) {
+    if (selectedBlock && !activeTableCellEditor) {
       updateSelectedBlockStyle({ textDecoration: blockStyleValue(selectedBlock).textDecoration === "underline" ? "none" : "underline" });
       return;
     }
@@ -1683,7 +1575,7 @@ export function WordTemplateDesigner({
   }
 
   function applyAlignment(value: TextAlignment) {
-    if (selectedBlock) {
+    if (selectedBlock && !activeTableCellEditor) {
       updateSelectedBlockStyle({ textAlign: value === "justify" ? "start" : value });
       return;
     }
@@ -1691,11 +1583,12 @@ export function WordTemplateDesigner({
       updateInlineImageAttrs({ align: value });
       return;
     }
-    if (!editor?.can().setTextAlign(value)) {
+    const targetEditor = activeTableCellEditor || editor;
+    if (!targetEditor?.can().setTextAlign(value)) {
       showStatus("Place the cursor inside text or select a floating text object first.");
       return;
     }
-    focusEditorChain()?.setTextAlign(value).run();
+    targetEditor.chain().focus(undefined, { scrollIntoView: false }).setTextAlign(value).run();
   }
 
   function selectedInlineImageAttrs() {
@@ -1839,7 +1732,7 @@ export function WordTemplateDesigner({
       blocks: [...(nextLayout.blocks || []), nextBlock]
     });
     setSelectedBlockId(nextBlock.id);
-    setActiveRibbonTab("inspector");
+    setActiveRibbonTab("table");
     showStatus(`${blockLabel(nextBlock)} inserted as a floating object.`);
   }
 
@@ -1851,6 +1744,23 @@ export function WordTemplateDesigner({
   }
 
   function insertTokenWithPlacement(title: string, token: string, zone?: WordTemplateZone, floating?: Partial<TemplateBlock>) {
+    const table = selectedFloatingTable();
+    if (activeTableCellEditor && table) {
+      activeTableCellEditor.chain().focus(undefined, { scrollIntoView: false }).insertContent(token).run();
+      const rows = normalizeTableRows(table);
+      const result = updateTableCell(rows, selectedTableCell, {
+        content: "",
+        richContent: activeTableCellEditor.getJSON() as TipTapNode
+      });
+      let nextLayout: TemplateLayout = {
+        ...layout,
+        blocks: blocks.map((block) => block.id === table.id ? { ...block, rows: serializeTableRows(result.rows) } : block)
+      };
+      if (zone) nextLayout = upsertWordTemplateZone(nextLayout, zone);
+      updateLayout(nextLayout);
+      showStatus(`${title.replace(/^Insert\s+/i, "")} added to the selected table cell.`);
+      return;
+    }
     choosePlacement({
       description: "Inline becomes flowing Word content. Floating can be dragged and resized anywhere on the A4 page.",
       onFloating: () => {
@@ -2051,57 +1961,115 @@ export function WordTemplateDesigner({
     event.target.value = "";
   }
 
-  function equalizeColumns() {
-    if (!editor) {
-      return;
-    }
-    if (inlineTableSelection && inlineTableMetrics) {
-      const equalWidth = Math.max(minInlineTableColumnPx, Math.round(inlineTableMetrics.tableIndex >= 0 ? inlineTableMetrics.columnWidthsPx.reduce((sum, width) => sum + width, 0) / Math.max(1, inlineTableMetrics.columnWidthsPx.length) : 120));
-      const equalHeight = Math.max(minInlineTableRowPx, Math.round(inlineTableMetrics.rowHeightsPx.reduce((sum, height) => sum + height, 0) / Math.max(1, inlineTableMetrics.rowHeightsPx.length)));
-      updateInlineTableDocument(inlineTableSelection.tableIndex, (table) => withInlineTableRowHeights(withInlineTableColumnWidths(table, Array.from({ length: inlineTableMetrics.columnWidthsPx.length }, () => equalWidth)), Array.from({ length: inlineTableMetrics.rowHeightsPx.length }, () => equalHeight)));
-      return;
-    }
-    const next = setEqualTableWidthsInNode(editor.getJSON() as TipTapNode);
-    preserveDesignerScroll(() => {
-      editor.commands.setContent(next as JSONContent);
-      updateLayout(withWordTemplateDocument(layout, next));
+  function openTablePicker() {
+    if (disabled) return;
+    setTextPlacementMode(false);
+    setPlacementPointer(null);
+    setTablePlacement(null);
+    setTablePickerSize({ columns: 3, headerRow: true, rows: 3 });
+    setTablePickerOpen(true);
+  }
+
+  function beginTablePlacement(size = tablePickerSize) {
+    setTablePickerOpen(false);
+    setTextPlacementMode(false);
+    setPlacementPointer(null);
+    setSelectedBlockId(null);
+    setActiveTableCellEditor(null);
+    setTablePlacement({ ...size, pointer: null });
+    showStatus(`Move over the page and click to place a ${size.columns} × ${size.rows} table. Press Escape to cancel.`);
+  }
+
+  function tablePlacementBlock(state = tablePlacement): TemplateBlock | null {
+    if (!state?.pointer) return null;
+    const frame = tableInsertFrameAtPoint({
+      columns: state.columns,
+      pageHeightMm: a4HeightMm,
+      pageWidthMm: a4WidthMm,
+      rows: state.rows,
+      x: snapMm(state.pointer.x),
+      y: snapMm(state.pointer.y)
+    });
+    return clampBlock({
+      columnWidths: equalTableTrackSizes(state.columns),
+      headerRow: state.headerRow,
+      height: frame.height,
+      id: "table-placement-preview",
+      rowHeights: equalTableTrackSizes(state.rows),
+      rows: Array.from({ length: state.rows }, () => Array.from({ length: state.columns }, () => "")),
+      style: defaultBlockStyle({
+        backgroundColor: "#ffffff",
+        borderColor: "#94a3b8",
+        borderWidth: 1,
+        cellPaddingMm: 1.2,
+        headerBackgroundColor: "#f8fafc",
+        textAlign: "start"
+      }),
+      type: "table",
+      width: frame.width,
+      x: frame.x,
+      y: frame.y
     });
   }
 
-  function insertTableWithPlacement() {
-    choosePlacement({
-      description: "Inline tables flow inside the document. Floating tables can be placed like a form/table object.",
-      onFloating: () => {
-        setPlacementDialog(null);
-        addFloatingBlock({
-          headerRow: true,
-          height: 36,
-          rows: [
-            ["Header 1", "Header 2", "Header 3"],
-            ["", "", ""],
-            ["", "", ""]
-          ],
-          style: defaultBlockStyle({
-            backgroundColor: "#ffffff",
-            borderColor: "#94a3b8",
-            borderWidth: 1,
-            cellPaddingMm: 1.2,
-            headerBackgroundColor: "#f8fafc",
-            textAlign: "center"
-          }),
-          type: "table",
-          width: 118
-        });
-      },
-      onInline: () => {
-        preserveDesignerScroll(() => {
-          setPlacementDialog(null);
-          setSelectedBlockId(null);
-          focusEditorChain()?.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-        });
-      },
-      title: "Insert table"
-    });
+  function updateTablePlacementPointer(clientX: number, clientY: number) {
+    if (!tablePlacement) return;
+    const pointer = clientPointToPageMm(clientX, clientY);
+    if (pointer) setTablePlacement((current) => current ? { ...current, pointer } : null);
+  }
+
+  function placeTableAtPoint(event: PointerEvent<HTMLDivElement>) {
+    if (!tablePlacement || event.button !== 0) return;
+    const pointer = clientPointToPageMm(event.clientX, event.clientY);
+    const preview = tablePlacementBlock({ ...tablePlacement, pointer });
+    if (!preview) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextBlock = addFloatingBlock({ ...preview, id: newBlockId("table") });
+    setTablePlacement(null);
+    setSelectedTableCell({ col: 0, row: 0 });
+    setEditingTableCell({ blockId: nextBlock.id, col: 0, row: 0 });
+    setActiveRibbonTab("table");
+    showStatus(`${tablePlacement.columns} × ${tablePlacement.rows} table inserted. Start typing in the selected cell.`);
+    setSelectedBlockId(nextBlock.id);
+  }
+
+  function handleTablePickerKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const delta = event.key === "ArrowLeft" ? { columns: -1, rows: 0 }
+      : event.key === "ArrowRight" ? { columns: 1, rows: 0 }
+        : event.key === "ArrowUp" ? { columns: 0, rows: -1 }
+          : event.key === "ArrowDown" ? { columns: 0, rows: 1 }
+            : null;
+    if (delta) {
+      event.preventDefault();
+      const next = {
+        ...tablePickerSize,
+        columns: clampNumber(tablePickerSize.columns + delta.columns, 1, tablePickerColumns),
+        rows: clampNumber(tablePickerSize.rows + delta.rows, 1, tablePickerRows)
+      };
+      setTablePickerSize(next);
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLElement>(`[data-table-picker-cell="${next.columns}-${next.rows}"]`)?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      beginTablePlacement();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setTablePickerOpen(false);
+    }
+  }
+
+  function tablePickerPosition(): CSSProperties {
+    const rect = tablePickerAnchorRef.current?.getBoundingClientRect();
+    const width = 348;
+    return {
+      left: rect ? clampNumber(rect.left, 8, Math.max(8, window.innerWidth - width - 8)) : 16,
+      top: rect ? rect.bottom + 8 : 160,
+      width
+    };
   }
 
   function insertFloatingText() {
@@ -2121,6 +2089,8 @@ export function WordTemplateDesigner({
     }
     setTextPlacementMode((current) => {
       const next = !current;
+      setTablePickerOpen(false);
+      setTablePlacement(null);
       setPlacementPointer(null);
       setSelectedBlockId(null);
       setActiveTextEditBlockId(null);
@@ -2196,7 +2166,10 @@ export function WordTemplateDesigner({
     return selectedBlock?.type === "table" && canMutateBlock(selectedBlock) ? selectedBlock : null;
   }
 
-  function updateFloatingTableRows(run: (rows: ReturnType<typeof normalizeTableRows>) => ReturnType<typeof normalizeTableRows>) {
+  function updateFloatingTableRows(
+    run: (rows: ReturnType<typeof normalizeTableRows>) => TableEditResult,
+    trackChange?: "delete-column" | "delete-row" | "insert-column" | "insert-row"
+  ) {
     if (selectedBlock?.type === "table" && !canMutateBlock(selectedBlock)) {
       showStatus(selectedBlock.locked ? "Unlock this object before changing it." : "This template is read-only.");
       return false;
@@ -2206,13 +2179,58 @@ export function WordTemplateDesigner({
       return false;
     }
     const rows = normalizeTableRows(table);
-    const nextRows = run(rows);
-    setSelectedTableCell(clampTableSelection(nextRows, selectedTableCell));
-    updateBlock(table.id, { rows: serializeTableRows(nextRows) });
-    return true;
+    const result = run(rows);
+    const nextRows = normalizeTableRows(result.rows);
+    const oldColumnCount = rows[0]?.length || 1;
+    const oldRowCount = rows.length;
+    const patch: Partial<TemplateBlock> = { rows: serializeTableRows(nextRows) };
+    if (trackChange === "insert-column" && (nextRows[0]?.length || 1) > oldColumnCount) {
+      patch.columnWidths = insertTableTrackSize(table.columnWidths, oldColumnCount, result.selection.col);
+    } else if (trackChange === "delete-column" && (nextRows[0]?.length || 1) < oldColumnCount) {
+      patch.columnWidths = deleteTableTrackSize(table.columnWidths, oldColumnCount, selectedTableCell.col);
+    } else if (trackChange === "insert-row" && nextRows.length > oldRowCount) {
+      patch.rowHeights = insertTableTrackSize(table.rowHeights, oldRowCount, result.selection.row);
+    } else if (trackChange === "delete-row" && nextRows.length < oldRowCount) {
+      patch.rowHeights = deleteTableTrackSize(table.rowHeights, oldRowCount, selectedTableCell.row);
+    }
+    const nextSelection = clampTableSelection(nextRows, result.selection);
+    setSelectedTableCell(nextSelection);
+    setEditingTableCell({ ...nextSelection, blockId: table.id });
+    setActiveTableCellEditor(null);
+    updateBlock(table.id, patch);
+    return result;
   }
 
-  function runTableCommand(label: string, inlineCommand: () => void, floatingCommand?: () => boolean) {
+  function updateFloatingTableCellRichContent(cell: CellCoordinate, document: TipTapNode) {
+    const table = selectedFloatingTable();
+    if (!table) return;
+    const rows = normalizeTableRows(table);
+    const result = updateTableCell(rows, cell, { content: "", richContent: document });
+    updateBlock(table.id, { rows: serializeTableRows(result.rows) });
+  }
+
+  function navigateFloatingTableCell(direction: -1 | 1) {
+    const table = selectedFloatingTable();
+    if (!table) return;
+    const rows = normalizeTableRows(table);
+    const visible = rows.flatMap((row, rowIndex) => row.flatMap((cell, colIndex) => cell.hidden ? [] : [{ col: colIndex, row: rowIndex }]));
+    const index = visible.findIndex((cell) => cell.row === selectedTableCell.row && cell.col === selectedTableCell.col);
+    if (direction === 1 && index === visible.length - 1) {
+      updateFloatingTableRows(
+        (currentRows) => insertTableRow(currentRows, { row: currentRows.length - 1, col: 0 }, 1),
+        "insert-row"
+      );
+      return;
+    }
+    const next = visible[clampNumber(index + direction, 0, Math.max(0, visible.length - 1))];
+    if (next) {
+      setActiveTableCellEditor(null);
+      setSelectedTableCell(next);
+      setEditingTableCell({ ...next, blockId: table.id });
+    }
+  }
+
+  function runTableCommand(label: string, floatingCommand?: () => unknown) {
     if (selectedBlock?.type === "table" && !canMutateBlock(selectedBlock)) {
       showStatus(selectedBlock.locked ? "Unlock this object before changing it." : "This template is read-only.");
       return;
@@ -2220,11 +2238,7 @@ export function WordTemplateDesigner({
     if (floatingCommand?.()) {
       return;
     }
-    if (!editor?.isActive("table")) {
-      showStatus(`${label} needs the cursor inside a table or a selected floating table.`);
-      return;
-    }
-    preserveDesignerScroll(inlineCommand);
+    showStatus(`${label} needs a selected floating table.`);
   }
 
   function selectDocumentType(value: string) {
@@ -2238,7 +2252,11 @@ export function WordTemplateDesigner({
 
   function startBlockDrag(event: PointerEvent<HTMLElement>, block: TemplateBlock, options: { force?: boolean } = {}) {
     setSelectedBlockId(block.id);
-    setActiveRibbonTab("inspector");
+    setActiveRibbonTab(block.type === "table" ? "table" : "inspector");
+    if (block.type === "table" && options.force) {
+      setEditingTableCell(null);
+      setActiveTableCellEditor(null);
+    }
     if (canEdit && !block.locked && event.button === 0 && canEditFloatingTextDirectly(block) && !options.force) {
       setActiveTextEditBlockId(block.id);
       return;
@@ -2309,7 +2327,11 @@ export function WordTemplateDesigner({
 
   function startBlockResize(event: PointerEvent<HTMLSpanElement>, block: TemplateBlock, handle: ResizeHandle) {
     setSelectedBlockId(block.id);
-    setActiveRibbonTab("inspector");
+    setActiveRibbonTab(block.type === "table" ? "table" : "inspector");
+    if (block.type === "table") {
+      setEditingTableCell(null);
+      setActiveTableCellEditor(null);
+    }
     if (!canEdit || block.locked || event.button !== 0) {
       return;
     }
@@ -2413,7 +2435,9 @@ export function WordTemplateDesigner({
     setDragState(null);
     setResizeState(null);
     setSelectedBlockId(block.id);
-    setActiveRibbonTab("inspector");
+    setActiveRibbonTab("table");
+    setEditingTableCell(null);
+    setActiveTableCellEditor(null);
     setTableTrackResizeState({
       axis,
       blockId: block.id,
@@ -2429,60 +2453,24 @@ export function WordTemplateDesigner({
     });
   }
 
-  function startInlineTableTrackResize(event: PointerEvent<HTMLSpanElement>, axis: TableTrackAxis, boundaryIndex: number) {
-    if (!canEdit || !editor || !inlineTableMetrics) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    setPointerCaptureSafe(event.currentTarget, event.pointerId);
-    setDragState(null);
-    setResizeState(null);
-    setTableTrackResizeState({
-      axis,
-      boundaryIndex,
-      pointerId: event.pointerId,
-      source: "inline",
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startColumnWidths: inlineTableMetrics.columnWidthsPx,
-      startDocument: editor.getJSON() as TipTapNode,
-      startRowHeights: inlineTableMetrics.rowHeightsPx,
-      tableHeightPx: Math.max(1, inlineTableMetrics.rowHeightsPx.reduce((sum, height) => sum + height, 0)),
-      tableIndex: inlineTableMetrics.tableIndex,
-      tableWidthPx: Math.max(1, inlineTableMetrics.columnWidthsPx.reduce((sum, width) => sum + width, 0))
-    });
-  }
-
   function moveTableTrackResizeFromPoint(clientX: number, clientY: number) {
     const state = tableTrackResizeState;
     if (!state) {
       return;
     }
     const delta = state.axis === "column" ? clientX - state.startClientX : clientY - state.startClientY;
-    if (state.source === "floating") {
-      const block = blocks.find((item) => item.id === state.blockId);
-      if (!block) {
-        return;
-      }
-      if (state.axis === "column") {
-        updateBlock(block.id, {
-          columnWidths: resizeVisualPercentTracks(state.startColumnWidths, state.startColumnWidths.length, state.boundaryIndex, delta, state.tableWidthPx, tableDirectionValue(layout.page.direction), minFloatingTableTrackPx)
-        });
-      } else {
-        updateBlock(block.id, {
-          rowHeights: resizeVisualPercentTracks(state.startRowHeights, state.startRowHeights.length, state.boundaryIndex, delta, state.tableHeightPx, "ltr", minFloatingTableTrackPx)
-        });
-      }
+    const block = blocks.find((item) => item.id === state.blockId);
+    if (!block) {
       return;
     }
-
     if (state.axis === "column") {
-      const widths = resizeVisualPixelTracks(state.startColumnWidths, state.startColumnWidths.length, state.boundaryIndex, delta, tableDirectionValue(layout.page.direction), minInlineTableColumnPx);
-      updateInlineTableDocument(state.tableIndex, (table) => withInlineTableColumnWidths(table, widths), state.startDocument);
+      updateBlock(block.id, {
+        columnWidths: resizeVisualPercentTracks(state.startColumnWidths, state.startColumnWidths.length, state.boundaryIndex, delta, state.tableWidthPx, tableDirectionValue(layout.page.direction), minFloatingTableTrackPx)
+      });
     } else {
-      const heights = resizeVisualPixelTracks(state.startRowHeights, state.startRowHeights.length, state.boundaryIndex, delta, "ltr", minInlineTableRowPx);
-      updateInlineTableDocument(state.tableIndex, (table) => withInlineTableRowHeights(table, heights), state.startDocument);
+      updateBlock(block.id, {
+        rowHeights: resizeVisualPercentTracks(state.startRowHeights, state.startRowHeights.length, state.boundaryIndex, delta, state.tableHeightPx, "ltr", minFloatingTableTrackPx)
+      });
     }
   }
 
@@ -2576,13 +2564,21 @@ export function WordTemplateDesigner({
 
   const disabled = busy || !canEdit || !editor;
   const selectedBlockMutationDisabled = disabled || Boolean(selectedBlock?.locked);
-  const typographyControlDisabled = selectedBlockMutationDisabled || Boolean(selectedBlock && ["box", "image", "line", "logo", "qr", "table"].includes(selectedBlock.type));
+  const tableCommandDisabled = disabled || selectedBlock?.type !== "table" || Boolean(selectedBlock.locked);
+  const tableTextDisabled = tableCommandDisabled || !activeTableCellEditor;
+  const typographyControlDisabled = selectedBlockMutationDisabled || Boolean(selectedBlock && ["box", "image", "line", "logo", "qr"].includes(selectedBlock.type)) || Boolean(selectedBlock?.type === "table" && !activeTableCellEditor);
   const inlineImageAttrs = selectedInlineImageAttrs();
   const selectedStyle = selectedBlock ? blockStyleValue(selectedBlock) : null;
-  const activeBold = selectedBlock ? selectedStyle?.fontWeight === "700" : Boolean(editor?.isActive("bold"));
-  const activeItalic = selectedBlock ? selectedStyle?.fontStyle === "italic" : Boolean(editor?.isActive("italic"));
-  const activeUnderline = selectedBlock ? selectedStyle?.textDecoration === "underline" : Boolean(editor?.isActive("underline"));
-  const activeAlign = selectedBlock
+  const activeBold = activeTableCellEditor ? activeTableCellEditor.isActive("bold") : selectedBlock ? selectedStyle?.fontWeight === "700" : Boolean(editor?.isActive("bold"));
+  const activeItalic = activeTableCellEditor ? activeTableCellEditor.isActive("italic") : selectedBlock ? selectedStyle?.fontStyle === "italic" : Boolean(editor?.isActive("italic"));
+  const activeUnderline = activeTableCellEditor ? activeTableCellEditor.isActive("underline") : selectedBlock ? selectedStyle?.textDecoration === "underline" : Boolean(editor?.isActive("underline"));
+  const activeAlign = activeTableCellEditor
+    ? activeTableCellEditor.isActive({ textAlign: "center" }) ? "center"
+      : activeTableCellEditor.isActive({ textAlign: "left" }) ? "left"
+        : activeTableCellEditor.isActive({ textAlign: "right" }) ? "right"
+          : activeTableCellEditor.isActive({ textAlign: "justify" }) ? "justify"
+            : "start"
+    : selectedBlock
     ? selectedStyle?.textAlign || "start"
     : editor?.isActive({ textAlign: "center" }) ? "center"
       : editor?.isActive({ textAlign: "left" }) ? "left"
@@ -2653,11 +2649,22 @@ export function WordTemplateDesigner({
       return (
         <FloatingTablePreview
           block={block}
+          canEdit={canEdit && !block.locked}
+          editingCell={editingTableCell?.blockId === block.id ? editingTableCell : undefined}
+          onCellChange={updateFloatingTableCellRichContent}
+          onCellEditorReady={setActiveTableCellEditor}
+          onExitCell={() => {
+            setActiveTableCellEditor(null);
+            setEditingTableCell(null);
+            focusPageWithoutScroll();
+          }}
           onMoveTrackResize={moveTableTrackResize}
+          onNavigateCell={navigateFloatingTableCell}
           onSelectCell={(cell) => {
             setSelectedBlockId(block.id);
-            setActiveRibbonTab("inspector");
+            setActiveRibbonTab("table");
             setSelectedTableCell(cell);
+            setEditingTableCell({ ...cell, blockId: block.id });
           }}
           onStartTrackResize={(event, axis, boundaryIndex) => startFloatingTableTrackResize(event, block, axis, boundaryIndex)}
           onStopTrackResize={stopTableTrackResize}
@@ -2690,66 +2697,6 @@ export function WordTemplateDesigner({
     return block.content || block.type.replaceAll("_", " ");
   }
 
-  function renderInlineTableOverlay() {
-    if (!inlineTableMetrics || selectedBlockId) {
-      return null;
-    }
-    return (
-      <>
-        {inlineTableMetrics.selectedCellRect ? (
-          <span
-            className="pointer-events-none absolute z-30 rounded-sm bg-blue-500/10 ring-2 ring-blue-500"
-            style={{
-              height: `${inlineTableMetrics.selectedCellRect.heightMm}mm`,
-              left: `${inlineTableMetrics.selectedCellRect.xMm}mm`,
-              top: `${inlineTableMetrics.selectedCellRect.yMm}mm`,
-              width: `${inlineTableMetrics.selectedCellRect.widthMm}mm`
-            }}
-          />
-        ) : null}
-        <div
-          className="pointer-events-none absolute z-30 rounded-sm ring-2 ring-blue-500/80"
-          style={{
-            height: `${inlineTableMetrics.heightMm}mm`,
-            left: `${inlineTableMetrics.xMm}mm`,
-            top: `${inlineTableMetrics.yMm}mm`,
-            width: `${inlineTableMetrics.widthMm}mm`
-          }}
-        >
-          {inlineTableMetrics.columnStopsMm.map((stop, index) => (
-            <span
-              className="pointer-events-auto absolute top-0 h-full w-2 -translate-x-1/2 cursor-col-resize bg-blue-500/10 transition hover:bg-blue-500/30"
-              data-table-track-handle="inline-column"
-              key={`inline-col-${index}`}
-              onPointerCancel={stopTableTrackResize}
-              onPointerDown={(event) => startInlineTableTrackResize(event, "column", index)}
-              onPointerMove={moveTableTrackResize}
-              onPointerUp={stopTableTrackResize}
-              style={{ left: `${stop}mm` }}
-            />
-          ))}
-          {inlineTableMetrics.rowStopsMm.map((stop, index) => (
-            <span
-              className="pointer-events-auto absolute left-0 h-2 w-full -translate-y-1/2 cursor-row-resize bg-blue-500/10 transition hover:bg-blue-500/30"
-              data-table-track-handle="inline-row"
-              key={`inline-row-${index}`}
-              onPointerCancel={stopTableTrackResize}
-              onPointerDown={(event) => startInlineTableTrackResize(event, "row", index)}
-              onPointerMove={moveTableTrackResize}
-              onPointerUp={stopTableTrackResize}
-              style={{ top: `${stop}mm` }}
-            />
-          ))}
-          {inlineTableSelection?.cell ? (
-            <span className="absolute left-1 top-1 rounded bg-blue-600 px-1.5 py-0.5 text-[8px] font-black uppercase text-white shadow-sm">
-              R{inlineTableSelection.cell.row + 1} C{inlineTableSelection.cell.col + 1}
-            </span>
-          ) : null}
-        </div>
-      </>
-    );
-  }
-
   function placementPreviewBlock(): TemplateBlock | null {
     if (!textPlacementMode || !placementPointer) {
       return null;
@@ -2767,7 +2714,7 @@ export function WordTemplateDesigner({
   }
 
   function activeSmartGuideBlock() {
-    return activeGuideBlock || placementPreviewBlock();
+    return activeGuideBlock || tablePlacementBlock() || placementPreviewBlock();
   }
 
   function pushGuideLine(lines: SmartGuideLine[], line: SmartGuideLine) {
@@ -3151,7 +3098,9 @@ export function WordTemplateDesigner({
               <>
                 <RibbonGroup label="Media">
                   <RibbonButton disabled={disabled} icon={<ImageIcon className="h-8 w-6" />} label="Insert image" onClick={() => imageInputRef.current?.click()}>Image</RibbonButton>
-                  <RibbonButton disabled={disabled} icon={<TableIcon className="h-8 w-6" />} label="Insert table" onClick={insertTableWithPlacement}>Table</RibbonButton>
+                  <div ref={tablePickerAnchorRef}>
+                    <RibbonButton active={tablePickerOpen || Boolean(tablePlacement)} disabled={disabled} icon={<TableIcon className="h-8 w-6" />} label="Insert table" onClick={openTablePicker}>Table</RibbonButton>
+                  </div>
                   <RibbonButton disabled={disabled} icon={<Type className="h-8 w-6" />} label="Floating text" onClick={insertFloatingText}>Text</RibbonButton>
                   <RibbonButton active={textPlacementMode} disabled={disabled} icon={<MousePointer2 className="h-8 w-6" />} label="Place text on paper" onClick={toggleTextPlacementMode}>Place</RibbonButton>
                 </RibbonGroup>
@@ -3230,47 +3179,62 @@ export function WordTemplateDesigner({
             {activeRibbonTab === "table" ? (
               <>
                 <RibbonGroup label="Rows & Columns">
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Rows3 className="h-8 w-6" />} label="Row above" onClick={() => runTableCommand("Row above", () => focusEditorChain()?.addRowBefore().run(), () => updateFloatingTableRows((rows) => insertTableRow(rows, selectedTableCell, 0).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Rows3 className="h-8 w-6 rotate-180" />} label="Row below" onClick={() => runTableCommand("Row below", () => focusEditorChain()?.addRowAfter().run(), () => updateFloatingTableRows((rows) => insertTableRow(rows, selectedTableCell, 1).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Columns3 className="h-8 w-6" />} label="Column before" onClick={() => runTableCommand("Column before", () => focusEditorChain()?.addColumnBefore().run(), () => updateFloatingTableRows((rows) => insertTableColumn(rows, selectedTableCell, 0).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Columns3 className="h-8 w-6 rotate-180" />} label="Column after" onClick={() => runTableCommand("Column after", () => focusEditorChain()?.addColumnAfter().run(), () => updateFloatingTableRows((rows) => insertTableColumn(rows, selectedTableCell, 1).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Trash2 className="h-8 w-6" />} label="Delete row" onClick={() => runTableCommand("Delete row", () => focusEditorChain()?.deleteRow().run(), () => updateFloatingTableRows((rows) => deleteTableRow(rows, selectedTableCell).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Trash2 className="h-8 w-6 rotate-90" />} label="Delete column" onClick={() => runTableCommand("Delete column", () => focusEditorChain()?.deleteColumn().run(), () => updateFloatingTableRows((rows) => deleteTableColumn(rows, selectedTableCell).rows))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Rows3 className="h-8 w-6" />} label="Row above" onClick={() => runTableCommand("Row above", () => updateFloatingTableRows((rows) => insertTableRow(rows, selectedTableCell, 0), "insert-row"))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Rows3 className="h-8 w-6 rotate-180" />} label="Row below" onClick={() => runTableCommand("Row below", () => updateFloatingTableRows((rows) => insertTableRow(rows, selectedTableCell, 1), "insert-row"))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Columns3 className="h-8 w-6" />} label="Column before" onClick={() => runTableCommand("Column before", () => updateFloatingTableRows((rows) => insertTableColumn(rows, selectedTableCell, 0), "insert-column"))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Columns3 className="h-8 w-6 rotate-180" />} label="Column after" onClick={() => runTableCommand("Column after", () => updateFloatingTableRows((rows) => insertTableColumn(rows, selectedTableCell, 1), "insert-column"))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Trash2 className="h-8 w-6" />} label="Delete row" onClick={() => runTableCommand("Delete row", () => updateFloatingTableRows((rows) => deleteTableRow(rows, selectedTableCell), "delete-row"))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Trash2 className="h-8 w-6 rotate-90" />} label="Delete column" onClick={() => runTableCommand("Delete column", () => updateFloatingTableRows((rows) => deleteTableColumn(rows, selectedTableCell), "delete-column"))} />
+                </RibbonGroup>
+                <RibbonGroup label="Cell Text">
+                  <SelectControl disabled={tableTextDisabled} icon={<Baseline className="h-8 w-6" />} label="Font" onChange={applyFontFamily} value={fontFamily} widthClassName="w-48">
+                    {fontFamilyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </SelectControl>
+                  <SelectControl disabled={tableTextDisabled} icon={<Type className="h-8 w-6" />} label="Font size" onChange={applyFontSize} value={fontSize} widthClassName="w-24">
+                    {fontSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+                  </SelectControl>
+                  <RibbonButton active={activeBold} disabled={tableTextDisabled} icon={<Bold className="h-8 w-6" />} label="Bold" onClick={toggleBold} />
+                  <RibbonButton active={activeItalic} disabled={tableTextDisabled} icon={<Italic className="h-8 w-6" />} label="Italic" onClick={toggleItalic} />
+                  <RibbonButton active={activeUnderline} disabled={tableTextDisabled} icon={<Underline className="h-8 w-6" />} label="Underline" onClick={toggleUnderline} />
+                  <ColorControl disabled={tableTextDisabled} icon={<Baseline className="h-8 w-6" />} label="Text color" onChange={applyColor} value={textColor} />
+                  <ColorControl disabled={tableTextDisabled} icon={<Highlighter className="h-8 w-6" />} label="Highlight" onChange={applyHighlight} value={highlightColor} />
+                  <RibbonButton active={activeAlign === "left"} disabled={tableTextDisabled} icon={<AlignLeft className="h-8 w-6" />} label="Align left" onClick={() => applyAlignment("left")} />
+                  <RibbonButton active={activeAlign === "center"} disabled={tableTextDisabled} icon={<AlignCenter className="h-8 w-6" />} label="Align center" onClick={() => applyAlignment("center")} />
+                  <RibbonButton active={activeAlign === "right" || activeAlign === "start"} disabled={tableTextDisabled} icon={<AlignRight className="h-8 w-6" />} label="Align right" onClick={() => applyAlignment("right")} />
+                  <RibbonButton active={activeAlign === "justify"} disabled={tableTextDisabled} icon={<AlignJustify className="h-8 w-6" />} label="Justify" onClick={() => applyAlignment("justify")} />
+                  <RibbonButton active={activeTableCellEditor?.isActive("bulletList")} disabled={tableTextDisabled} icon={<List className="h-8 w-6" />} label="Bullet list" onClick={() => activeTableCellEditor?.chain().focus().toggleBulletList().run()} />
+                  <RibbonButton active={activeTableCellEditor?.isActive("orderedList")} disabled={tableTextDisabled} icon={<ListOrdered className="h-8 w-6" />} label="Numbered list" onClick={() => activeTableCellEditor?.chain().focus().toggleOrderedList().run()} />
                 </RibbonGroup>
                 <RibbonGroup label="Cell">
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Merge className="h-8 w-6" />} label="Merge cells" onClick={() => runTableCommand("Merge cells", () => focusEditorChain()?.mergeCells().run(), () => updateFloatingTableRows((rows) => mergeTableCellRight(rows, selectedTableCell).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Split className="h-8 w-6" />} label="Split cell" onClick={() => runTableCommand("Split cell", () => focusEditorChain()?.splitCell().run(), () => updateFloatingTableRows((rows) => splitTableCell(rows, selectedTableCell).rows))} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Grid3X3 className="h-8 w-6" />} label="Header row" onClick={() => runTableCommand("Header row", () => focusEditorChain()?.toggleHeaderRow().run(), () => {
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Merge className="h-8 w-6" />} label="Merge with next cell" onClick={() => runTableCommand("Merge cells", () => updateFloatingTableRows((rows) => mergeTableCellRight(rows, selectedTableCell)))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Split className="h-8 w-6" />} label="Split cell" onClick={() => runTableCommand("Split cell", () => updateFloatingTableRows((rows) => splitTableCell(rows, selectedTableCell)))} />
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Grid3X3 className="h-8 w-6" />} label="Header row" onClick={() => runTableCommand("Header row", () => {
                     const table = selectedFloatingTable();
                     if (!table) return false;
                     updateBlock(table.id, { headerRow: !table.headerRow });
                     return true;
                   })} />
-                  <ColorControl disabled={selectedBlockMutationDisabled} icon={<PaintBucket className="h-8 w-6" />} label="Cell fill" onChange={(value) => {
+                  <ColorControl disabled={tableCommandDisabled} icon={<PaintBucket className="h-8 w-6" />} label="Cell fill" onChange={(value) => {
                     setCellFillColor(value);
-                    runTableCommand("Cell fill", () => focusEditorChain()?.setCellAttribute("backgroundColor", value).run(), () => {
+                    runTableCommand("Cell fill", () => {
                       const table = selectedFloatingTable();
                       if (!table) return false;
-                      updateFloatingTableRows((rows) => updateTableCell(rows, selectedTableCell, { style: { ...(rows[selectedTableCell.row]?.[selectedTableCell.col]?.style || {}), backgroundColor: value } }).rows);
+                      updateFloatingTableRows((rows) => updateTableCell(rows, selectedTableCell, { style: { ...(rows[selectedTableCell.row]?.[selectedTableCell.col]?.style || {}), backgroundColor: value } }));
                       return true;
                     });
                   }} value={cellFillColor} />
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Grid3X3 className="h-8 w-6" />} label="Equal widths" onClick={() => {
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Grid3X3 className="h-8 w-6" />} label="Equal widths and heights" onClick={() => {
                     const table = selectedFloatingTable();
                     if (table) {
                       const rows = normalizeTableRows(table);
                       updateBlock(table.id, { columnWidths: equalTableTrackSizes(rows[0]?.length || 1), rowHeights: equalTableTrackSizes(rows.length) });
-                      return;
                     }
-                    equalizeColumns();
                   }}>Equal</RibbonButton>
-                  <RibbonButton disabled={selectedBlockMutationDisabled} icon={<Trash2 className="h-8 w-6" />} label="Delete table" onClick={() => {
+                  <RibbonButton disabled={tableCommandDisabled} icon={<Trash2 className="h-8 w-6" />} label="Delete table" onClick={() => {
                     const table = selectedFloatingTable();
                     if (table) {
                       deleteSelectedBlock();
-                      return;
                     }
-                    runTableCommand("Delete table", () => focusEditorChain()?.deleteTable().run());
                   }}>Table</RibbonButton>
                 </RibbonGroup>
               </>
@@ -3292,9 +3256,10 @@ export function WordTemplateDesigner({
       <input accept={allowedImageTypes.join(",")} className="hidden" onChange={handleImageInput} ref={imageInputRef} type="file" />
       <input accept={allowedImageTypes.join(",")} className="hidden" onChange={handleReplaceImageInput} ref={replaceImageInputRef} type="file" />
 
-      {(error || imageError || edgeWarning || statusMessage || !canEdit) ? (
+      {(error || notice || imageError || edgeWarning || statusMessage || !canEdit) ? (
         <div className="mx-auto mt-3 max-w-5xl px-4">
           {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+          {notice ? <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{notice}</div> : null}
           {imageError ? <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{imageError}</div> : null}
           {edgeWarning ? (
             <div className={cx(
@@ -3315,7 +3280,7 @@ export function WordTemplateDesigner({
             <div
               className={cx(
                 "template-designer-page relative min-h-[297mm] w-[210mm] origin-top overflow-hidden bg-white px-[18mm] py-[18mm] text-right text-[11pt] leading-7 text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.20)] ring-1 ring-slate-200",
-                textPlacementMode && "cursor-crosshair"
+                (textPlacementMode || tablePlacement) && "cursor-crosshair"
               )}
               dir={layout.page.direction}
               onKeyDown={handleDesignerKeyDown}
@@ -3328,7 +3293,7 @@ export function WordTemplateDesigner({
               style={pageStyle}
               tabIndex={0}
             >
-              <div className="relative z-10" onClick={handleInlineEditorClick}>
+              <div className="relative z-10">
                 <EditorContent editor={editor} onFocus={() => setSelectedBlockId(null)} />
               </div>
               {textPlacementMode ? (
@@ -3338,7 +3303,21 @@ export function WordTemplateDesigner({
                   onPointerMove={(event) => updatePlacementPointer(event.clientX, event.clientY)}
                 />
               ) : null}
-              {!textPlacementMode ? renderInlineTableOverlay() : null}
+              {tablePlacement ? (
+                <div
+                  className="absolute inset-0 z-[35] cursor-crosshair bg-blue-500/[0.02]"
+                  onPointerDown={placeTableAtPoint}
+                  onPointerMove={(event) => updateTablePlacementPointer(event.clientX, event.clientY)}
+                />
+              ) : null}
+              {tablePlacementBlock() ? (
+                <div
+                  className="pointer-events-none absolute z-[34] overflow-hidden bg-white/80 opacity-75 shadow-lg ring-2 ring-blue-600"
+                  style={floatingBlockStyle(tablePlacementBlock()!, layout.page.direction)}
+                >
+                  <FloatingTablePreview block={tablePlacementBlock()!} pageDirection={layout.page.direction} />
+                </div>
+              ) : null}
               <div className="pointer-events-none absolute inset-0 z-20">
                 {blocks.filter((block) => !block.hidden).map((block) => {
                   const selected = selectedBlockId === block.id;
@@ -3358,7 +3337,11 @@ export function WordTemplateDesigner({
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedBlockId(block.id);
-                        setActiveRibbonTab("inspector");
+                        setActiveRibbonTab(block.type === "table" ? "table" : "inspector");
+                        if (block.type === "table") {
+                          setEditingTableCell(null);
+                          setActiveTableCellEditor(null);
+                        }
                         if (canEditFloatingTextDirectly(block) && canEdit && !block.locked) {
                           setActiveTextEditBlockId(block.id);
                         } else {
@@ -3448,6 +3431,69 @@ export function WordTemplateDesigner({
         </main>
 
       </div>
+
+      {tablePickerOpen ? (
+        <div className="fixed inset-0 z-50" onPointerDown={() => setTablePickerOpen(false)}>
+          <div
+            aria-label="Insert table"
+            aria-modal="true"
+            className="fixed rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+            onKeyDown={handleTablePickerKeyDown}
+            onPointerDown={(event) => event.stopPropagation()}
+            role="dialog"
+            style={tablePickerPosition()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-slate-950">Insert floating table</p>
+                <p className="mt-0.5 text-xs font-semibold text-slate-500">{tablePickerSize.columns} columns × {tablePickerSize.rows} rows</p>
+              </div>
+              <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700">
+                <input
+                  checked={tablePickerSize.headerRow}
+                  className="h-4 w-4 rounded border-slate-300 text-[#061d49]"
+                  onChange={(event) => setTablePickerSize((current) => ({ ...current, headerRow: event.target.checked }))}
+                  type="checkbox"
+                />
+                Header row
+              </label>
+            </div>
+            <div
+              aria-label="Choose table dimensions"
+              className="mt-3 grid grid-cols-10 gap-1"
+              role="grid"
+            >
+              {Array.from({ length: tablePickerRows }, (_rowItem, rowIndex) => (
+                Array.from({ length: tablePickerColumns }, (_columnItem, columnIndex) => {
+                  const columns = columnIndex + 1;
+                  const rows = rowIndex + 1;
+                  const highlighted = columns <= tablePickerSize.columns && rows <= tablePickerSize.rows;
+                  const current = columns === tablePickerSize.columns && rows === tablePickerSize.rows;
+                  return (
+                    <button
+                      aria-label={`${columns} columns by ${rows} rows`}
+                      aria-selected={current}
+                      className={cx(
+                        "h-6 w-6 rounded-sm border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                        highlighted ? "border-blue-600 bg-blue-100" : "border-slate-300 bg-white hover:border-blue-400 hover:bg-blue-50"
+                      )}
+                      data-table-picker-cell={`${columns}-${rows}`}
+                      key={`${columns}-${rows}`}
+                      onClick={() => beginTablePlacement({ columns, headerRow: tablePickerSize.headerRow, rows })}
+                      onFocus={() => setTablePickerSize((currentSize) => ({ ...currentSize, columns, rows }))}
+                      onMouseEnter={() => setTablePickerSize((currentSize) => ({ ...currentSize, columns, rows }))}
+                      role="gridcell"
+                      tabIndex={current ? 0 : -1}
+                      type="button"
+                    />
+                  );
+                })
+              ))}
+            </div>
+            <p className="mt-3 text-xs font-semibold text-slate-500">Use arrow keys and Enter, or point and click. You will place the table on the page next.</p>
+          </div>
+        </div>
+      ) : null}
 
       {placementDialog ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 px-4">

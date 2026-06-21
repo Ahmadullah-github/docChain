@@ -1,9 +1,10 @@
-import type { TemplateBlock, TemplateBlockStyle, TemplateTableCell } from "../../api";
+import type { TemplateBlock, TemplateBlockStyle, TemplateTableCell, TipTapNode } from "../../api";
 
 export type NormalizedTableCell = {
   colSpan: number;
   content: string;
   hidden: boolean;
+  richContent?: TipTapNode;
   rowSpan: number;
   style?: TemplateBlockStyle;
 };
@@ -29,6 +30,11 @@ export type TableFrame = {
 
 export type TableDirection = "ltr" | "rtl";
 
+export type TableInsertFrame = TableFrame & {
+  columns: number;
+  rows: number;
+};
+
 const maxTableColumns = 12;
 const maxTableRows = 24;
 const minTrackPercent = 4;
@@ -38,16 +44,61 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+export function tableInsertFrameAtPoint(input: {
+  columns: number;
+  pageHeightMm: number;
+  pageWidthMm: number;
+  rows: number;
+  x: number;
+  y: number;
+}): TableInsertFrame {
+  const columns = clampNumber(Math.round(input.columns) || 1, 1, maxTableColumns);
+  const rows = clampNumber(Math.round(input.rows) || 1, 1, maxTableRows);
+  const width = clampNumber(columns * 30, 60, input.pageWidthMm);
+  const height = clampNumber(rows * 10, 20, input.pageHeightMm);
+  return {
+    columns,
+    height,
+    rows,
+    width,
+    x: clampNumber(input.x, 0, Math.max(0, input.pageWidthMm - width)),
+    y: clampNumber(input.y, 0, Math.max(0, input.pageHeightMm - height))
+  };
+}
+
 function cloneStyle(style: TemplateBlockStyle | undefined) {
   return style ? { ...style } : undefined;
+}
+
+function cloneRichContent(content: TipTapNode | undefined) {
+  return content ? structuredClone(content) : undefined;
 }
 
 function hasStyle(style: TemplateBlockStyle | undefined) {
   return Boolean(style && Object.keys(style).length);
 }
 
-export function tableCell(content = "", style?: TemplateBlockStyle): NormalizedTableCell {
-  return { colSpan: 1, content, hidden: false, rowSpan: 1, style: cloneStyle(style) };
+export function tableCell(content = "", style?: TemplateBlockStyle, richContent?: TipTapNode): NormalizedTableCell {
+  return { colSpan: 1, content, hidden: false, richContent: cloneRichContent(richContent), rowSpan: 1, style: cloneStyle(style) };
+}
+
+export function plainTextToTableCellDocument(value = ""): TipTapNode {
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  const content = lines.flatMap((line, index) => {
+    const nodes: TipTapNode[] = [];
+    if (index) {
+      nodes.push({ type: "hardBreak" });
+    }
+    if (line) {
+      nodes.push({ type: "text", text: line });
+    }
+    return nodes;
+  });
+  return { type: "doc", content: [{ type: "paragraph", ...(content.length ? { content } : {}) }] };
+}
+
+export function tableCellDocument(cell: Pick<NormalizedTableCell, "content" | "richContent">): TipTapNode {
+  return cloneRichContent(cell.richContent) || plainTextToTableCellDocument(cell.content);
 }
 
 function normalizeTableCell(cell: TemplateTableCell | undefined): NormalizedTableCell {
@@ -60,6 +111,7 @@ function normalizeTableCell(cell: TemplateTableCell | undefined): NormalizedTabl
       colSpan: clampNumber(Math.round(Number(cell.colSpan) || 1), 1, maxTableColumns),
       content: cell.content || "",
       hidden: Boolean(cell.hidden),
+      richContent: cell.richContent?.type ? cloneRichContent(cell.richContent) : undefined,
       rowSpan: clampNumber(Math.round(Number(cell.rowSpan) || 1), 1, maxTableRows),
       style: cloneStyle(cell.style)
     };
@@ -69,7 +121,7 @@ function normalizeTableCell(cell: TemplateTableCell | undefined): NormalizedTabl
 }
 
 export function cloneTableRows(rows: NormalizedTableCell[][]) {
-  return rows.map((row) => row.map((cell) => ({ ...cell, style: cloneStyle(cell.style) })));
+  return rows.map((row) => row.map((cell) => ({ ...cell, richContent: cloneRichContent(cell.richContent), style: cloneStyle(cell.style) })));
 }
 
 function rawRowsFrom(value: Pick<TemplateBlock, "rows"> | TemplateTableCell[][] | undefined) {
@@ -135,6 +187,7 @@ export function serializeTableRows(rows: NormalizedTableCell[][]): TemplateTable
       colSpan: cell.colSpan,
       content: cell.content,
       hidden: cell.hidden,
+      ...(cell.richContent ? { richContent: cloneRichContent(cell.richContent) } : {}),
       rowSpan: cell.rowSpan
     };
     if (hasStyle(cell.style)) {
@@ -325,6 +378,9 @@ export function updateTableCell(rows: NormalizedTableCell[][], selection: CellCo
   normalized[safeSelection.row][safeSelection.col] = {
     ...normalized[safeSelection.row][safeSelection.col],
     ...next,
+    richContent: next.richContent ? cloneRichContent(next.richContent) : next.richContent === undefined
+      ? normalized[safeSelection.row][safeSelection.col].richContent
+      : undefined,
     style: next.style ? cloneStyle(next.style) : normalized[safeSelection.row][safeSelection.col].style
   };
   return { rows: normalizeTableRows(normalized), selection: safeSelection };
@@ -428,7 +484,7 @@ function mergeTableCell(rows: NormalizedTableCell[][], selection: CellCoordinate
       if (row === safeSelection.row && col === safeSelection.col) {
         continue;
       }
-      normalized[row][col] = { ...normalized[row][col], colSpan: 1, content: "", hidden: true, rowSpan: 1 };
+      normalized[row][col] = { ...normalized[row][col], colSpan: 1, content: "", hidden: true, richContent: undefined, rowSpan: 1 };
     }
   }
 

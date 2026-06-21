@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type { JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -247,7 +246,6 @@ export function StructuredDocumentEditor({
     StarterKit.configure({
       heading: { levels: [1, 2, 3] }
     }),
-    Underline,
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     Table.configure({ resizable: true }),
     TableRow,

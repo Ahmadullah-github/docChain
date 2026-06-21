@@ -13,6 +13,7 @@ import {
   defaultWordTemplateLayout,
   documentTypeIdFromWordLayout,
   isWordTemplateLayout,
+  stripInlineTablesFromWordLayout,
   withWordTemplateDocumentType
 } from "./templates/wordTemplateModel";
 
@@ -121,6 +122,7 @@ export function AdminTemplateBuilderPage() {
   const [layout, setLayout] = useState<TemplateLayout>(() => defaultWordTemplateLayout(null));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [designerNotice, setDesignerNotice] = useState<string | null>(null);
 
   const selectedDocumentType = useMemo(
     () => selectedDocumentTypeId ? documentTypes.find((documentType) => documentType.id === selectedDocumentTypeId) || null : null,
@@ -166,6 +168,7 @@ export function AdminTemplateBuilderPage() {
           setSelectedDocumentTypeId(nextDocumentType?.id || null);
           setName(defaultTemplateNameForWordDocumentType(nextDocumentType));
           setDescription(nextDocumentType ? `Template for ${nextDocumentType.name} documents.` : "Reusable official document template.");
+          setDesignerNotice(null);
           setLayout(nextLayout);
           return;
         }
@@ -176,10 +179,16 @@ export function AdminTemplateBuilderPage() {
         if (!alive) {
           return;
         }
+        const stripped = isWordTemplateLayout(nextLayout)
+          ? stripInlineTablesFromWordLayout(nextLayout)
+          : { layout: nextLayout, removedTableCount: 0 };
         setDetail(nextDetail);
         setName(nextDetail.template.name);
         setDescription(nextDetail.template.description || "");
-        setLayout(nextLayout);
+        setLayout(stripped.layout);
+        setDesignerNotice(stripped.removedTableCount
+          ? `${stripped.removedTableCount} inline template table${stripped.removedTableCount === 1 ? " was" : "s were"} removed. Floating tables are now the supported template table format.`
+          : null);
         setSelectedDocumentTypeId(nextDocumentTypeId);
       } catch (caught) {
         if (alive) {
@@ -208,7 +217,8 @@ export function AdminTemplateBuilderPage() {
     setBusy(true);
     setError(null);
     try {
-      const layoutDefinition = withWordTemplateDocumentType(layout, selectedDocumentType);
+      const stripped = stripInlineTablesFromWordLayout(layout);
+      const layoutDefinition = withWordTemplateDocumentType(stripped.layout, selectedDocumentType);
       const input = {
         name: name.trim() || defaultTemplateNameForWordDocumentType(selectedDocumentType),
         description: description.trim() || null,
@@ -282,6 +292,7 @@ export function AdminTemplateBuilderPage() {
       detail={detail}
       documentTypes={documentTypes}
       error={error}
+      notice={designerNotice}
       layout={layout}
       name={name}
       onBackToLibrary={() => navigate("/admin/templates/library")}

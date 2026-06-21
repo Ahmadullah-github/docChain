@@ -899,6 +899,8 @@ function renderWordTemplateHtml(layout: TemplateLayout, context: RenderContext) 
     .dc-word-floating-layer table { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
     .dc-word-floating-layer th, .dc-word-floating-layer td { border: 1px solid #cbd5e1; padding: 1.5mm; vertical-align: top; }
     .dc-word-floating-layer th { background: #f8fafc; font-weight: 700; }
+    .dc-word-floating-layer .dc-table-cell-content p { margin: 0; }
+    .dc-word-floating-layer .dc-table-cell-content ul, .dc-word-floating-layer .dc-table-cell-content ol { margin: 0; padding-inline-start: 4mm; }
     .dc-word-floating-layer .dc-endorsements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm; align-content: start; white-space: normal; }
     .dc-word-floating-layer .dc-endorsements[data-columns="1"] { grid-template-columns: 1fr; }
     .dc-word-floating-layer .dc-endorsement-card { border: 1px solid #cbd5e1; padding: 1.4mm; font-size: 7pt; line-height: 1.28; text-align: start; break-inside: avoid; background: rgba(255,255,255,.92); }
@@ -1077,13 +1079,14 @@ type RenderTableCell = {
   colSpan: number;
   content: string;
   hidden: boolean;
+  richContent: TipTapNode | null;
   rowSpan: number;
   style: Record<string, unknown>;
 };
 
 function tableCellValue(cell: unknown): RenderTableCell {
   if (typeof cell === "string" || typeof cell === "number") {
-    return { content: String(cell), colSpan: 1, rowSpan: 1, hidden: false, style: {} };
+    return { content: String(cell), colSpan: 1, rowSpan: 1, hidden: false, richContent: null, style: {} };
   }
 
   if (typeof cell === "object" && cell) {
@@ -1094,11 +1097,14 @@ function tableCellValue(cell: unknown): RenderTableCell {
       colSpan: Math.max(1, Math.min(12, numberValue(record.colSpan, 1))),
       rowSpan: Math.max(1, Math.min(24, numberValue(record.rowSpan, 1))),
       hidden: boolValue(record.hidden),
+      richContent: typeof record.richContent === "object" && record.richContent && stringValue((record.richContent as Record<string, unknown>).type)
+        ? record.richContent as TipTapNode
+        : null,
       style
     };
   }
 
-  return { content: "", colSpan: 1, rowSpan: 1, hidden: false, style: {} };
+  return { content: "", colSpan: 1, rowSpan: 1, hidden: false, richContent: null, style: {} };
 }
 
 function normalizeTableRows(rows: unknown[]) {
@@ -1210,7 +1216,10 @@ function renderTableBlock(block: Record<string, unknown>, context: RenderContext
       }
       const tag = headerRow && rowIndex === 0 ? "th" : "td";
       const spanAttrs = `${parsed.colSpan > 1 ? ` colspan="${parsed.colSpan}"` : ""}${parsed.rowSpan > 1 ? ` rowspan="${parsed.rowSpan}"` : ""}`;
-      return `<${tag}${spanAttrs} style="${tableCellStyle(style, parsed, tag === "th", pageDirection)}">${escapeHtml(resolveFieldTokens(parsed.content, context))}</${tag}>`;
+      const content = parsed.richContent
+        ? replaceWordTemplateTokens(richTextForDoc(parsed.richContent).html, context)
+        : escapeHtml(resolveFieldTokens(parsed.content, context));
+      return `<${tag}${spanAttrs} style="${tableCellStyle(style, parsed, tag === "th", pageDirection)}"><div class="dc-table-cell-content">${content}</div></${tag}>`;
     }).join("")}</tr>`;
   }).join("");
   return `<div class="dc-block dc-table-block" style="${blockStyle({ ...block, style: { ...style, borderWidth: 0 } }, pageDirection)}"><table>${colgroup}<tbody>${cells}</tbody></table></div>`;
@@ -1393,6 +1402,8 @@ export function renderTemplateHtml(layout: TemplateLayout, context: RenderContex
     .dc-page:not(:last-child) { page-break-after: always; margin-bottom: 8mm; }
     .dc-block { padding: 1.5mm; line-height: 1.65; }
     .dc-table-block { padding: 0; line-height: 1.35; }
+    .dc-table-cell-content p { margin: 0; }
+    .dc-table-cell-content ul, .dc-table-cell-content ol { margin: 0; padding-inline-start: 4mm; }
     .dc-rich-content p { margin: 0 0 2.4mm; }
     .dc-rich-content h1, .dc-rich-content h2, .dc-rich-content h3 { margin: 0 0 2.8mm; font-weight: 700; line-height: 1.35; }
     .dc-rich-content h1 { font-size: 1.35em; }

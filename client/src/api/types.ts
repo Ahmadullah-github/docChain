@@ -920,6 +920,7 @@ export type TemplateTableCell = string | {
   colSpan?: number;
   content?: string;
   hidden?: boolean;
+  richContent?: TipTapNode;
   rowSpan?: number;
   style?: TemplateBlockStyle;
 };
